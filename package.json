@@ -1,0 +1,9 @@
+{
+  "name": "ncse-practice-system",
+  "private": true,
+  "scripts": {
+    "dev:backend": "npm --prefix backend run dev",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "db:ping": "npm --prefix backend run db:ping"
+  }
+}

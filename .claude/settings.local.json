@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run *)",
+      "Bash(curl -s http://localhost:4000/api/health)",
+      "Bash(curl -s -X POST http://localhost:4000/api/auth/login -H \"Content-Type: application/json\" -d '{\"email\":\"test@example.com\",\"password\":\"test123456\"}')",
+      "Bash(node -e \"let d='';process.stdin.on\\('data',c=>d+=c\\);process.stdin.on\\('end',\\(\\)=>{const j=JSON.parse\\(d\\);console.log\\('trend points:',j.trend?.length\\)}\\)\")",
+      "Bash(netstat -ano)",
+      "Bash(export TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOjMsImVtYWlsIjoidGVzdDJAZXhhbXBsZS5jb20iLCJyb2xlIjoidXNlciIsImlhdCI6MTc3OTk4Mzc5MCwiZXhwIjoxNzgwNTg4NTkwfQ.ZCc6z6KMmEb3mWk2Y3xYF9-3TQImT688BdL-K2bmGZY\")",
+      "Bash(curl -s -X POST http://localhost:4000/api/practice/start -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOjMsImVtYWlsIjoidGVzdDJAZXhhbXBsZS5jb20iLCJyb2xlIjoidXNlciIsImlhdCI6MTc3OTk4Mzc5MCwiZXhwIjoxNzgwNTg4NTkwfQ.ZCc6z6KMmEb3mWk2Y3xYF9-3TQImT688BdL-K2bmGZY' -H 'Content-Type: application/json' -d '{\"subject_id\":1,\"questions\":[{\"id\":1},{\"id\":2},{\"id\":3}]}')",
+      "Bash(curl -s -X POST http://localhost:4000/api/practice/save-progress -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOjMsImVtYWlsIjoidGVzdDJAZXhhbXBsZS5jb20iLCJyb2xlIjoidXNlciIsImlhdCI6MTc3OTk4Mzc5MCwiZXhwIjoxNzgwNTg4NTkwfQ.ZCc6z6KMmEb3mWk2Y3xYF9-3TQImT688BdL-K2bmGZY' -H 'Content-Type: application/json' -d '{\"session_id\":1,\"answers\":{\"1\":\"B\",\"2\":\"D\"},\"elapsed_sec\":60}')",
+      "Bash(curl -s -X POST http://localhost:4000/api/practice/submit -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOjMsImVtYWlsIjoidGVzdDJAZXhhbXBsZS5jb20iLCJyb2xlIjoidXNlciIsImlhdCI6MTc3OTk4Mzc5MCwiZXhwIjoxNzgwNTg4NTkwfQ.ZCc6z6KMmEb3mWk2Y3xYF9-3TQImT688BdL-K2bmGZY' -H 'Content-Type: application/json' -d '{\"session_id\":1,\"answers\":{\"1\":\"B\",\"2\":\"D\",\"3\":\"A\"},\"elapsed_sec\":120}')",
+      "Bash(curl -s http://localhost:4000/api/practice/session/1 -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOjMsImVtYWlsIjoidGVzdDJAZXhhbXBsZS5jb20iLCJyb2xlIjoidXNlciIsImlhdCI6MTc3OTk4Mzc5MCwiZXhwIjoxNzgwNTg4NTkwfQ.ZCc6z6KMmEb3mWk2Y3xYF9-3TQImT688BdL-K2bmGZY')",
+      "Bash(export USER_TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOjMsImVtYWlsIjoidGVzdDJAZXhhbXBsZS5jb20iLCJyb2xlIjoidXNlciIsImlhdCI6MTc3OTk4Mzc5MCwiZXhwIjoxNzgwNTg4NTkwfQ.ZCc6z6KMmEb3mWk2Y3xYF9-3TQImT688BdL-K2bmGZY\")",
+      "Bash(curl -s -w '\\\\nHTTP_CODE:%{http_code}' http://localhost:4000/api/admin/stats -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOjMsImVtYWlsIjoidGVzdDJAZXhhbXBsZS5jb20iLCJyb2xlIjoidXNlciIsImlhdCI6MTc3OTk4Mzc5MCwiZXhwIjoxNzgwNTg4NTkwfQ.ZCc6z6KMmEb3mWk2Y3xYF9-3TQImT688BdL-K2bmGZY')",
+      "Bash(curl -s -w \"\\\\nHTTP_CODE:%{http_code}\" http://localhost:4000/api/practice/stats)",
+      "Bash(curl -s -w \"\\\\nHTTP_CODE:%{http_code}\" http://localhost:4000/api/practice/stats -H \"Authorization: Bearer invalidtoken123\")",
+      "Bash(curl -s -w \"\\\\nHTTP_CODE:%{http_code}\" -X POST http://localhost:4000/api/auth/register -H \"Content-Type: application/json\" -d '{\"email\":\"a@b.com\"}')",
+      "Bash(npm install *)"
+    ]
+  }
+}
