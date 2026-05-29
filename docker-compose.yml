@@ -1,55 +1,31 @@
-version: '3.8'
-
 services:
-  # MySQL 数据库
-  db:
-    image: mysql:8.0
-    container_name: ncse-mysql
-    restart: unless-stopped
-    environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-ncse_root_2024}
-      MYSQL_DATABASE: ncse-practice-system
-      MYSQL_CHARSET: utf8mb4
-      MYSQL_COLLATION: utf8mb4_unicode_ci
-    volumes:
-      - mysql_data:/var/lib/mysql
-      - ./backend/db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
-    ports:
-      - "3307:3306"  # 3307 避免和已有 MySQL 冲突
-    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # Node.js 后端
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    image: node:20-alpine
     container_name: ncse-backend
-    restart: unless-stopped
-    ports:
-      - "4000:4000"
-    environment:
-      NODE_ENV: production
-      APP_PORT: 4000
-      MYSQL_HOST: db
-      MYSQL_PORT: 3306
-      MYSQL_USER: root
-      MYSQL_PASSWORD: ${MYSQL_ROOT_PASSWORD:-ncse_root_2024}
-      MYSQL_DATABASE: ncse-practice-system
-      JWT_SECRET: ${JWT_SECRET:-change_me_to_random_string}
-      MIMO_API_KEY: ${MIMO_API_KEY:-}
-      MIMO_BASE_URL: ${MIMO_BASE_URL:-https://token-plan-cn.xiaomimimo.com/v1}
-    depends_on:
-      db:
-        condition: service_healthy
+    working_dir: /app
     volumes:
+      - ./backend:/app
       - frontend_dist:/app/frontend/dist
+    command: sh -c "npm install --production && node src/server.js"
+    environment:
+      - NODE_ENV=production
+      - APP_PORT=4000
+      - MYSQL_HOST=1Panel-mysql-iXXa
+      - MYSQL_PORT=3306
+      - MYSQL_USER=root
+      - MYSQL_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      - MYSQL_DATABASE=ncse-practice-system
+      - JWT_SECRET=${JWT_SECRET}
+      - MIMO_API_KEY=${MIMO_API_KEY:-}
+      - MIMO_BASE_URL=${MIMO_BASE_URL:-https://token-plan-cn.xiaomimimo.com/v1}
+    networks:
+      - 1panel-network
+    ports:
+      - "127.0.0.1:4000:4000"
+    restart: on-failure:5
+    labels:
+      createdBy: "Apps"
 
-  # 前端构建（一次性任务，构建完退出）
   frontend-builder:
     image: node:20-alpine
     container_name: ncse-frontend-builder
@@ -60,7 +36,12 @@ services:
     command: sh -c "npm install && npm run build"
     environment:
       - VITE_API_BASE_URL=/api
+    networks:
+      - 1panel-network
 
 volumes:
-  mysql_data:
   frontend_dist:
+
+networks:
+  1panel-network:
+    external: true
