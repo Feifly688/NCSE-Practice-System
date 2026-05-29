@@ -27,6 +27,11 @@ info "项目路径: $PROJECT_DIR"
 # ============ 1. 检查环境 ============
 info "检查环境..."
 
+# 兼容 nvm 安装的 Node.js（非交互 shell 下 PATH 可能不包含 nvm）
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+[ -s "/usr/share/nvm/nvm.sh" ] && . "/usr/share/nvm/nvm.sh"
+
 command -v node >/dev/null 2>&1 || error "未安装 Node.js，请先安装 Node.js 18+"
 command -v npm >/dev/null 2>&1  || error "未安装 npm"
 command -v mysql >/dev/null 2>&1 || error "未安装 MySQL 客户端"
