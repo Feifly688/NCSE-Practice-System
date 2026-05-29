@@ -50,10 +50,20 @@ app.get('/api/health', async (_req, res) => {
 // 生产环境：托管前端静态文件
 if (isProd) {
   const frontendDist = path.join(__dirname, '../frontend/dist');
+  console.log('[STATIC] Serving frontend from:', frontendDist);
+  const fs = require('fs');
+  console.log('[STATIC] index.html exists:', fs.existsSync(path.join(frontendDist, 'index.html')));
+
   app.use(express.static(frontendDist));
   // SPA fallback：所有非 /api 的请求都返回 index.html
   app.get('*', (req, res) => {
-    res.sendFile(path.join(frontendDist, 'index.html'));
+    const indexPath = path.join(frontendDist, 'index.html');
+    res.sendFile(indexPath, (err) => {
+      if (err) {
+        console.error('[STATIC] sendFile error:', err.message);
+        res.status(500).json({ error: 'Failed to serve frontend' });
+      }
+    });
   });
 }
 
