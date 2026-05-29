@@ -49,7 +49,7 @@ app.get('/api/health', async (_req, res) => {
 
 // 生产环境：托管前端静态文件
 if (isProd) {
-  const frontendDist = path.join(__dirname, '../../frontend/dist');
+  const frontendDist = path.join(__dirname, '../frontend/dist');
   app.use(express.static(frontendDist));
   // SPA fallback：所有非 /api 的请求都返回 index.html
   app.get('*', (req, res) => {
