@@ -1,6 +1,6 @@
 ﻿import React, { useState, useEffect } from 'react';
 import { Typography, Tag, Button, Select, Modal, message, InputNumber, Checkbox, Divider, Space, List, Empty, Spin } from 'antd';
-import { LinkOutlined, EyeOutlined, DownloadOutlined, CheckCircleOutlined, CopyOutlined } from '@ant-design/icons';
+import { EyeOutlined, DownloadOutlined, CheckCircleOutlined, CopyOutlined } from '@ant-design/icons';
 import FlexTable from '../../components/FlexTable';
 import api from '../../services/api';
 
@@ -9,9 +9,7 @@ const { Title, Paragraph, Text } = Typography;
 const AVAILABLE_SOURCES = [
   { id: 'people', name: '人民日报·评论', desc: '人民网观点频道评论文章' },
   { id: 'xinhua', name: '新华社·时政', desc: '新华网时政频道新闻' },
-  { id: 'people_politics', name: '人民网·政治', desc: '人民网政治频道新闻' },
   { id: 'people_economy', name: '人民网·经济', desc: '人民网经济频道新闻' },
-  { id: 'people_law', name: '人民网·法治', desc: '人民网法治频道新闻' },
   { id: 'xinhua_world', name: '新华社·国际', desc: '新华网国际频道新闻' },
 ];
 
@@ -23,11 +21,13 @@ export default function Articles() {
   const [sources, setSources] = useState([]);
   const [selectedSource, setSelectedSource] = useState(null);
   const [previewArticle, setPreviewArticle] = useState(null);
+  const [sortField, setSortField] = useState('created_at');
+  const [sortOrder, setSortOrder] = useState('desc');
 
   // Fetch flow states
   const [fetchModalOpen, setFetchModalOpen] = useState(false);
   const [totalCount, setTotalCount] = useState(10);
-  const [enabledSources, setEnabledSources] = useState(['people', 'xinhua', 'people_politics']);
+  const [enabledSources, setEnabledSources] = useState(['people', 'xinhua']);
   const [previewStep, setPreviewStep] = useState(false);
   const [candidateList, setCandidateList] = useState([]);
   const [selectedCandidates, setSelectedCandidates] = useState([]);
@@ -35,7 +35,7 @@ export default function Articles() {
   const [confirmLoading, setConfirmLoading] = useState(false);
 
   useEffect(() => { loadSources(); }, []);
-  useEffect(() => { loadArticles(); }, [page, selectedSource]);
+  useEffect(() => { loadArticles(); }, [page, selectedSource, sortField, sortOrder]);
 
   async function loadSources() {
     try { const r = await api.get('/articles/sources'); setSources(r.data.sources); } catch (_) {}
@@ -44,7 +44,7 @@ export default function Articles() {
   async function loadArticles() {
     setLoading(true);
     try {
-      const params = { page, pageSize: 15 };
+      const params = { page, pageSize: 15, sortField, sortOrder };
       if (selectedSource) params.source = selectedSource;
       const r = await api.get('/articles', { params });
       setArticles(r.data.articles);
@@ -117,7 +117,10 @@ export default function Articles() {
     try {
       const toInsert = selectedCandidates.map(i => candidateList[i]);
       const r = await api.post('/articles/confirm', { articles: toInsert });
-      message.success(`成功添加 ${r.data.inserted} 篇文章`);
+      const msg = r.data.skipped > 0
+        ? `成功添加 ${r.data.inserted} 篇，${r.data.skipped} 篇因内容为空被跳过`
+        : `成功添加 ${r.data.inserted} 篇文章`;
+      r.data.skipped > 0 ? message.warning(msg) : message.success(msg);
       setFetchModalOpen(false);
       setPreviewStep(false);
       loadArticles();
@@ -140,12 +143,23 @@ export default function Articles() {
     setSelectedCandidates([]);
   }
 
+  function SortableHeader({ field, label, width }) {
+    const isActive = sortField === field;
+    return (
+      <span style={{ cursor: 'pointer', userSelect: 'none' }}
+        onClick={() => { setSortOrder(isActive && sortOrder === 'desc' ? 'asc' : 'desc'); setSortField(field); setPage(1); }}>
+        {label} {isActive && (sortOrder === 'desc' ? '↓' : '↑')}
+      </span>
+    );
+  }
+
   const columns = [
     { title: '序号', dataIndex: '_index', key: 'index', width: 55, sortable: false },
-    { title: '来源', dataIndex: 'source', key: 'source', width: 130, render: v => <Tag color="blue">{v}</Tag> },
-    { title: '标题', dataIndex: 'title', key: 'title', width: 300, ellipsis: true },
-    { title: '作者', dataIndex: 'author', key: 'author', width: 100, ellipsis: true },
-    { title: '发布时间', dataIndex: 'publish_time', key: 'publish_time', width: 160, render: v => v ? new Date(v).toLocaleString('zh-CN') : '-', sortValue: v => v ? new Date(v).getTime() : 0 },
+    { title: <SortableHeader field="source" label="来源" />, dataIndex: 'source', key: 'source', width: 130, sortable: false, render: v => <Tag color="blue">{v}</Tag> },
+    { title: <SortableHeader field="title" label="标题" />, dataIndex: 'title', key: 'title', width: 300, sortable: false, ellipsis: true },
+    { title: <SortableHeader field="author" label="作者" />, dataIndex: 'author', key: 'author', width: 100, sortable: false },
+    { title: <SortableHeader field="publish_time" label="发布时间" />, dataIndex: 'publish_time', key: 'publish_time', width: 160, sortable: false, render: v => v ? new Date(v).toLocaleString('zh-CN') : '-' },
+    { title: <SortableHeader field="created_at" label="添加时间" />, dataIndex: 'created_at', key: 'created_at', width: 160, sortable: false, render: v => v ? new Date(v).toLocaleString('zh-CN') : '-' },
     {
       title: '操作', key: 'action', width: 150, sortable: false,
       render: (_, record) => (
@@ -170,8 +184,6 @@ export default function Articles() {
         searchFields={['title', 'source', 'author']}
         pagination={{ current: page, total, pageSize: 15 }}
         onPageChange={setPage}
-        defaultSortKey="id"
-        defaultSortOrder="desc"
         extraToolbar={
           <Space>
             <Select allowClear placeholder="全部来源" style={{ width: 160 }} value={selectedSource}

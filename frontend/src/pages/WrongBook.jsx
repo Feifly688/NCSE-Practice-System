@@ -1,9 +1,10 @@
 ﻿import React, { useState, useEffect } from 'react';
-import { Typography, Card, Button, Space, Tag, message, Spin, Empty, Modal, Radio, Divider, Switch, Popconfirm } from 'antd';
+import { Typography, Card, Button, Space, Tag, message, Spin, Empty, Modal, Radio, Switch, Popconfirm } from 'antd';
 import { CheckCircleOutlined, CloseCircleOutlined, ReloadOutlined, BookOutlined, StarFilled, StarOutlined, ExportOutlined, DeleteOutlined, SettingOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import { parseOptions, cleanOption } from '../utils';
+import Pagination from '../components/Pagination';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -66,6 +67,17 @@ export default function WrongBook() {
     } catch (err) { message.error('开始重做失败'); }
   }
 
+  // HTML 转义，防止 XSS
+  function esc(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
   function exportWrongBook() {
     if (items.length === 0) { message.info('暂无错题可导出'); return; }
     const options = ['A', 'B', 'C', 'D'];
@@ -74,19 +86,20 @@ export default function WrongBook() {
     items.forEach((item, idx) => {
       const opts = parseOptions(item.options_json);
       html += '<div class="q">';
-      html += '<div class="stem">' + (idx + 1) + '. [' + item.qtype + '] ' + (item.passage ? '<p style="color:#666;font-weight:normal;margin:4px 0">' + item.passage + '</p>' : '') + item.stem + '</div>';
+      html += '<div class="stem">' + (idx + 1) + '. [' + esc(item.qtype) + '] ' + (item.passage ? '<p style="color:#666;font-weight:normal;margin:4px 0">' + esc(item.passage) + '</p>' : '') + esc(item.stem) + '</div>';
       html += '<div class="opts">';
       opts.forEach((opt, i) => {
         const letter = options[i] || String.fromCharCode(65 + i);
         const isCorrect = letter === item.answer;
-        html += '<div class="opt' + (isCorrect ? ' correct' : '') + '">' + letter + '. ' + cleanOption(opt) + (isCorrect ? ' ✓' : '') + '</div>';
+        html += '<div class="opt' + (isCorrect ? ' correct' : '') + '">' + letter + '. ' + esc(cleanOption(opt)) + (isCorrect ? ' ✓' : '') + '</div>';
       });
       html += '</div>';
-      html += '<div class="explain"><strong>解析：</strong>' + item.explanation + '</div>';
+      html += '<div class="explain"><strong>解析：</strong>' + esc(item.explanation) + '</div>';
       html += '</div>';
     });
     html += '</body></html>';
     const w = window.open('', '_blank');
+    if (!w) { message.error('弹窗被浏览器拦截，请允许弹窗后重试'); return; }
     w.document.write(html);
     w.document.close();
   }
@@ -178,15 +191,7 @@ export default function WrongBook() {
             </Card>
           ))}
 
-          {total > 15 && (
-            <div style={{ marginTop: 12, textAlign: 'right' }}>
-              <Space>
-                <Button size="small" disabled={page <= 1} onClick={() => setPage(page - 1)}>上一页</Button>
-                <Text type="secondary">第 {page} 页 / 共 {Math.ceil(total / 15)} 页</Text>
-                <Button size="small" disabled={page * 15 >= total} onClick={() => setPage(page + 1)}>下一页</Button>
-              </Space>
-            </div>
-          )}
+          <Pagination current={page} total={total} pageSize={15} onChange={setPage} />
         </div>
       )}
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Typography, Card, Form, Input, Button, Space, message, Descriptions, Divider } from 'antd';
+import { Typography, Card, Form, Input, Button, Space, message, Descriptions } from 'antd';
 import { UserOutlined, MailOutlined, LockOutlined, SaveOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -26,7 +26,9 @@ export default function Profile() {
       setProfileLoading(true);
       const values = await profileForm.validateFields();
       await api.put('/auth/profile', values);
-      setUser({ ...user, ...values });
+      const updated = { ...user, ...values };
+      setUser(updated);
+      localStorage.setItem('user', JSON.stringify(updated));
       message.success('个人信息已更新');
     } catch (err) {
       if (err.errorFields) return;

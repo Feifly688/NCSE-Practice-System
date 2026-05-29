@@ -1,4 +1,4 @@
-﻿import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import api from '../services/api';
 
 const AuthContext = createContext(null);
@@ -11,6 +11,8 @@ export function AuthProvider({ children }) {
     } catch { return null; }
   });
   const [loading, setLoading] = useState(false);
+  const userRef = useRef(user);
+  userRef.current = user;
 
   const isAuthenticated = !!user;
   const isAdmin = user?.role === 'admin';
@@ -18,9 +20,13 @@ export function AuthProvider({ children }) {
   // 验证 token 是否仍然有效
   useEffect(() => {
     const token = localStorage.getItem('token');
-    if (token && user) {
+    if (token && userRef.current) {
       api.get('/practice/stats').catch(() => {
-        // token 无效时 api.js 的 interceptor 会处理 401
+        // token 无效时 api.js 的 interceptor 会处理 401 跳转
+        // 如果没跳转（如网络错误），清除本地状态
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        setUser(null);
       });
     }
   }, []);

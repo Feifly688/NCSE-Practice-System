@@ -3,6 +3,7 @@ import { Typography, Card, Tag, Statistic, Row, Col, Spin, message, Space, Butto
 import { CheckCircleOutlined, ClockCircleOutlined, EditOutlined, TrophyOutlined, EyeOutlined, PlayCircleOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
+import Pagination from '../components/Pagination';
 
 const { Title, Text } = Typography;
 
@@ -108,15 +109,7 @@ export default function History() {
         </table>
       </div>
 
-      {total > 15 && (
-        <div style={{ marginTop: 12, textAlign: 'right' }}>
-          <Space>
-            <Button size="small" disabled={page <= 1} onClick={() => setPage(page - 1)}>上一页</Button>
-            <Text type="secondary">第 {page} 页 / 共 {Math.ceil(total / 15)} 页</Text>
-            <Button size="small" disabled={page * 15 >= total} onClick={() => setPage(page + 1)}>下一页</Button>
-          </Space>
-        </div>
-      )}
+      <Pagination current={page} total={total} pageSize={15} onChange={setPage} />
     </div>
   );
 }

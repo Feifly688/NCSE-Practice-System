@@ -4,6 +4,8 @@
   "scripts": {
     "dev:backend": "npm --prefix backend run dev",
     "dev:frontend": "npm --prefix frontend run dev",
-    "db:ping": "npm --prefix backend run db:ping"
+    "db:ping": "npm --prefix backend run db:ping",
+    "build": "npm --prefix frontend run build",
+    "deploy": "bash deploy/deploy.sh"
   }
 }

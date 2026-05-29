@@ -2,6 +2,7 @@
 import { Typography, Button, Select, message, Space, Tag, Popconfirm, Modal, Form } from 'antd';
 import { DeleteOutlined, EditOutlined, UserOutlined } from '@ant-design/icons';
 import api from '../../services/api';
+import Pagination from '../../components/Pagination';
 
 const { Title, Text } = Typography;
 
@@ -111,15 +112,7 @@ export default function Users() {
         </table>
       </div>
 
-      {total > 15 && (
-        <div style={{ marginTop: 12, textAlign: 'right' }}>
-          <Space>
-            <Button size="small" disabled={page <= 1} onClick={() => setPage(page - 1)}>上一页</Button>
-            <Text type="secondary">第 {page} 页 / 共 {Math.ceil(total / 15)} 页</Text>
-            <Button size="small" disabled={page * 15 >= total} onClick={() => setPage(page + 1)}>下一页</Button>
-          </Space>
-        </div>
-      )}
+      <Pagination current={page} total={total} pageSize={15} onChange={setPage} />
 
       {editUser && (
         <Modal title="编辑用户（仅限修改角色和状态）" open={true} onCancel={() => setEditUser(null)} onOk={handleEditSave} width={400}>

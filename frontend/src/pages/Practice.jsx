@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef, useCallback } from 'react';
+﻿import React, { useState, useEffect, useRef } from 'react';
 import { Typography, Card, Button, Radio, Space, Select, InputNumber, Progress, message, Spin, Divider, Tag, Modal } from 'antd';
 import { CheckCircleOutlined, CloseCircleOutlined, ArrowRightOutlined, ArrowLeftOutlined, ReloadOutlined, ClockCircleOutlined, FileTextOutlined, PauseCircleOutlined, PlayCircleOutlined, StarOutlined } from '@ant-design/icons';
 import { useSearchParams, useNavigate } from 'react-router-dom';
@@ -37,6 +37,10 @@ export default function Practice() {
   const [answerDetails, setAnswerDetails] = useState([]);
   const timerRef = useRef(null);
   const autoSaveRef = useRef(null);
+  const answersRef = useRef(answers);
+  const elapsedRef = useRef(elapsed);
+  answersRef.current = answers;
+  elapsedRef.current = elapsed;
 
   // 加载科目列表
   useEffect(() => {
@@ -63,7 +67,7 @@ export default function Practice() {
           if (remaining <= 0) {
             setElapsed(examMinutes * 60);
             clearInterval(timerRef.current);
-            doSubmit();
+            doSubmit().catch(() => message.error('自动交卷失败'));
             return;
           }
           setElapsed(remaining);
@@ -75,28 +79,33 @@ export default function Practice() {
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [step, paused, startTime, pausedElapsed]);
 
-  // 自动保存进度（每30秒）
+  // 自动保存进度（每30秒）— 使用 ref 读取最新状态，避免频繁重建 interval
   useEffect(() => {
     if (step === 'doing' && sessionId) {
       autoSaveRef.current = setInterval(() => {
-        saveProgress();
+        saveProgressRef();
       }, 30000);
     }
     return () => { if (autoSaveRef.current) clearInterval(autoSaveRef.current); };
-  }, [step, sessionId, answers, elapsed]);
+  }, [step, sessionId]);
 
-  // 页面离开保护
+  // 页面离开保护 — 使用 sendBeacon 确保请求能发出
   useEffect(() => {
     function handleBeforeUnload(e) {
-      if (step === 'doing') {
-        saveProgress();
+      if (step === 'doing' && sessionId) {
+        const blob = new Blob([JSON.stringify({
+          session_id: sessionId,
+          answers: answersRef.current,
+          elapsed_sec: elapsedRef.current
+        })], { type: 'application/json' });
+        navigator.sendBeacon('/api/practice/save-progress', blob);
         e.preventDefault();
         e.returnValue = '';
       }
     }
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [step, answers, elapsed]);
+  }, [step, sessionId]);
 
   useEffect(() => {
     if (step === 'doing') {
@@ -200,6 +209,16 @@ export default function Practice() {
     } catch (err) { /* auto-save silent fail */ }
   }
 
+  // 用 ref 读取最新值，供 interval 和 beforeunload 使用
+  function saveProgressRef() {
+    if (!sessionId || !answersRef.current) return;
+    api.post('/practice/save-progress', {
+      session_id: sessionId,
+      answers: answersRef.current,
+      elapsed_sec: elapsedRef.current
+    }).catch(() => {});
+  }
+
   async function startPractice() {
     if (!selectedSubject) { message.warning('请选择科目'); return; }
     setStep('loading');
@@ -232,7 +251,9 @@ export default function Practice() {
   function togglePause() {
     if (!paused) {
       if (timerRef.current) clearInterval(timerRef.current);
-      setPausedElapsed(elapsed);
+      // 无论练习还是考试模式，都记录已用时间
+      const usedTime = examMode ? (examMinutes * 60 - elapsed) : elapsed;
+      setPausedElapsed(usedTime);
       saveProgress();
       setPaused(true);
     } else {
@@ -274,10 +295,8 @@ export default function Practice() {
       // 错题练习模式：答对的题目自动移出错题本
       if (wrongRedo && localStorage.getItem('wrongbook_auto_remove') === 'true') {
         const correctIds = questions.filter(q => answers[q.id] === q.answer).map(q => q.id);
-        for (const qid of correctIds) {
-          try { await api.delete('/practice/wrong-book/by-question/' + qid); } catch (e) { /* ignore */ }
-        }
         if (correctIds.length > 0) {
+          await Promise.allSettled(correctIds.map(qid => api.delete('/practice/wrong-book/by-question/' + qid)));
           message.info('已自动移出 ' + correctIds.length + ' 道已掌握的题目');
         }
       }

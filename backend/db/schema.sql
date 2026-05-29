@@ -29,7 +29,6 @@ CREATE TABLE IF NOT EXISTS `article` (
   `url` VARCHAR(1024) NOT NULL,
   `publish_time` DATETIME NULL,
   `author` VARCHAR(128) NULL,
-  `raw_html` MEDIUMTEXT NULL,
   `clean_text` MEDIUMTEXT NOT NULL,
   `fingerprint` VARCHAR(64) NOT NULL,
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -54,7 +53,6 @@ CREATE TABLE IF NOT EXISTS `question` (
   `source_exam` VARCHAR(128) NULL,
   `creator_user_id` BIGINT UNSIGNED NULL,
   `status` ENUM('pending_review','approved','disabled') NOT NULL DEFAULT 'pending_review',
-  `tags_json` JSON NULL,
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_question_subject_status` (`subject_id`,`status`),
@@ -80,6 +78,7 @@ CREATE TABLE IF NOT EXISTS `practice_session` (
   `status` ENUM('in_progress','completed') NOT NULL DEFAULT 'in_progress',
   PRIMARY KEY (`id`),
   KEY `idx_session_user` (`user_id`),
+  KEY `idx_session_user_id` (`user_id`,`id` DESC),
   KEY `idx_session_status` (`user_id`,`status`),
   CONSTRAINT `fk_session_user` FOREIGN KEY (`user_id`) REFERENCES `user`(`id`),
   CONSTRAINT `fk_session_subject` FOREIGN KEY (`subject_id`) REFERENCES `subject`(`id`)
@@ -98,37 +97,6 @@ CREATE TABLE IF NOT EXISTS `practice_answer` (
   KEY `idx_answer_question` (`question_id`),
   CONSTRAINT `fk_answer_session` FOREIGN KEY (`session_id`) REFERENCES `practice_session`(`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_answer_question` FOREIGN KEY (`question_id`) REFERENCES `question`(`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- Generate tasks
-CREATE TABLE IF NOT EXISTS `generate_task` (
-  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  `trigger_by_user_id` BIGINT UNSIGNED NULL,
-  `subject_id` SMALLINT UNSIGNED NOT NULL,
-  `source_filter` VARCHAR(255) NULL,
-  `params_json` JSON NULL,
-  `status` ENUM('pending','running','success','failed') NOT NULL DEFAULT 'pending',
-  `started_at` DATETIME NULL,
-  `finished_at` DATETIME NULL,
-  `result_summary_json` JSON NULL,
-  PRIMARY KEY (`id`),
-  CONSTRAINT `fk_task_subject` FOREIGN KEY (`subject_id`) REFERENCES `subject`(`id`),
-  CONSTRAINT `fk_task_trigger_user` FOREIGN KEY (`trigger_by_user_id`) REFERENCES `user`(`id`) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- User stat snapshots
-CREATE TABLE IF NOT EXISTS `user_stat_snapshot` (
-  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  `user_id` BIGINT UNSIGNED NOT NULL,
-  `computed_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `total_questions` INT UNSIGNED NOT NULL DEFAULT 0,
-  `accuracy` DECIMAL(5,4) NOT NULL DEFAULT 0.0000,
-  `avg_time` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
-  `streak_days` INT UNSIGNED NOT NULL DEFAULT 0,
-  `subject_stats_json` JSON NULL,
-  PRIMARY KEY (`id`),
-  KEY `idx_stat_user_time` (`user_id`,`computed_at`),
-  CONSTRAINT `fk_stat_user` FOREIGN KEY (`user_id`) REFERENCES `user`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Seed default subjects

@@ -20,6 +20,9 @@ export default function FlexTable({
   searchFields = [],
   pagination = null,
   onPageChange,
+  onSort,
+  sortKey: controlledSortKey,
+  sortOrder: controlledSortOrder,
   extraToolbar = null,
   defaultHeight = 'default',
   defaultSortKey = null,
@@ -33,8 +36,13 @@ export default function FlexTable({
   const [rowHeight, setRowHeight] = useState(defaultHeight);
   const [searchText, setSearchText] = useState('');
   const [resized, setResized] = useState(false);
-  const [sortKey, setSortKey] = useState(defaultSortKey || (columnDefs.length > 0 ? columnDefs[0].key : null));
-  const [sortOrder, setSortOrder] = useState(defaultSortOrder);
+  const [internalSortKey, setInternalSortKey] = useState(defaultSortKey);
+  const [internalSortOrder, setInternalSortOrder] = useState(defaultSortOrder);
+  const [jumpPage, setJumpPage] = useState('');
+
+  // 有 onSort 时用父组件的排序状态，否则用内部状态
+  const sortKey = onSort ? controlledSortKey : internalSortKey;
+  const sortOrder = onSort ? controlledSortOrder : internalSortOrder;
 
   useEffect(() => {
     if (!resized) {
@@ -77,11 +85,14 @@ export default function FlexTable({
   }
 
   function handleSort(key) {
-    if (sortKey === key) {
-      setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
+    const col = columnDefs.find(c => c.key === key);
+    if (!col || col.sortable === false) return;
+    const newOrder = sortKey === key ? (sortOrder === 'asc' ? 'desc' : 'asc') : 'asc';
+    if (onSort) {
+      onSort(col.dataIndex || key, newOrder);
     } else {
-      setSortKey(key);
-      setSortOrder('asc');
+      setInternalSortKey(key);
+      setInternalSortOrder(newOrder);
     }
   }
 
@@ -93,6 +104,7 @@ export default function FlexTable({
     : dataSource;
 
   const sorted = useMemo(() => {
+    if (onSort) return filtered;
     if (!sortKey) return filtered;
     const col = columnDefs.find(c => c.key === sortKey);
     if (!col || col.sortable === false) return filtered;
@@ -106,11 +118,27 @@ export default function FlexTable({
       let cmp = (typeof va === 'number' && typeof vb === 'number') ? va - vb : String(va).localeCompare(String(vb), 'zh-CN');
       return sortOrder === 'asc' ? cmp : -cmp;
     });
-  }, [filtered, sortKey, sortOrder, columnDefs]);
+  }, [filtered, sortKey, sortOrder, columnDefs, onSort]);
 
   const pageOffset = pagination ? (pagination.current - 1) * pagination.pageSize : 0;
   const totalW = columnDefs.reduce((s, c) => s + (colWidths[c.key] || 120), 0);
   const cellStyle = HEIGHT_PRESETS[rowHeight] || HEIGHT_PRESETS.default;
+  const totalPages = pagination ? Math.ceil(pagination.total / pagination.pageSize) : 0;
+
+  // 生成页码数组（最多显示7个页码）
+  function getPageNumbers() {
+    if (totalPages <= 7) return Array.from({ length: totalPages }, (_, i) => i + 1);
+    const pages = [];
+    const cur = pagination.current;
+    if (cur <= 4) {
+      pages.push(1, 2, 3, 4, 5, '...', totalPages);
+    } else if (cur >= totalPages - 3) {
+      pages.push(1, '...', totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1, totalPages);
+    } else {
+      pages.push(1, '...', cur - 1, cur, cur + 1, '...', totalPages);
+    }
+    return pages;
+  }
 
   return (
     <div>
@@ -175,13 +203,29 @@ export default function FlexTable({
           </div>
         </div>
 
-        {pagination && pagination.total > pagination.pageSize && (
-          <div style={{ padding: '12px 16px', textAlign: 'right', borderTop: '1px solid #f0f0f0', background: '#fafafa' }}>
-            <Space>
-              <Button size="small" disabled={pagination.current <= 1} onClick={() => onPageChange(pagination.current - 1)}>上一页</Button>
-              <Text type="secondary">第 {pagination.current} 页 / 共 {Math.ceil(pagination.total / pagination.pageSize)} 页（{pagination.total} 条）</Text>
-              <Button size="small" disabled={pagination.current * pagination.pageSize >= pagination.total} onClick={() => onPageChange(pagination.current + 1)}>下一页</Button>
-            </Space>
+        {pagination && pagination.total > 0 && (
+          <div style={{ padding: '12px 16px', borderTop: '1px solid #f0f0f0', background: '#fafafa', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+            <Text type="secondary" style={{ fontSize: 13 }}>共 {pagination.total} 条</Text>
+            {totalPages > 1 && (
+              <Space size={4} align="center">
+                <Button size="small" disabled={pagination.current <= 1} onClick={() => onPageChange(pagination.current - 1)}>上一页</Button>
+                {getPageNumbers().map((p, i) =>
+                  p === '...' ? (
+                    <span key={'d' + i} style={{ padding: '0 4px', color: '#999' }}>...</span>
+                  ) : (
+                    <Button key={p} size="small" type={p === pagination.current ? 'primary' : 'default'}
+                      onClick={() => onPageChange(p)}>{p}</Button>
+                  )
+                )}
+                <Button size="small" disabled={pagination.current >= totalPages} onClick={() => onPageChange(pagination.current + 1)}>下一页</Button>
+                <span style={{ marginLeft: 8, fontSize: 13 }}>
+                  跳至 <Input size="small" style={{ width: 50, textAlign: 'center' }} value={jumpPage}
+                    onChange={e => setJumpPage(e.target.value.replace(/\D/g, ''))}
+                    onPressEnter={() => { const p = parseInt(jumpPage); if (p >= 1 && p <= totalPages) { onPageChange(p); setJumpPage(''); } }} />
+                  页
+                </span>
+              </Space>
+            )}
           </div>
         )}
       </div>

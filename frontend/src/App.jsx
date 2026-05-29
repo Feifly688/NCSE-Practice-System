@@ -58,6 +58,7 @@ export default function App() {
               <Route path="articles" element={<Articles />} />
               <Route path="users" element={<Users />} />
               <Route path="generate" element={<Generate />} />
+              <Route path="*" element={<NotFound />} />
             </Route>
           </Routes>
         </AuthProvider>

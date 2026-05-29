@@ -1,4 +1,5 @@
-﻿const mysql = require('mysql2/promise');
+﻿require('dotenv').config();
+const mysql = require('mysql2/promise');
 const axios = require('axios');
 const cheerio = require('cheerio');
 
@@ -108,8 +109,12 @@ async function extractPublishTime(url) {
 
 async function main() {
   const conn = await mysql.createConnection({
-    host: 'localhost', port: 3306, user: 'root', password: 'root',
-    database: 'ncse-practice-system', charset: 'utf8mb4'
+    host: process.env.MYSQL_HOST || 'localhost',
+    port: Number(process.env.MYSQL_PORT || 3306),
+    user: process.env.MYSQL_USER || 'root',
+    password: process.env.MYSQL_PASSWORD || '',
+    database: process.env.MYSQL_DATABASE || 'ncse-practice-system',
+    charset: 'utf8mb4'
   });
 
   const [articles] = await conn.query('SELECT id, url, title, publish_time FROM article');

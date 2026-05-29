@@ -2,6 +2,8 @@
 import { Typography, Button, Select, Modal, message, Checkbox, Divider, Space, Tag, Input, Popconfirm, Form, Radio } from 'antd';
 import { EditOutlined, DeleteOutlined, CheckOutlined, CloseOutlined } from '@ant-design/icons';
 import api from '../../services/api';
+import { parseOptions } from '../../utils';
+import Pagination from '../../components/Pagination';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
@@ -24,6 +26,8 @@ export default function Questions() {
   const [keyword, setKeyword] = useState('');
   const [keywordInput, setKeywordInput] = useState('');
   const [selectedIds, setSelectedIds] = useState([]);
+  const [sortField, setSortField] = useState('id');
+  const [sortOrder, setSortOrder] = useState('desc');
   const [previewQuestion, setPreviewQuestion] = useState(null);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editingQuestion, setEditingQuestion] = useState(null);
@@ -31,12 +35,12 @@ export default function Questions() {
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [addForm] = Form.useForm();
 
-  useEffect(() => { loadQuestions(); }, [page, statusFilter, qtypeFilter, keyword]);
+  useEffect(() => { loadQuestions(); }, [page, statusFilter, qtypeFilter, keyword, sortField, sortOrder]);
 
   async function loadQuestions() {
     setLoading(true);
     try {
-      const params = { page, pageSize: 15 };
+      const params = { page, pageSize: 15, sortField, sortOrder };
       if (statusFilter) params.status = statusFilter;
       if (qtypeFilter) params.qtype = qtypeFilter;
       if (keyword) params.keyword = keyword;
@@ -107,7 +111,7 @@ export default function Questions() {
       qtype: question.qtype,
       difficulty: question.difficulty,
       stem: question.stem,
-      options: JSON.parse(question.options_json || '[]'),
+      options: parseOptions(question.options_json),
       answer: question.answer,
       explanation: question.explanation,
     });
@@ -141,13 +145,6 @@ export default function Questions() {
     } catch (err) {
       if (err.errorFields) return;
       message.error(err.response?.data?.error || '添加失败');
-    }
-  }
-  function getOptions(optionsJson) {
-    try {
-      return JSON.parse(optionsJson || '[]');
-    } catch (e) {
-      return [];
     }
   }
 
@@ -209,14 +206,22 @@ export default function Questions() {
                   onChange={function(e) { setSelectedIds(e.target.checked ? questions.map(function(q) { return q.id; }) : []); }}
                 />
               </th>
-              <th style={{ width: 50, padding: '12px 8px' }}>ID</th>
-              <th style={{ width: 80, padding: '12px 8px' }}>题型</th>
-              <th style={{ width: 60, padding: '12px 8px' }}>难度</th>
+              <th style={{ width: 60, padding: '12px 8px' }}>ID</th>
+              <th style={{ width: 90, padding: '12px 8px', cursor: 'pointer', userSelect: 'none' }} onClick={() => { setSortField('qtype'); setSortOrder(prev => sortField === 'qtype' && prev === 'desc' ? 'asc' : 'desc'); setPage(1); }}>
+                题型 {sortField === 'qtype' && (sortOrder === 'desc' ? '↓' : '↑')}
+              </th>
+              <th style={{ width: 70, padding: '12px 8px', cursor: 'pointer', userSelect: 'none' }} onClick={() => { setSortField('difficulty'); setSortOrder(prev => sortField === 'difficulty' && prev === 'desc' ? 'asc' : 'desc'); setPage(1); }}>
+                难度 {sortField === 'difficulty' && (sortOrder === 'desc' ? '↓' : '↑')}
+              </th>
               <th style={{ padding: '12px 8px' }}>片段</th>
               <th style={{ padding: '12px 8px' }}>题干</th>
               <th style={{ width: 50, padding: '12px 8px' }}>答案</th>
-              <th style={{ width: 80, padding: '12px 8px' }}>状态</th>
-              <th style={{ width: 140, padding: '12px 8px' }}>创建时间</th>
+              <th style={{ width: 80, padding: '12px 8px', cursor: 'pointer', userSelect: 'none' }} onClick={() => { setSortField('status'); setSortOrder(prev => sortField === 'status' && prev === 'desc' ? 'asc' : 'desc'); setPage(1); }}>
+                状态 {sortField === 'status' && (sortOrder === 'desc' ? '↓' : '↑')}
+              </th>
+              <th style={{ width: 140, padding: '12px 8px', cursor: 'pointer', userSelect: 'none' }} onClick={() => { setSortField('created_at'); setSortOrder(prev => sortField === 'created_at' && prev === 'desc' ? 'asc' : 'desc'); setPage(1); }}>
+                创建时间 {sortField === 'created_at' && (sortOrder === 'desc' ? '↓' : '↑')}
+              </th>
               <th style={{ width: 160, padding: '12px 8px' }}>操作</th>
             </tr>
           </thead>
@@ -269,15 +274,7 @@ export default function Questions() {
         </table>
       </div>
 
-      {total > 15 && (
-        <div style={{ marginTop: 12, textAlign: 'right' }}>
-          <Space>
-            <Button size="small" disabled={page <= 1} onClick={function() { setPage(page - 1); }}>上一页</Button>
-            <Text type="secondary">第 {page} 页 / 共 {Math.ceil(total / 15)} 页</Text>
-            <Button size="small" disabled={page * 15 >= total} onClick={function() { setPage(page + 1); }}>下一页</Button>
-          </Space>
-        </div>
-      )}
+      <Pagination current={page} total={total} pageSize={15} onChange={setPage} />
 
       {previewQuestion && (
         <Modal
@@ -309,7 +306,7 @@ export default function Questions() {
             </div>
             <div style={{ marginBottom: 16 }}>
               <Text strong style={{ display: 'block', marginBottom: 8 }}>选项：</Text>
-              {getOptions(previewQuestion.options_json).map(function(opt, i) {
+              {parseOptions(previewQuestion.options_json).map(function(opt, i) {
                 var isCorrect = String.fromCharCode(65 + i) === previewQuestion.answer;
                 return (
                   <div key={i} style={{ padding: '6px 12px', marginBottom: 4, borderRadius: 4, background: isCorrect ? '#f6ffed' : '#fff', border: isCorrect ? '1px solid #b7eb8f' : '1px solid #f0f0f0' }}>

@@ -1,8 +1,9 @@
 ﻿import React, { useState, useEffect } from 'react';
 import { Typography, Card, Button, Space, Tag, message, Spin, Empty, Modal, Radio } from 'antd';
-import { StarFilled, BookOutlined } from '@ant-design/icons';
+import { StarFilled } from '@ant-design/icons';
 import api from '../services/api';
 import { parseOptions, cleanOption } from '../utils';
+import Pagination from '../components/Pagination';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -63,15 +64,7 @@ export default function Favorites() {
             </Card>
           ))}
 
-          {total > 15 && (
-            <div style={{ marginTop: 12, textAlign: 'right' }}>
-              <Space>
-                <Button size="small" disabled={page <= 1} onClick={() => setPage(page - 1)}>上一页</Button>
-                <Text type="secondary">第 {page} 页 / 共 {Math.ceil(total / 15)} 页</Text>
-                <Button size="small" disabled={page * 15 >= total} onClick={() => setPage(page + 1)}>下一页</Button>
-              </Space>
-            </div>
-          )}
+          <Pagination current={page} total={total} pageSize={15} onChange={setPage} />
         </div>
       )}
 
