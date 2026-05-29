@@ -158,7 +158,9 @@ ${articleText}
       timeout: 300000 // 5 minutes per article
     });
 
-    const content = response.data.choices[0].message.content.trim();
+    let content = response.data.choices[0].message.content.trim();
+    // 移除 markdown 代码块标记
+    content = content.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
     // 优先尝试直接解析整个内容为 JSON，失败则用正则提取
     let result;
     try {
