@@ -7,15 +7,21 @@ const router = express.Router();
 router.get('/public', async (req, res) => {
   try {
     const data = await withConnection(async (conn) => {
-      // 今日答题数
-      const [todayAnswers] = await conn.query(
-        "SELECT COUNT(*) as count FROM practice_answer WHERE DATE(created_at) = CURDATE()"
-      );
+      // 今日答题数（通过 session 关联获取日期）
+      const [todayAnswers] = await conn.query(`
+        SELECT COUNT(*) as count
+        FROM practice_answer a
+        JOIN practice_session s ON a.session_id = s.id
+        WHERE DATE(s.started_at) = CURDATE()
+      `);
 
       // 今日正确率
-      const [todayCorrectRate] = await conn.query(
-        "SELECT ROUND(SUM(is_correct)/COUNT(*)*100, 1) as rate FROM practice_answer WHERE DATE(created_at) = CURDATE()"
-      );
+      const [todayCorrectRate] = await conn.query(`
+        SELECT ROUND(SUM(a.is_correct)/COUNT(*)*100, 1) as rate
+        FROM practice_answer a
+        JOIN practice_session s ON a.session_id = s.id
+        WHERE DATE(s.started_at) = CURDATE()
+      `);
 
       // 今日完成的练习次数
       const [todaySessions] = await conn.query(
@@ -39,10 +45,11 @@ router.get('/public', async (req, res) => {
 
       // 近7天答题趋势
       const [weekTrend] = await conn.query(`
-        SELECT DATE(created_at) as date, COUNT(*) as count
-        FROM practice_answer
-        WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)
-        GROUP BY DATE(created_at)
+        SELECT DATE(s.started_at) as date, COUNT(*) as count
+        FROM practice_answer a
+        JOIN practice_session s ON a.session_id = s.id
+        WHERE s.started_at >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)
+        GROUP BY DATE(s.started_at)
         ORDER BY date ASC
       `);
 
