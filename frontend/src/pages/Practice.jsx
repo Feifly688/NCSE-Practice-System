@@ -19,7 +19,6 @@ export default function Practice() {
   const [selectedSubject, setSelectedSubject] = useState(null);
   const [count, setCount] = useState(10);
   const [filterQtype, setFilterQtype] = useState(null);
-  const [filterDifficulty, setFilterDifficulty] = useState(null);
   const [examMode, setExamMode] = useState(false);
   const [examMinutes, setExamMinutes] = useState(30);
   const [aiAnalysis, setAiAnalysis] = useState({});
@@ -224,7 +223,7 @@ export default function Practice() {
     setStep('loading');
     try {
       const subject = subjects.find(s => s.id === selectedSubject);
-      const r = await api.get('/questions/random', { params: { count, subject: subject.slug, qtype: filterQtype, difficulty: filterDifficulty } });
+      const r = await api.get('/questions/random', { params: { count, subject: subject.slug, qtype: filterQtype } });
       if (r.data.questions.length === 0) { message.error('该科目暂无题目'); setStep('setup'); return; }
 
       // 如果实际题目数少于请求数，提示用户
@@ -345,12 +344,6 @@ export default function Practice() {
                 options={['意图判断', '主旨概括', '细节理解', '标题填入', '下文推断'].map(t => ({ label: t, value: t }))} />
             </div>
             <div>
-              <Text strong>难度筛选</Text>
-              <Select style={{ width: '100%', marginTop: 8 }} allowClear placeholder="全部难度" value={filterDifficulty}
-                onChange={setFilterDifficulty}
-                options={[{ label: '简单', value: 1 }, { label: '中等', value: 3 }, { label: '困难', value: 5 }]} />
-            </div>
-                        <div>
               <Space>
                 <Text strong>考试模式</Text>
                 <Radio.Group value={examMode} onChange={e => setExamMode(e.target.value)}>

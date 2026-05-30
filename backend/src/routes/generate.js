@@ -12,7 +12,8 @@ const MIMO_MODEL = 'mimo-v2.5-pro';
 
 router.use(requireAuth, requireAdmin);
 
-const SYSTEM_PROMPT = `你是一个专业的公务员考试命题专家，拥有15年国考和省考言语理解与表达命题经验。你的任务是从新闻文章中摘取原文片段，命制与真题风格完全一致的题目。
+// 言语理解与表达 prompt
+const VERBAL_SYSTEM_PROMPT = `你是一个专业的公务员考试命题专家，拥有15年国考和省考言语理解与表达命题经验。你的任务是从新闻文章中摘取原文片段，命制与真题风格完全一致的题目。
 
 ## 核心原则
 1. passage 必须是从文章中逐字摘取的原文，不得修改任何一个字
@@ -85,6 +86,69 @@ const SYSTEM_PROMPT = `你是一个专业的公务员考试命题专家，拥有
   ]
 }`;
 
+// 政治板块 prompt
+const POLITICS_SYSTEM_PROMPT = `你是一个专业的公务员考试命题专家，拥有15年国考和省考公共基础知识（政治板块）命题经验。你的任务是从新闻文章中摘取与政治相关的内容，命制与真题风格完全一致的题目。
+
+## 核心原则
+1. 题目必须基于文章内容，但可以延伸到相关政治理论
+2. 选项必须严谨，符合官方表述
+3. 错误选项的错误要微妙，不能一眼看出
+
+## 题型分布（按真题比例）
+- 单选题：马克思主义基本原理（20%）
+- 单选题：中国特色社会主义理论（25%）
+- 单选题：习近平新时代中国特色社会主义思想（25%）
+- 单选题：时事政治（20%）
+- 多选题：政策理解（10%）
+
+## 题目设计规范
+1. 题干简洁明了，不超过50字
+2. 四个选项长度相近，每个选项10-25字
+3. 正确选项必须有原文或理论依据
+4. 错误选项常见类型：
+   - 偷换概念：把"根本保证"换成"重要条件"
+   - 扩大/缩小范围：把"部分"换成"全部"
+   - 张冠李戴：把A理论的特征说成B理论
+   - 时序错误：把"新时代"说成"改革开放初期"
+   - 表述不准确：使用非官方表述
+
+## difficulty 难度标准
+- 1-2（简单）：直接考查基本概念
+- 3（中等）：需要理解理论内涵
+- 4-5（困难）：需要综合分析和辨别
+
+## explanation 解析规范（60-100字）
+格式：先点明考点 → 说明正确选项为什么对 → 逐个排除错误选项
+
+示例："本题考查中国特色社会主义的本质特征。A项正确，党的十九大报告明确指出'中国共产党领导是中国特色社会主义最本质的特征'。B项'人民当家作主'是社会主义民主政治的本质特征；C项'依法治国'是基本方略；D项'改革开放'是强国之路。"
+
+## 输出格式
+严格按JSON格式输出，不要输出其他内容：
+{
+  "questions": [
+    {
+      "passage": "与题目相关的文章原文片段（50-150字）",
+      "qtype": "单选题",
+      "difficulty": 3,
+      "stem": "根据这段文字，下列说法正确的是：",
+      "options": ["A选项内容", "B选项内容", "C选项内容", "D选项内容"],
+      "answer": "A",
+      "explanation": "本题考查……。A项正确，……。B项……；C项……；D项……。"
+    }
+  ]
+}`;
+
+// 根据 subject 获取对应的 system prompt
+function getSystemPrompt(subject) {
+  switch (subject) {
+    case 'politics':
+      return POLITICS_SYSTEM_PROMPT;
+    case 'verbal_comprehension':
+    default:
+      return VERBAL_SYSTEM_PROMPT;
+  }
+}
+
 // 验证生成的题目质量
 function validateQuestion(q, articleText) {
   const errors = [];
@@ -126,8 +190,25 @@ function validateQuestion(q, articleText) {
   return errors;
 }
 
-async function generateQuestionsWithAI(articleText, articleTitle, count) {
-  const userPrompt = `请根据以下文章生成${count}道言语理解题目。
+async function generateQuestionsWithAI(articleText, articleTitle, count, subject = 'verbal_comprehension') {
+  const systemPrompt = getSystemPrompt(subject);
+
+  let userPrompt;
+  if (subject === 'politics') {
+    userPrompt = `请根据以下文章生成${count}道政治板块题目。
+
+文章标题：${articleTitle}
+文章内容：
+${articleText}
+
+严格要求：
+1. 题目必须与文章内容相关，考查政治理论知识
+2. 题型尽量不重复
+3. 四个选项长度相近，错误选项要"看起来也对"但有细微错误
+4. 解析要准确引用相关理论或政策
+5. 严格按照JSON格式输出`;
+  } else {
+    userPrompt = `请根据以下文章生成${count}道言语理解题目。
 
 文章标题：${articleTitle}
 文章内容：
@@ -140,12 +221,13 @@ ${articleText}
 4. 四个选项长度必须相近（15-25字），错误选项要"看起来也对"但有细微错误
 5. 解析要引用原文关键词，逐个说明每个错误选项的具体问题
 6. 严格按照JSON格式输出`;
+  }
 
   try {
     const response = await axios.post(MIMO_BASE_URL + '/chat/completions', {
       model: MIMO_MODEL,
       messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt }
       ],
       temperature: 0.7,
@@ -180,7 +262,7 @@ ${articleText}
 // POST /api/generate/preview
 router.post('/preview', async (req, res) => {
   try {
-    const { articleIds, questionsPerArticle = 2 } = req.body;
+    const { articleIds, questionsPerArticle = 2, subject = 'verbal_comprehension' } = req.body;
     if (!articleIds || !Array.isArray(articleIds) || articleIds.length === 0) {
       return res.status(400).json({ error: '请选择至少一篇文章' });
     }
@@ -193,12 +275,12 @@ router.post('/preview', async (req, res) => {
     if (articles.length === 0) return res.status(404).json({ error: '未找到选中的文章' });
 
     const allQuestions = [];
-    
+
     for (const article of articles) {
       try {
-        console.log('Generating questions for:', article.title);
+        console.log('Generating questions for:', article.title, 'subject:', subject);
         const text = article.clean_text.substring(0, 2000);
-        const questions = await generateQuestionsWithAI(text, article.title, questionsPerArticle);
+        const questions = await generateQuestionsWithAI(text, article.title, questionsPerArticle, subject);
         
         for (const q of questions) {
           const errors = validateQuestion(q, text);
@@ -228,21 +310,21 @@ router.post('/preview', async (req, res) => {
 // POST /api/generate/confirm
 router.post('/confirm', async (req, res) => {
   try {
-    const { questions } = req.body;
+    const { questions, subject = 'verbal_comprehension' } = req.body;
     if (!questions || !Array.isArray(questions) || questions.length === 0) {
       return res.status(400).json({ error: '没有要保存的题目' });
     }
 
     const inserted = await withConnection(async (conn) => {
-      const [subjects] = await conn.query("SELECT id FROM subject WHERE slug = 'verbal_comprehension'");
+      const [subjects] = await conn.query("SELECT id FROM subject WHERE slug = ?", [subject]);
       const subjectId = subjects[0]?.id || 1;
       let count = 0;
       for (const q of questions) {
         try {
-          if (!q.passage || q.passage.length < 50) continue;
+          if (!q.passage || q.passage.length < 30) continue;
           await conn.query(
             'INSERT INTO question (subject_id, qtype, difficulty, passage, stem, options_json, answer, explanation, source_article_id, source_exam, status) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
-            [subjectId, q.qtype || '意图判断', q.difficulty || 3, q.passage, q.stem, JSON.stringify(q.options), q.answer, q.explanation, q.source_article_id || null, q.source || 'AI生成', 'pending_review']
+            [subjectId, q.qtype || '单选题', q.difficulty || 3, q.passage, q.stem, JSON.stringify(q.options), q.answer, q.explanation, q.source_article_id || null, q.source || 'AI生成', 'pending_review']
           );
           count++;
         } catch (err) { console.error('Insert error:', err.message); }

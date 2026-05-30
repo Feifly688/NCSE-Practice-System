@@ -21,6 +21,7 @@ export default function Generate() {
   const [showGenerated, setShowGenerated] = useState(false);
   const [detailModalOpen, setDetailModalOpen] = useState(false);
   const [currentQuestion, setCurrentQuestion] = useState(null);
+  const [selectedSubject, setSelectedSubject] = useState('verbal_comprehension');
   const pageSize = 10;
 
   useEffect(() => { loadArticles(); }, [showGenerated]);
@@ -104,7 +105,8 @@ export default function Generate() {
     try {
       const r = await api.post('/generate/preview', {
         articleIds: selectedArticles,
-        questionsPerArticle
+        questionsPerArticle,
+        subject: selectedSubject
       });
       
       if (r.data.total === 0) {
@@ -131,7 +133,7 @@ export default function Generate() {
     setConfirmLoading(true);
     try {
       const toSave = selectedQuestions.map(i => previewQuestions[i]);
-      const r = await api.post('/generate/confirm', { questions: toSave });
+      const r = await api.post('/generate/confirm', { questions: toSave, subject: selectedSubject });
       message.success(`成功保存 ${r.data.inserted} 道题目`);
       setModalOpen(false);
       setPreviewStep(false);
@@ -228,10 +230,20 @@ export default function Generate() {
   return (
     <div>
       <Title level={3} style={{ marginBottom: 16 }}>题目生成</Title>
-      
+
       <Card style={{ marginBottom: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <Space>
+            <Text strong>板块：</Text>
+            <Select
+              value={selectedSubject}
+              onChange={setSelectedSubject}
+              style={{ width: 150 }}
+              options={[
+                { label: '言语理解与表达', value: 'verbal_comprehension' },
+                { label: '政治', value: 'politics' }
+              ]}
+            />
             <Text strong>AI状态：</Text>
             {testStatus === 'success' ? (
               <Tag color="green">已连接</Tag>
