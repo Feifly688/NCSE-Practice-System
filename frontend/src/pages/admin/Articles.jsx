@@ -175,14 +175,14 @@ export default function Articles() {
   }
 
   const columns = [
-    { title: '序号', dataIndex: '_index', key: 'index', width: 55, sortable: false },
-    { title: <SortableHeader field="source" label="来源" />, dataIndex: 'source', key: 'source', width: 130, sortable: false, render: v => <Tag color="blue">{v}</Tag> },
-    { title: <SortableHeader field="title" label="标题" />, dataIndex: 'title', key: 'title', width: 300, sortable: false, ellipsis: true },
-    { title: <SortableHeader field="author" label="作者" />, dataIndex: 'author', key: 'author', width: 100, sortable: false },
-    { title: <SortableHeader field="publish_time" label="发布时间" />, dataIndex: 'publish_time', key: 'publish_time', width: 160, sortable: false, render: v => v ? new Date(v).toLocaleString('zh-CN') : '-' },
-    { title: <SortableHeader field="created_at" label="添加时间" />, dataIndex: 'created_at', key: 'created_at', width: 160, sortable: false, render: v => v ? new Date(v).toLocaleString('zh-CN') : '-' },
+    { title: '序号', dataIndex: '_index', key: 'index', width: 60, sortable: false, align: 'center' },
+    { title: <SortableHeader field="source" label="来源" />, dataIndex: 'source', key: 'source', width: 120, sortable: false, align: 'center', render: v => <Tag color="blue">{v}</Tag> },
+    { title: <SortableHeader field="title" label="标题" />, dataIndex: 'title', key: 'title', ellipsis: true, sortable: false },
+    { title: <SortableHeader field="author" label="作者" />, dataIndex: 'author', key: 'author', width: 80, sortable: false, align: 'center' },
+    { title: <SortableHeader field="publish_time" label="发布时间" />, dataIndex: 'publish_time', key: 'publish_time', width: 160, sortable: false, align: 'center', render: v => v ? new Date(v).toLocaleString('zh-CN') : '-' },
+    { title: <SortableHeader field="created_at" label="添加时间" />, dataIndex: 'created_at', key: 'created_at', width: 160, sortable: false, align: 'center', render: v => v ? new Date(v).toLocaleString('zh-CN') : '-' },
     {
-      title: '操作', key: 'action', width: 200, sortable: false,
+      title: '操作', key: 'action', width: 240, fixed: 'right', sortable: false, align: 'center',
       render: (_, record) => (
         <Space size="small">
           <Button size="small" icon={<EyeOutlined />} onClick={() => previewContent(record.id)}>预览</Button>
