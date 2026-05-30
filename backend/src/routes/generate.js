@@ -237,7 +237,7 @@ ${articleText}
         'Authorization': 'Bearer ' + MIMO_API_KEY,
         'Content-Type': 'application/json'
       },
-      timeout: 300000 // 5 minutes per article
+      timeout: 600000 // 10 minutes per article
     });
 
     let content = response.data.choices[0].message.content.trim();
@@ -276,28 +276,39 @@ router.post('/preview', async (req, res) => {
 
     const allQuestions = [];
 
-    for (const article of articles) {
+    // 并行处理，最多同时处理 3 篇文章
+    const CONCURRENT_LIMIT = 3;
+    const tasks = articles.map(article => async () => {
       try {
         console.log('Generating questions for:', article.title, 'subject:', subject);
         const text = article.clean_text.substring(0, 2000);
         const questions = await generateQuestionsWithAI(text, article.title, questionsPerArticle, subject);
-        
+
+        const validQuestions = [];
         for (const q of questions) {
           const errors = validateQuestion(q, text);
           if (errors.length > 0) {
             console.log('Skipping invalid question:', errors.join(', '));
             continue;
           }
-          allQuestions.push({
+          validQuestions.push({
             ...q,
             source_article_id: article.id,
             source_article_title: article.title,
             source: article.source
           });
         }
+        return validQuestions;
       } catch (err) {
         console.error('Failed for article ' + article.id + ':', err.message);
+        return [];
       }
+    });
+
+    // 并行执行
+    const results = await runConcurrent(tasks, CONCURRENT_LIMIT);
+    for (const result of results) {
+      allQuestions.push(...result);
     }
 
     return res.json({ questions: allQuestions, total: allQuestions.length, articlesProcessed: articles.length });

@@ -341,7 +341,11 @@ export default function Practice() {
               <Text strong>题型筛选</Text>
               <Select style={{ width: '100%', marginTop: 8 }} allowClear placeholder="全部题型" value={filterQtype}
                 onChange={setFilterQtype}
-                options={['意图判断', '主旨概括', '细节理解', '标题填入', '下文推断'].map(t => ({ label: t, value: t }))} />
+                options={
+                  subjects.find(s => s.id === selectedSubject)?.slug === 'politics'
+                    ? ['单选题', '多选题', '判断题'].map(t => ({ label: t, value: t }))
+                    : ['意图判断', '主旨概括', '细节理解', '标题填入', '下文推断'].map(t => ({ label: t, value: t }))
+                } />
             </div>
             <div>
               <Space>
