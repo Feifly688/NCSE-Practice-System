@@ -1,6 +1,6 @@
 ﻿import React, { useState, useEffect } from 'react';
 import { Typography, Tag, Button, Select, Modal, message, InputNumber, Checkbox, Divider, Space, List, Empty, Spin } from 'antd';
-import { EyeOutlined, DownloadOutlined, CheckCircleOutlined, CopyOutlined } from '@ant-design/icons';
+import { EyeOutlined, DownloadOutlined, CheckCircleOutlined, CopyOutlined, DeleteOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import FlexTable from '../../components/FlexTable';
 import api from '../../services/api';
 
@@ -87,6 +87,27 @@ export default function Articles() {
     document.body.removeChild(textarea);
   }
 
+  async function deleteArticle(id, title) {
+    Modal.confirm({
+      title: '确认删除',
+      icon: <ExclamationCircleOutlined />,
+      content: `确定要删除文章「${title}」吗？`,
+      okText: '删除',
+      okType: 'danger',
+      cancelText: '取消',
+      async onOk() {
+        try {
+          await api.delete(`/articles/${id}`);
+          message.success('删除成功');
+          loadArticles();
+          loadSources();
+        } catch (err) {
+          message.error('删除失败');
+        }
+      },
+    });
+  }
+
   function openFetchModal() {
     setPreviewStep(false);
     setCandidateList([]);
@@ -161,11 +182,12 @@ export default function Articles() {
     { title: <SortableHeader field="publish_time" label="发布时间" />, dataIndex: 'publish_time', key: 'publish_time', width: 160, sortable: false, render: v => v ? new Date(v).toLocaleString('zh-CN') : '-' },
     { title: <SortableHeader field="created_at" label="添加时间" />, dataIndex: 'created_at', key: 'created_at', width: 160, sortable: false, render: v => v ? new Date(v).toLocaleString('zh-CN') : '-' },
     {
-      title: '操作', key: 'action', width: 150, sortable: false,
+      title: '操作', key: 'action', width: 200, sortable: false,
       render: (_, record) => (
         <Space size="small">
           <Button size="small" icon={<EyeOutlined />} onClick={() => previewContent(record.id)}>预览</Button>
           <Button size="small" icon={<CopyOutlined />} onClick={() => copyLink(record.url)}>复制链接</Button>
+          <Button size="small" danger icon={<DeleteOutlined />} onClick={() => deleteArticle(record.id, record.title)}>删除</Button>
         </Space>
       )
     },

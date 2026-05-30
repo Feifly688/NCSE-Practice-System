@@ -98,15 +98,74 @@ function extractPublishTime($) {
   return null;
 }
 
+// 智能提取文章正文
 function extractContent($, sourceId) {
-  $('script, style, nav, header, footer, iframe, noscript, .ad, .comment, .related, .recommend, .editor').remove();
+  // 1. 先移除明显无关的元素
+  $('script, style, nav, header, footer, iframe, noscript, .ad, .comment, .related, .recommend, .editor, .share, .bottom, .copyright').remove();
+
+  // 2. 尝试用来源特定的选择器提取
   const selectors = SOURCE_CONTENT_SELECTORS[sourceId] || FALLBACK_CONTENT_SELECTORS;
   for (const sel of selectors) {
-    const paragraphs = $(sel).map((_, p) => $(p).text().trim()).get().filter(t => t.length > 15);
-    if (paragraphs.length >= 2) return paragraphs.join('\n');
+    const paragraphs = $(sel).map((_, p) => $(p).text().trim()).get()
+      .filter(t => t.length > 10);
+    if (paragraphs.length >= 2) {
+      return filterAndCleanContent(paragraphs);
+    }
   }
-  const allP = $('body p').map((_, p) => $(p).text().trim()).get().filter(t => t.length > 15);
-  return allP.length >= 2 ? allP.join('\n') : '';
+
+  // 3. 备用方案：提取所有 <p> 标签
+  const allP = $('body p').map((_, p) => $(p).text().trim()).get()
+    .filter(t => t.length > 10);
+  return allP.length >= 2 ? filterAndCleanContent(allP) : '';
+}
+
+// 智能过滤和清洗内容
+function filterAndCleanContent(paragraphs) {
+  // 定义无关内容的特征
+  const noisePatterns = [
+    /责任编辑/,
+    /编辑：/,
+    /来源：/,
+    /【编辑.*?】/,
+    /原标题/,
+    /分享到：/,
+    /微信分享/,
+    /微博分享/,
+    /\d{4}年\d{1,2}月\d{1,2}日/,
+    /^\d+$/,
+    /^[，。、；：！？]+$/,
+  ];
+
+  // 定义版权信息的关键词（出现即丢弃该段）
+  const copyrightKeywords = [
+    '人民日报', '人民网', '版权所有', 'Copyright', '举报',
+    '许可证', '备案号', 'ICP', '公网安备', '违法和不良信息',
+  ];
+
+  const cleaned = paragraphs.filter(p => {
+    // 跳过太短的段落
+    if (p.length < 8) return false;
+    // 跳过匹配噪音模式的段落
+    if (noisePatterns.some(pattern => pattern.test(p))) return false;
+    // 跳过包含版权关键词的段落
+    if (copyrightKeywords.some(keyword => p.includes(keyword))) return false;
+    return true;
+  });
+
+  // 合并连续短句（可能是一句话被拆成多个 <p>）
+  const merged = [];
+  let buffer = '';
+  for (const p of cleaned) {
+    if (buffer.length + p.length < 50 && !p.endsWith('。') && !p.endsWith('！') && !p.endsWith('？')) {
+      buffer += p;
+    } else {
+      if (buffer) merged.push(buffer);
+      buffer = p;
+    }
+  }
+  if (buffer) merged.push(buffer);
+
+  return merged.join('\n');
 }
 
 // SSRF 防护：只允许抓取白名单中的域名
