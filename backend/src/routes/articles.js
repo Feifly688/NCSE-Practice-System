@@ -367,7 +367,11 @@ router.get('/', async (req, res) => {
       let where = '';
       const params = [];
       if (source) { where = ' WHERE a.source = ?'; params.push(source); }
-      if (category) { where += where ? ' AND a.category = ?' : ' WHERE a.category = ?'; params.push(category); }
+      if (category) {
+        // 筛选分类时，同时匹配指定分类和 'both'（通用）文章
+        where += where ? ' AND (a.category = ? OR a.category = ?)' : ' WHERE (a.category = ? OR a.category = ?)';
+        params.push(category, 'both');
+      }
       if (filterGenerated) { where += where ? ' AND q.question_count > 0' : ' WHERE q.question_count > 0'; }
       const [countRows] = await conn.query(`SELECT COUNT(*) AS total ${base}${where}`, params);
       const [rows] = await conn.query(`SELECT a.id, a.source, a.title, a.url, a.publish_time, a.author, a.fingerprint, a.category, a.created_at, COALESCE(q.question_count, 0) as question_count ${base}${where} ORDER BY a.${sortField} ${sortOrder} LIMIT ? OFFSET ?`, [...params, pageSize, offset]);

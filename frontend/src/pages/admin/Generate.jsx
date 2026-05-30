@@ -33,7 +33,7 @@ export default function Generate() {
       if (showGenerated) {
         params.filterGenerated = 'true';
       }
-      // 根据选中的板块筛选文章
+      // 根据选中的板块筛选文章（后端会同时匹配指定分类和 'both'）
       if (selectedSubject === 'verbal_comprehension') {
         params.category = 'verbal';
       } else if (selectedSubject === 'politics') {
