@@ -268,7 +268,7 @@ router.post('/preview', async (req, res) => {
 // POST /api/articles/confirm
 router.post('/confirm', async (req, res) => {
   try {
-    const { articles } = req.body;
+    const { articles, category = 'both' } = req.body;
     if (!articles || !Array.isArray(articles) || articles.length === 0) return res.status(400).json({ error: '没有要添加的文章' });
     const result = await withConnection(async (conn) => {
       let inserted = 0, skipped = 0;
@@ -279,7 +279,7 @@ router.post('/confirm', async (req, res) => {
         const { content, publishTime } = await fetchArticleContent(a.url, getSourceId(a.source));
         if (!content || content.length < 200) return 'empty';
         const safePublishTime = publishTime || null;
-        await conn.query('INSERT INTO article (source, title, url, publish_time, author, clean_text, fingerprint) VALUES (?,?,?,?,?,?,?)', [a.source, a.title, a.url || '', safePublishTime, a.author || a.source, content, fp]);
+        await conn.query('INSERT INTO article (source, title, url, publish_time, author, clean_text, fingerprint, category) VALUES (?,?,?,?,?,?,?,?)', [a.source, a.title, a.url || '', safePublishTime, a.author || a.source, content, fp, category]);
         return 'inserted';
       });
       const statuses = await runConcurrent(tasks, 3);
@@ -287,6 +287,40 @@ router.post('/confirm', async (req, res) => {
       return { inserted, skipped };
     });
     return res.json(result);
+  } catch (err) { return res.status(500).json({ error: String(err.message || err) }); }
+});
+
+// PUT /api/articles/:id/category - 修改文章分类
+router.put('/:id/category', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const { category } = req.body;
+    if (!id || isNaN(id)) return res.status(400).json({ error: '无效的ID' });
+    if (!['verbal', 'politics', 'both'].includes(category)) {
+      return res.status(400).json({ error: '无效的分类，可选值：verbal, politics, both' });
+    }
+    const affected = await withConnection(async (conn) => {
+      const [r] = await conn.query('UPDATE article SET category = ? WHERE id = ?', [category, id]);
+      return r.affectedRows;
+    });
+    if (affected === 0) return res.status(404).json({ error: '文章不存在' });
+    return res.json({ success: true });
+  } catch (err) { return res.status(500).json({ error: String(err.message || err) }); }
+});
+
+// PUT /api/articles/batch-category - 批量修改文章分类
+router.put('/batch/category', async (req, res) => {
+  try {
+    const { ids, category } = req.body;
+    if (!ids || !Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: '请选择文章' });
+    if (!['verbal', 'politics', 'both'].includes(category)) {
+      return res.status(400).json({ error: '无效的分类' });
+    }
+    const affected = await withConnection(async (conn) => {
+      const [r] = await conn.query('UPDATE article SET category = ? WHERE id IN (?)', [category, ids]);
+      return r.affectedRows;
+    });
+    return res.json({ success: true, affected });
   } catch (err) { return res.status(500).json({ error: String(err.message || err) }); }
 });
 
@@ -322,8 +356,9 @@ router.get('/', async (req, res) => {
     const pageSize = Math.min(Number(req.query.pageSize) || 20, 100);
     const offset = (page - 1) * pageSize;
     const source = req.query.source || null;
+    const category = req.query.category || null;
     const filterGenerated = req.query.filterGenerated === 'true';
-    const ALLOWED = ['id', 'source', 'title', 'publish_time', 'created_at', 'author'];
+    const ALLOWED = ['id', 'source', 'title', 'publish_time', 'created_at', 'author', 'category'];
     const sortField = ALLOWED.includes(req.query.sortField) ? req.query.sortField : 'created_at';
     const sortOrder = req.query.sortOrder === 'asc' ? 'ASC' : 'DESC';
 
@@ -332,9 +367,10 @@ router.get('/', async (req, res) => {
       let where = '';
       const params = [];
       if (source) { where = ' WHERE a.source = ?'; params.push(source); }
+      if (category) { where += where ? ' AND a.category = ?' : ' WHERE a.category = ?'; params.push(category); }
       if (filterGenerated) { where += where ? ' AND q.question_count > 0' : ' WHERE q.question_count > 0'; }
       const [countRows] = await conn.query(`SELECT COUNT(*) AS total ${base}${where}`, params);
-      const [rows] = await conn.query(`SELECT a.id, a.source, a.title, a.url, a.publish_time, a.author, a.fingerprint, a.created_at, COALESCE(q.question_count, 0) as question_count ${base}${where} ORDER BY a.${sortField} ${sortOrder} LIMIT ? OFFSET ?`, [...params, pageSize, offset]);
+      const [rows] = await conn.query(`SELECT a.id, a.source, a.title, a.url, a.publish_time, a.author, a.fingerprint, a.category, a.created_at, COALESCE(q.question_count, 0) as question_count ${base}${where} ORDER BY a.${sortField} ${sortOrder} LIMIT ? OFFSET ?`, [...params, pageSize, offset]);
       return { articles: rows, total: countRows[0].total };
     });
     return res.json({ ...data, page, pageSize });

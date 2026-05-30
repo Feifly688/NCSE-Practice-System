@@ -24,7 +24,7 @@ export default function Generate() {
   const [selectedSubject, setSelectedSubject] = useState('verbal_comprehension');
   const pageSize = 10;
 
-  useEffect(() => { loadArticles(); }, [showGenerated]);
+  useEffect(() => { loadArticles(); }, [showGenerated, selectedSubject]);
 
   async function loadArticles() {
     setLoading(true);
@@ -32,6 +32,12 @@ export default function Generate() {
       const params = { pageSize: 200 };
       if (showGenerated) {
         params.filterGenerated = 'true';
+      }
+      // 根据选中的板块筛选文章
+      if (selectedSubject === 'verbal_comprehension') {
+        params.category = 'verbal';
+      } else if (selectedSubject === 'politics') {
+        params.category = 'politics';
       }
       const r = await api.get('/articles', { params });
       setArticles(r.data.articles);
@@ -63,7 +69,15 @@ export default function Generate() {
     const start = (currentPage - 1) * pageSize;
     const end = start + pageSize;
     return articles.slice(start, end)
-      .filter(a => a.question_count === 0)
+      .filter(a => {
+        // 只选中分类匹配的文章
+        if (selectedSubject === 'verbal_comprehension') {
+          return a.category === 'verbal' || a.category === 'both';
+        } else if (selectedSubject === 'politics') {
+          return a.category === 'politics' || a.category === 'both';
+        }
+        return true;
+      })
       .map(a => a.id);
   }
 
@@ -170,11 +184,14 @@ export default function Generate() {
       ),
       width: 50,
       render: (_, record) => {
-        const hasGenerated = record.question_count > 0;
+        // 检查文章分类是否匹配当前选中的板块
+        const categoryMatch = selectedSubject === 'verbal_comprehension'
+          ? (record.category === 'verbal' || record.category === 'both')
+          : (record.category === 'politics' || record.category === 'both');
         return (
           <Checkbox
             checked={selectedArticles.includes(record.id)}
-            disabled={hasGenerated}
+            disabled={!categoryMatch}
             onChange={e => {
               setSelectedArticles(prev =>
                 e.target.checked ? [...prev, record.id] : prev.filter(id => id !== record.id)
@@ -186,11 +203,20 @@ export default function Generate() {
     },
     { title: '来源', dataIndex: 'source', width: 120, render: v => <Tag color="blue">{v}</Tag> },
     { title: '标题', dataIndex: 'title', ellipsis: true },
-    { 
-      title: '状态', 
+    {
+      title: '分类',
+      width: 100,
+      render: (_, record) => {
+        const categoryMap = { verbal: '言语', politics: '政治', both: '通用' };
+        const colorMap = { verbal: 'blue', politics: 'red', both: 'green' };
+        return <Tag color={colorMap[record.category] || 'default'}>{categoryMap[record.category] || record.category}</Tag>;
+      }
+    },
+    {
+      title: '出题',
       width: 100,
       render: (_, record) => record.question_count > 0 ? (
-        <Tag color="green">已出题 ({record.question_count})</Tag>
+        <Tag color="green">{record.question_count}题</Tag>
       ) : (
         <Tag color="default">未出题</Tag>
       )
@@ -225,7 +251,13 @@ export default function Generate() {
     },
   ];
 
-  const nonGeneratedCount = articles.filter(a => a.question_count === 0).length;
+  const nonGeneratedCount = articles.filter(a => {
+    // 只计算分类匹配且未出题的文章
+    const categoryMatch = selectedSubject === 'verbal_comprehension'
+      ? (a.category === 'verbal' || a.category === 'both')
+      : (a.category === 'politics' || a.category === 'both');
+    return categoryMatch && a.question_count === 0;
+  }).length;
 
   return (
     <div>
@@ -275,7 +307,14 @@ export default function Generate() {
         <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Space>
             <Text type="secondary">
-              未出题文章：{nonGeneratedCount} 篇 | 已选：{selectedArticles.length} 篇
+              可选文章：{articles.filter(a => {
+                if (selectedSubject === 'verbal_comprehension') {
+                  return a.category === 'verbal' || a.category === 'both';
+                } else if (selectedSubject === 'politics') {
+                  return a.category === 'politics' || a.category === 'both';
+                }
+                return true;
+              }).length} 篇 | 已选：{selectedArticles.length} 篇
             </Text>
             <Checkbox checked={showGenerated} onChange={e => setShowGenerated(e.target.checked)}>
               显示已出题文章
@@ -283,9 +322,15 @@ export default function Generate() {
           </Space>
           <Space>
             <Button size="small" onClick={() => {
-              const ids = articles.filter(a => a.question_count === 0).map(a => a.id);
+              const ids = articles.filter(a => {
+                // 只选中分类匹配且未出题的文章
+                const categoryMatch = selectedSubject === 'verbal_comprehension'
+                  ? (a.category === 'verbal' || a.category === 'both')
+                  : (a.category === 'politics' || a.category === 'both');
+                return categoryMatch && a.question_count === 0;
+              }).map(a => a.id);
               setSelectedArticles(ids);
-            }}>全选未出题</Button>
+            }}>全选可出题</Button>
             <Button size="small" onClick={() => setSelectedArticles([])}>取消全选</Button>
           </Space>
         </div>
@@ -329,8 +374,9 @@ export default function Generate() {
         {!previewStep ? (
           <div>
             <Paragraph>
-              将为选中的 <Text strong>{selectedArticles.length}</Text> 篇文章生成题目，
-              每篇文章生成 <Text strong>{questionsPerArticle}</Text> 道题。
+              将为选中的 <Text strong>{selectedArticles.length}</Text> 篇文章生成
+              <Text strong type="danger">{selectedSubject === 'verbal_comprehension' ? '言语理解' : '政治'}</Text>
+              题目，每篇文章生成 <Text strong>{questionsPerArticle}</Text> 道题。
             </Paragraph>
             <Paragraph type="secondary">
               提示：生成过程需要调用AI接口，每篇文章大约需要30-60秒，请耐心等待。

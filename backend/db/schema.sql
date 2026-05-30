@@ -31,11 +31,13 @@ CREATE TABLE IF NOT EXISTS `article` (
   `author` VARCHAR(128) NULL,
   `clean_text` MEDIUMTEXT NOT NULL,
   `fingerprint` VARCHAR(64) NOT NULL,
+  `category` VARCHAR(32) DEFAULT 'both' COMMENT '文章分类: verbal-言语, politics-政治, both-通用',
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_article_fp` (`fingerprint`),
   KEY `idx_article_source` (`source`),
-  KEY `idx_article_publish_time` (`publish_time`)
+  KEY `idx_article_publish_time` (`publish_time`),
+  KEY `idx_article_category` (`category`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Questions

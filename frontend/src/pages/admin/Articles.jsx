@@ -27,6 +27,7 @@ export default function Articles() {
   const [page, setPage] = useState(1);
   const [sources, setSources] = useState([]);
   const [selectedSource, setSelectedSource] = useState(null);
+  const [selectedCategory, setSelectedCategory] = useState(null);
   const [previewArticle, setPreviewArticle] = useState(null);
   const [sortField, setSortField] = useState('created_at');
   const [sortOrder, setSortOrder] = useState('desc');
@@ -40,9 +41,10 @@ export default function Articles() {
   const [selectedCandidates, setSelectedCandidates] = useState([]);
   const [fetchLoading, setFetchLoading] = useState(false);
   const [confirmLoading, setConfirmLoading] = useState(false);
+  const [newArticleCategory, setNewArticleCategory] = useState('both');
 
   useEffect(() => { loadSources(); }, []);
-  useEffect(() => { loadArticles(); }, [page, selectedSource, sortField, sortOrder]);
+  useEffect(() => { loadArticles(); }, [page, selectedSource, selectedCategory, sortField, sortOrder]);
 
   async function loadSources() {
     try { const r = await api.get('/articles/sources'); setSources(r.data.sources); } catch (_) {}
@@ -53,6 +55,7 @@ export default function Articles() {
     try {
       const params = { page, pageSize: 15, sortField, sortOrder };
       if (selectedSource) params.source = selectedSource;
+      if (selectedCategory) params.category = selectedCategory;
       const r = await api.get('/articles', { params });
       setArticles(r.data.articles);
       setTotal(r.data.total);
@@ -144,7 +147,7 @@ export default function Articles() {
     setConfirmLoading(true);
     try {
       const toInsert = selectedCandidates.map(i => candidateList[i]);
-      const r = await api.post('/articles/confirm', { articles: toInsert });
+      const r = await api.post('/articles/confirm', { articles: toInsert, category: newArticleCategory });
       const msg = r.data.skipped > 0
         ? `成功添加 ${r.data.inserted} 篇，${r.data.skipped} 篇因内容为空被跳过`
         : `成功添加 ${r.data.inserted} 篇文章`;
@@ -189,6 +192,34 @@ export default function Articles() {
     { title: <div style={headerCellStyle}>序号</div>, dataIndex: '_index', key: 'index', width: 70, sortable: false, align: 'center', onHeaderCell: () => headerCellStyle, onCell: () => cellStyle },
     { title: <div style={headerCellStyle}><SortableHeader field="source" label="来源" center /></div>, dataIndex: 'source', key: 'source', width: 130, sortable: false, align: 'center', onHeaderCell: () => headerCellStyle, onCell: () => cellStyle, render: v => <Tag color="blue" style={{ margin: 0 }}>{v}</Tag> },
     { title: <div style={{...headerCellStyle, textAlign: 'left'}}><SortableHeader field="title" label="标题" /></div>, dataIndex: 'title', key: 'title', ellipsis: true, sortable: false, onHeaderCell: () => ({...headerCellStyle, textAlign: 'left'}), onCell: () => cellStyle },
+    {
+      title: <div style={headerCellStyle}>分类</div>, key: 'category', width: 100, sortable: false, align: 'center', onHeaderCell: () => headerCellStyle, onCell: () => cellStyle,
+      render: (_, record) => {
+        const categoryMap = { verbal: '言语', politics: '政治', both: '通用' };
+        const colorMap = { verbal: 'blue', politics: 'red', both: 'green' };
+        return (
+          <Select
+            size="small"
+            value={record.category || 'both'}
+            style={{ width: 80 }}
+            onChange={async (value) => {
+              try {
+                await api.put(`/articles/${record.id}/category`, { category: value });
+                message.success('分类已更新');
+                loadArticles();
+              } catch (err) {
+                message.error('更新失败');
+              }
+            }}
+            options={[
+              { label: '言语', value: 'verbal' },
+              { label: '政治', value: 'politics' },
+              { label: '通用', value: 'both' }
+            ]}
+          />
+        );
+      }
+    },
     { title: <div style={headerCellStyle}><SortableHeader field="author" label="作者" center /></div>, dataIndex: 'author', key: 'author', width: 90, sortable: false, align: 'center', onHeaderCell: () => headerCellStyle, onCell: () => cellStyle },
     { title: <div style={headerCellStyle}><SortableHeader field="publish_time" label="发布时间" center /></div>, dataIndex: 'publish_time', key: 'publish_time', width: 170, sortable: false, align: 'center', onHeaderCell: () => headerCellStyle, onCell: () => cellStyle, render: v => v ? new Date(v).toLocaleString('zh-CN') : '-' },
     { title: <div style={headerCellStyle}><SortableHeader field="created_at" label="添加时间" center /></div>, dataIndex: 'created_at', key: 'created_at', width: 170, sortable: false, align: 'center', onHeaderCell: () => headerCellStyle, onCell: () => cellStyle, render: v => v ? new Date(v).toLocaleString('zh-CN') : '-' },
@@ -219,6 +250,13 @@ export default function Articles() {
         onPageChange={setPage}
         extraToolbar={
           <Space>
+            <Select allowClear placeholder="全部分类" style={{ width: 120 }} value={selectedCategory}
+              onChange={v => { setSelectedCategory(v); setPage(1); }}
+              options={[
+                { label: '言语', value: 'verbal' },
+                { label: '政治', value: 'politics' },
+                { label: '通用', value: 'both' }
+              ]} />
             <Select allowClear placeholder="全部来源" style={{ width: 160 }} value={selectedSource}
               onChange={v => { setSelectedSource(v); setPage(1); }}
               options={sources.map(s => ({ label: `${s.source} (${s.count})`, value: s.source }))} />
@@ -268,16 +306,31 @@ export default function Articles() {
           <div>
             <Paragraph type="secondary">选择文章来源和数量，系统将从真实网站抓取候选文章供你确认后再添加。</Paragraph>
             <Divider style={{ margin: '16px 0' }} />
-            
+
             <div style={{ marginBottom: 16 }}>
               <Text strong>采集总数：</Text>
               <InputNumber min={1} max={50} value={totalCount} onChange={setTotalCount} style={{ width: 80, marginLeft: 8 }} />
               <Text type="secondary" style={{ marginLeft: 8 }}>篇</Text>
             </div>
-            
+
+            <div style={{ marginBottom: 16 }}>
+              <Text strong>文章分类：</Text>
+              <Select
+                value={newArticleCategory}
+                onChange={setNewArticleCategory}
+                style={{ width: 120, marginLeft: 8 }}
+                options={[
+                  { label: '通用', value: 'both' },
+                  { label: '言语', value: 'verbal' },
+                  { label: '政治', value: 'politics' }
+                ]}
+              />
+              <Text type="secondary" style={{ marginLeft: 8 }}>（采集后的文章默认分类）</Text>
+            </div>
+
             <Divider style={{ margin: '12px 0' }} />
             <Text strong style={{ marginBottom: 12, display: 'block' }}>选择来源渠道：</Text>
-            
+
             {AVAILABLE_SOURCES.map(src => (
               <div key={src.id} style={{ padding: '8px 0' }}>
                 <Checkbox checked={enabledSources.includes(src.id)} onChange={e => setEnabledSources(prev => e.target.checked ? [...prev, src.id] : prev.filter(s => s !== src.id))}>
