@@ -9,6 +9,7 @@ const practiceRoutes = require('./routes/practice');
 const articleRoutes = require('./routes/articles');
 const adminRoutes = require('./routes/admin');
 const generateRoutes = require('./routes/generate');
+const statsRoutes = require('./routes/stats');
 
 const app = express();
 const port = process.env.APP_PORT || 4000;
@@ -34,6 +35,7 @@ app.use('/api/practice', practiceRoutes);
 app.use('/api/articles', articleRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/generate', generateRoutes);
+app.use('/api/stats', statsRoutes);
 
 // Health 端点
 app.get('/api/health', async (_req, res) => {
