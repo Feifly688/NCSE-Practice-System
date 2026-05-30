@@ -8,3 +8,4 @@ Thumbs.db
 .claude/
 AGENTS.md
 deploy/migrate.sh
+deploy/backup-db-local.sh
