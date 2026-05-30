@@ -10,10 +10,18 @@ const router = express.Router();
 router.use(requireAuth, requireAdmin);
 
 const SOURCES = [
+  // 人民日报系列
   { id: 'people', name: '人民日报·评论', baseUrl: 'http://opinion.people.com.cn', listUrl: 'http://opinion.people.com.cn/GB/8213/49160/index.html' },
-  { id: 'xinhua', name: '新华社·时政', baseUrl: 'http://www.news.cn', listUrl: 'http://www.news.cn/politics/' },
+  { id: 'people_politics', name: '人民日报·时政', baseUrl: 'http://politics.people.com.cn', listUrl: 'http://politics.people.com.cn/GB/index.html' },
   { id: 'people_economy', name: '人民网·经济', baseUrl: 'http://finance.people.com.cn', listUrl: 'http://finance.people.com.cn/GB/index.html' },
+  { id: 'people_society', name: '人民网·社会', baseUrl: 'http://society.people.com.cn', listUrl: 'http://society.people.com.cn/GB/index.html' },
+  { id: 'people_legality', name: '人民网·法治', baseUrl: 'http://legal.people.com.cn', listUrl: 'http://legal.people.com.cn/GB/index.html' },
+
+  // 新华社系列
+  { id: 'xinhua', name: '新华社·时政', baseUrl: 'http://www.news.cn', listUrl: 'http://www.news.cn/politics/' },
   { id: 'xinhua_world', name: '新华社·国际', baseUrl: 'http://www.news.cn', listUrl: 'http://www.news.cn/world/' },
+  { id: 'xinhua_education', name: '新华社·教育', baseUrl: 'http://www.news.cn', listUrl: 'http://www.news.cn/edu/' },
+  { id: 'xinhua_military', name: '新华社·军事', baseUrl: 'http://www.news.cn', listUrl: 'http://www.news.cn/mil/' },
 ];
 
 const HEADERS = {
@@ -34,13 +42,20 @@ function isArticleUrl(url, sourceId) {
   if (/\/GB\/\d+\/index\.html$/.test(url)) return false;
   if (/\/list\.html$/.test(url)) return false;
   if (/\/page\/\d+\.html$/.test(url)) return false;
-  switch (sourceId) {
-    case 'people': return /\/n1\/\d{4}\/\d{4}\/c\d+-\d+\.html$/.test(url);
-    case 'xinhua': return /\/politics\/\d{8}\/[a-f0-9]+\/c\.html$/.test(url);
-    case 'people_economy': return /\/n1\/\d{4}\/\d{4}\/c\d+-\d+\.html$/.test(url);
-    case 'xinhua_world': return /\/world\/\d{8}\/[a-f0-9]+\/c\.html$/.test(url);
-    default: return false;
+
+  // 人民网系列（politics, society, legality 等）使用相同的 URL 格式
+  const peoplePatterns = ['people', 'people_politics', 'people_economy', 'people_society', 'people_legality'];
+  if (peoplePatterns.includes(sourceId)) {
+    return /\/n1\/\d{4}\/\d{4}\/c\d+-\d+\.html$/.test(url);
   }
+
+  // 新华社系列使用相同的 URL 格式
+  const xinhuaPatterns = ['xinhua', 'xinhua_world', 'xinhua_education', 'xinhua_military'];
+  if (xinhuaPatterns.includes(sourceId)) {
+    return /\/\d{8}\/[a-f0-9]+\/c\.html$/.test(url);
+  }
+
+  return false;
 }
 
 function isArticleTitle(title) {
@@ -74,10 +89,17 @@ async function fetchArticlesFromSource(sourceId, count) {
 }
 
 const SOURCE_CONTENT_SELECTORS = {
+  // 人民网系列
   people: ['div.rm_txt_con p', 'div#rwb_zw p', 'div.TRS_Editor p'],
-  xinhua: ['div#detail p', 'div.article p', 'div.content p'],
+  people_politics: ['div.rm_txt_con p', 'div.TRS_Editor p', 'div.text_con p'],
   people_economy: ['div.rm_txt_con p', 'div.TRS_Editor p', 'div.text_con p'],
+  people_society: ['div.rm_txt_con p', 'div.TRS_Editor p', 'div.text_con p'],
+  people_legality: ['div.rm_txt_con p', 'div.TRS_Editor p', 'div.text_con p'],
+  // 新华社系列
+  xinhua: ['div#detail p', 'div.article p', 'div.content p'],
   xinhua_world: ['div#detail p', 'div.article p', 'div.main-aticle-detail p'],
+  xinhua_education: ['div#detail p', 'div.article p', 'div.content p'],
+  xinhua_military: ['div#detail p', 'div.article p', 'div.content p'],
 };
 const FALLBACK_CONTENT_SELECTORS = ['div.rm_txt_con p', 'div#detail p', 'div.TRS_Editor p', 'article p', 'div.content p', 'div.article-content p'];
 
@@ -171,7 +193,10 @@ function filterAndCleanContent(paragraphs) {
 // SSRF 防护：只允许抓取白名单中的域名
 const ALLOWED_HOSTS = [
   'opinion.people.com.cn',
+  'politics.people.com.cn',
   'finance.people.com.cn',
+  'society.people.com.cn',
+  'legal.people.com.cn',
   'www.news.cn',
 ];
 

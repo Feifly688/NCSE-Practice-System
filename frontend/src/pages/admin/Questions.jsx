@@ -14,7 +14,7 @@ const STATUS_OPTIONS = [
   { value: 'disabled', label: '已禁用', color: 'red' },
 ];
 
-const QTYPE_OPTIONS = ['意图判断', '主旨概括', '细节理解', '标题填入', '下文推断'];
+const QTYPE_OPTIONS = ['意图判断', '主旨概括', '细节理解', '标题填入', '下文推断', '单选题', '多选题', '判断题'];
 
 export default function Questions() {
   const [questions, setQuestions] = useState([]);
@@ -34,8 +34,18 @@ export default function Questions() {
   const [editForm] = Form.useForm();
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [addForm] = Form.useForm();
+  const [subjectFilter, setSubjectFilter] = useState(null);
+  const [subjects, setSubjects] = useState([]);
 
-  useEffect(() => { loadQuestions(); }, [page, statusFilter, qtypeFilter, keyword, sortField, sortOrder]);
+  useEffect(() => { loadSubjects(); }, []);
+  useEffect(() => { loadQuestions(); }, [page, statusFilter, qtypeFilter, subjectFilter, keyword, sortField, sortOrder]);
+
+  async function loadSubjects() {
+    try {
+      const r = await api.get('/questions/subjects');
+      setSubjects(r.data.subjects || []);
+    } catch (err) {}
+  }
 
   async function loadQuestions() {
     setLoading(true);
@@ -43,6 +53,7 @@ export default function Questions() {
       const params = { page, pageSize: 15, sortField, sortOrder };
       if (statusFilter) params.status = statusFilter;
       if (qtypeFilter) params.qtype = qtypeFilter;
+      if (subjectFilter) params.subjectId = subjectFilter;
       if (keyword) params.keyword = keyword;
       const r = await api.get('/questions', { params });
       setQuestions(r.data.questions);
@@ -165,6 +176,9 @@ export default function Questions() {
       
       <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
         <Space>
+          <Select allowClear placeholder="全部板块" style={{ width: 140 }} value={subjectFilter}
+            onChange={function(v) { setSubjectFilter(v); setPage(1); }}
+            options={subjects.map(function(s) { return { label: s.name, value: s.id }; })} />
           <Select allowClear placeholder="全部状态" style={{ width: 120 }} value={statusFilter}
             onChange={function(v) { setStatusFilter(v); setPage(1); }}
             options={STATUS_OPTIONS} />

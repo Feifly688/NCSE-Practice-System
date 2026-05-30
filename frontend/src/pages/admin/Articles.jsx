@@ -7,10 +7,17 @@ import api from '../../services/api';
 const { Title, Paragraph, Text } = Typography;
 
 const AVAILABLE_SOURCES = [
+  // 人民日报系列
   { id: 'people', name: '人民日报·评论', desc: '人民网观点频道评论文章' },
-  { id: 'xinhua', name: '新华社·时政', desc: '新华网时政频道新闻' },
+  { id: 'people_politics', name: '人民日报·时政', desc: '人民网时政频道新闻' },
   { id: 'people_economy', name: '人民网·经济', desc: '人民网经济频道新闻' },
+  { id: 'people_society', name: '人民网·社会', desc: '人民网社会频道新闻' },
+  { id: 'people_legality', name: '人民网·法治', desc: '人民网法治频道新闻' },
+  // 新华社系列
+  { id: 'xinhua', name: '新华社·时政', desc: '新华网时政频道新闻' },
   { id: 'xinhua_world', name: '新华社·国际', desc: '新华网国际频道新闻' },
+  { id: 'xinhua_education', name: '新华社·教育', desc: '新华网教育频道新闻' },
+  { id: 'xinhua_military', name: '新华社·军事', desc: '新华网军事频道新闻' },
 ];
 
 export default function Articles() {
