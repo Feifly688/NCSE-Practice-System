@@ -167,9 +167,10 @@ export default function FlexTable({
               {columnDefs.map(col => {
                 const isSorted = sortKey === col.key;
                 const sortable = col.sortable !== false;
+                const headerStyle = col.onHeaderCell ? col.onHeaderCell() : {};
                 return (
                   <div key={col.key}
-                    style={{ width: colWidths[col.key], minWidth: colWidths[col.key], padding: '12px 16px', fontWeight: 600, position: 'relative', userSelect: 'none', flexShrink: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: sortable ? 'pointer' : 'default', background: isSorted ? '#e6f4ff' : undefined, display: 'flex', alignItems: 'center', gap: 4 }}
+                    style={{ width: colWidths[col.key], minWidth: colWidths[col.key], padding: '12px 16px', position: 'relative', userSelect: 'none', flexShrink: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: sortable ? 'pointer' : 'default', background: isSorted ? '#e6f4ff' : undefined, display: 'flex', alignItems: 'center', justifyContent: col.align === 'center' ? 'center' : 'flex-start', gap: 4, ...headerStyle }}
                     onClick={() => sortable && handleSort(col.key)}>
                     <span>{col.title}</span>
                     {sortable && (
@@ -190,15 +191,21 @@ export default function FlexTable({
             ) : sorted.length === 0 ? (
               <div style={{ padding: 40, textAlign: 'center' }}><Empty description="暂无数据" /></div>
             ) : (
-              sorted.map((row, idx) => (
-                <div key={row[rowKey] || idx} style={{ display: 'flex', background: idx % 2 === 0 ? '#fff' : '#fafafa', borderBottom: '1px solid #f0f0f0' }}>
-                  {columnDefs.map(col => (
-                    <div key={col.key} style={{ width: colWidths[col.key], minWidth: colWidths[col.key], ...cellStyle, flexShrink: 0, overflow: 'hidden', textOverflow: col.ellipsis ? 'ellipsis' : undefined, whiteSpace: col.ellipsis ? 'nowrap' : undefined }}>
-                      {col.render ? col.render(row[col.dataIndex], row, pageOffset + idx + 1) : (col.dataIndex === '_index' ? pageOffset + idx + 1 : row[col.dataIndex])}
-                    </div>
-                  ))}
-                </div>
-              ))
+              sorted.map((row, idx) => {
+                const rowCellStyle = idx % 2 === 0 ? {} : { background: '#fafafa' };
+                return (
+                  <div key={row[rowKey] || idx} style={{ display: 'flex', background: '#fff', borderBottom: '1px solid #e8e8e8', ...rowCellStyle }}>
+                    {columnDefs.map(col => {
+                      const extraCellStyle = col.onCell ? col.onCell() : {};
+                      return (
+                        <div key={col.key} style={{ width: colWidths[col.key], minWidth: colWidths[col.key], flexShrink: 0, overflow: 'hidden', textOverflow: col.ellipsis ? 'ellipsis' : undefined, whiteSpace: col.ellipsis ? 'nowrap' : undefined, display: 'flex', alignItems: 'center', justifyContent: col.align === 'center' ? 'center' : 'flex-start', padding: '12px 16px', ...extraCellStyle }}>
+                          {col.render ? col.render(row[col.dataIndex], row, pageOffset + idx + 1) : (col.dataIndex === '_index' ? pageOffset + idx + 1 : row[col.dataIndex])}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })
             )}
           </div>
         </div>

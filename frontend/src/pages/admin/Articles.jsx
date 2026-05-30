@@ -164,25 +164,29 @@ export default function Articles() {
     setSelectedCandidates([]);
   }
 
-  function SortableHeader({ field, label, width }) {
+  function SortableHeader({ field, label, center = false }) {
     const isActive = sortField === field;
     return (
-      <span style={{ cursor: 'pointer', userSelect: 'none' }}
+      <span style={{ cursor: 'pointer', userSelect: 'none', display: 'inline-flex', alignItems: 'center', gap: 4, justifyContent: center ? 'center' : 'flex-start' }}
         onClick={() => { setSortOrder(isActive && sortOrder === 'desc' ? 'asc' : 'desc'); setSortField(field); setPage(1); }}>
-        {label} {isActive && (sortOrder === 'desc' ? '↓' : '↑')}
+        {label}
+        {isActive && (sortOrder === 'desc' ? '↓' : '↑')}
       </span>
     );
   }
 
+  const headerCellStyle = { textAlign: 'center', fontWeight: 600, background: '#fafafa', borderRight: '1px solid #e8e8e8' };
+  const cellStyle = { borderRight: '1px solid #e8e8e8' };
+
   const columns = [
-    { title: '序号', dataIndex: '_index', key: 'index', width: 60, sortable: false, align: 'center' },
-    { title: <SortableHeader field="source" label="来源" />, dataIndex: 'source', key: 'source', width: 120, sortable: false, align: 'center', render: v => <Tag color="blue">{v}</Tag> },
-    { title: <SortableHeader field="title" label="标题" />, dataIndex: 'title', key: 'title', ellipsis: true, sortable: false },
-    { title: <SortableHeader field="author" label="作者" />, dataIndex: 'author', key: 'author', width: 80, sortable: false, align: 'center' },
-    { title: <SortableHeader field="publish_time" label="发布时间" />, dataIndex: 'publish_time', key: 'publish_time', width: 160, sortable: false, align: 'center', render: v => v ? new Date(v).toLocaleString('zh-CN') : '-' },
-    { title: <SortableHeader field="created_at" label="添加时间" />, dataIndex: 'created_at', key: 'created_at', width: 160, sortable: false, align: 'center', render: v => v ? new Date(v).toLocaleString('zh-CN') : '-' },
+    { title: <div style={headerCellStyle}>序号</div>, dataIndex: '_index', key: 'index', width: 70, sortable: false, align: 'center', onHeaderCell: () => headerCellStyle, onCell: () => cellStyle },
+    { title: <div style={headerCellStyle}><SortableHeader field="source" label="来源" center /></div>, dataIndex: 'source', key: 'source', width: 130, sortable: false, align: 'center', onHeaderCell: () => headerCellStyle, onCell: () => cellStyle, render: v => <Tag color="blue" style={{ margin: 0 }}>{v}</Tag> },
+    { title: <div style={{...headerCellStyle, textAlign: 'left'}}><SortableHeader field="title" label="标题" /></div>, dataIndex: 'title', key: 'title', ellipsis: true, sortable: false, onHeaderCell: () => ({...headerCellStyle, textAlign: 'left'}), onCell: () => cellStyle },
+    { title: <div style={headerCellStyle}><SortableHeader field="author" label="作者" center /></div>, dataIndex: 'author', key: 'author', width: 90, sortable: false, align: 'center', onHeaderCell: () => headerCellStyle, onCell: () => cellStyle },
+    { title: <div style={headerCellStyle}><SortableHeader field="publish_time" label="发布时间" center /></div>, dataIndex: 'publish_time', key: 'publish_time', width: 170, sortable: false, align: 'center', onHeaderCell: () => headerCellStyle, onCell: () => cellStyle, render: v => v ? new Date(v).toLocaleString('zh-CN') : '-' },
+    { title: <div style={headerCellStyle}><SortableHeader field="created_at" label="添加时间" center /></div>, dataIndex: 'created_at', key: 'created_at', width: 170, sortable: false, align: 'center', onHeaderCell: () => headerCellStyle, onCell: () => cellStyle, render: v => v ? new Date(v).toLocaleString('zh-CN') : '-' },
     {
-      title: '操作', key: 'action', width: 240, fixed: 'right', sortable: false, align: 'center',
+      title: <div style={{...headerCellStyle, borderRight: 'none'}}>操作</div>, key: 'action', width: 280, fixed: 'right', sortable: false, align: 'center', onHeaderCell: () => ({...headerCellStyle, borderRight: 'none'}),
       render: (_, record) => (
         <Space size="small">
           <Button size="small" icon={<EyeOutlined />} onClick={() => previewContent(record.id)}>预览</Button>
