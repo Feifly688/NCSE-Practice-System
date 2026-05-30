@@ -243,7 +243,7 @@ export default function Practice() {
 
       setStartTime(Date.now());
       setElapsed(examMode ? examMinutes * 60 : 0);
-      setPausedElapsed(examMode ? examMinutes * 60 : 0);
+      setPausedElapsed(0);
       setPaused(false);
       setStep('doing');
     } catch (err) { message.error('获取题目失败'); setStep('setup'); }
