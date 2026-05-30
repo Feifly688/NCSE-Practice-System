@@ -259,6 +259,14 @@ ${articleText}
   }
 }
 
+async function runConcurrent(tasks, maxConcurrent = 3) {
+  const results = [];
+  let index = 0;
+  async function worker() { while (index < tasks.length) { const i = index++; results[i] = await tasks[i](); } }
+  await Promise.all(Array(Math.min(maxConcurrent, tasks.length)).fill(null).map(() => worker()));
+  return results;
+}
+
 // POST /api/generate/preview
 router.post('/preview', async (req, res) => {
   try {
