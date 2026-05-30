@@ -6,9 +6,10 @@
 2. [服务管理](#2-服务管理)
 3. [数据库管理](#3-数据库管理)
 4. [备份与恢复](#4-备份与恢复)
-5. [安全配置](#5-安全配置)
-6. [故障排查](#6-故障排查)
-7. [常用命令速查](#7-常用命令速查)
+5. [代码更新](#5-代码更新)
+6. [安全配置](#6-安全配置)
+7. [故障排查](#7-故障排查)
+8. [常用命令速查](#8-常用命令速查)
 
 ---
 
@@ -184,9 +185,72 @@ cd ~/NCSE-Practice-System
 
 ---
 
-## 5. 安全配置
+## 5. 代码更新
 
-### 5.1 防火墙
+### 5.1 拉取最新代码
+
+```bash
+cd ~/NCSE-Practice-System
+
+# 拉取代码（如果代理有问题，加上 -c 参数）
+git -c http.proxy= -c https.proxy= pull origin master
+```
+
+### 5.2 重新构建前端
+
+前端是静态文件，修改代码后需要重新构建：
+
+```bash
+cd ~/NCSE-Practice-System
+
+# 方式 1：完全重建并重启
+sudo docker compose down
+sudo docker compose up -d --build
+
+# 方式 2：只重建前端容器
+sudo docker compose run --rm frontend-builder
+sudo docker compose restart backend
+```
+
+### 5.3 重启后端
+
+如果只修改了后端代码，只需重启后端：
+
+```bash
+cd ~/NCSE-Practice-System
+sudo docker compose restart backend
+```
+
+### 5.4 修改服务器配置
+
+如果修改了 `.env` 文件，需要重新创建容器：
+
+```bash
+cd ~/NCSE-Practice-System
+
+# 删除旧容器并重建
+sudo docker compose down
+sudo docker compose up -d
+```
+
+### 5.5 更新后验证
+
+```bash
+# 检查容器状态
+sudo docker ps
+
+# 检查后端日志
+sudo docker logs ncse-backend --tail 20
+
+# 测试接口
+curl -s http://localhost:4000/api/health
+```
+
+---
+
+## 6. 安全配置
+
+### 6.1 防火墙
 
 ```bash
 # 查看状态
@@ -197,12 +261,12 @@ sudo ufw status
 # 拒绝：3306/tcp (MySQL)、4000/tcp (后端)
 ```
 
-### 5.2 SSH 安全
+### 6.2 SSH 安全
 
 - Root 登录：建议禁用
 - 使用普通用户登录
 
-### 5.3 服务监控
+### 6.3 服务监控
 
 ```bash
 # 查看监控日志
@@ -214,7 +278,7 @@ cat ~/monitor.log
 
 每 5 分钟自动检查后端和 Cloudflare Tunnel 状态。
 
-### 5.4 日志管理
+### 6.4 日志管理
 
 Docker 日志建议配置轮转：
 - 最大文件大小：10MB
@@ -222,9 +286,9 @@ Docker 日志建议配置轮转：
 
 ---
 
-## 6. 故障排查
+## 7. 故障排查
 
-### 6.1 网站无法访问
+### 7.1 网站无法访问
 
 ```bash
 # 1. 检查后端服务
@@ -238,7 +302,7 @@ sudo docker logs cloudflared --tail 20
 nslookup 你的域名
 ```
 
-### 6.2 Cloudflare Tunnel 不断重启
+### 7.2 Cloudflare Tunnel 不断重启
 
 ```bash
 # 查看日志
@@ -250,7 +314,7 @@ sudo docker run -d --name cloudflared --restart unless-stopped --network host \
   cloudflare/cloudflared tunnel --no-autoupdate run --token 你的token
 ```
 
-### 6.3 AI 生成功能失败
+### 7.3 AI 生成功能失败
 
 ```bash
 # 检查后端日志
@@ -264,7 +328,7 @@ sudo docker exec ncse-backend wget -qO- \
   "https://token-plan-cn.xiaomimimo.com/v1/chat/completions"
 ```
 
-### 6.4 数据库连接失败
+### 7.4 数据库连接失败
 
 ```bash
 # 检查 MySQL 容器状态
@@ -279,7 +343,7 @@ sudo docker exec -it mysql-container mysql -u root -p -e "SELECT 1"
 
 ---
 
-## 7. 常用命令速查
+## 8. 常用命令速查
 
 ### 服务管理
 
@@ -288,7 +352,7 @@ sudo docker exec -it mysql-container mysql -u root -p -e "SELECT 1"
 sudo docker ps
 
 # 重启后端
-cd ~/NCSE-Practice-System && sudo docker-compose restart backend
+cd ~/NCSE-Practice-System && sudo docker compose restart backend
 
 # 重启 Cloudflare
 sudo docker restart cloudflared
