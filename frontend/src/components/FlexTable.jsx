@@ -75,10 +75,10 @@ export default function FlexTable({
   function autoFit() {
     const w = {};
     columnDefs.forEach(c => {
-      if (c.key === 'index') w[c.key] = 50;
-      else if (c.key === 'action' || c.key === 'actions') w[c.key] = 140;
+      if (c.key === 'index') w[c.key] = 70;
+      else if (c.key === 'action' || c.key === 'actions') w[c.key] = 280;
       else if (c.key === 'title' || c.key === 'stem') w[c.key] = 400;
-      else w[c.key] = c.width || c.defaultWidth || 110;
+      else w[c.key] = c.width || c.defaultWidth || 120;
     });
     setColWidths(w);
     setResized(true);
@@ -87,11 +87,29 @@ export default function FlexTable({
   function handleSort(key) {
     const col = columnDefs.find(c => c.key === key);
     if (!col || col.sortable === false) return;
-    const newOrder = sortKey === key ? (sortOrder === 'asc' ? 'desc' : 'asc') : 'asc';
-    if (onSort) {
-      onSort(col.dataIndex || key, newOrder);
+
+    // 三态轮换: asc -> desc -> null(默认) -> asc
+    let newKey, newOrder;
+    if (sortKey === key) {
+      if (sortOrder === 'asc') {
+        newKey = key;
+        newOrder = 'desc';
+      } else if (sortOrder === 'desc') {
+        newKey = null;
+        newOrder = null;
+      } else {
+        newKey = key;
+        newOrder = 'asc';
+      }
     } else {
-      setInternalSortKey(key);
+      newKey = key;
+      newOrder = 'asc';
+    }
+
+    if (onSort) {
+      onSort(newKey ? (col.dataIndex || key) : null, newOrder);
+    } else {
+      setInternalSortKey(newKey);
       setInternalSortOrder(newOrder);
     }
   }
@@ -165,7 +183,7 @@ export default function FlexTable({
           <div style={{ minWidth: totalW }}>
             <div style={{ display: 'flex', background: '#fafafa', borderBottom: '2px solid #f0f0f0' }}>
               {columnDefs.map(col => {
-                const isSorted = sortKey === col.key;
+                const isSorted = sortKey === col.key && sortOrder !== null;
                 const sortable = col.sortable !== false;
                 const headerStyle = col.onHeaderCell ? col.onHeaderCell() : {};
                 return (
@@ -174,7 +192,7 @@ export default function FlexTable({
                     onClick={() => sortable && handleSort(col.key)}>
                     <span>{col.title}</span>
                     {sortable && (
-                      <span style={{ display: 'inline-flex', flexDirection: 'column', fontSize: 10, lineHeight: 1, opacity: isSorted ? 1 : 0.3 }}>
+                      <span style={{ display: 'inline-flex', flexDirection: 'column', fontSize: 10, lineHeight: 1, opacity: isSorted ? 1 : 0.4 }}>
                         <CaretUpOutlined style={{ color: isSorted && sortOrder === 'asc' ? '#1D4ED8' : '#999', marginBottom: -2 }} />
                         <CaretDownOutlined style={{ color: isSorted && sortOrder === 'desc' ? '#1D4ED8' : '#999' }} />
                       </span>
