@@ -227,6 +227,11 @@ export default function Practice() {
       const r = await api.get('/questions/random', { params: { count, subject: subject.slug, qtype: filterQtype, difficulty: filterDifficulty } });
       if (r.data.questions.length === 0) { message.error('该科目暂无题目'); setStep('setup'); return; }
 
+      // 如果实际题目数少于请求数，提示用户
+      if (r.data.questions.length < count) {
+        message.warning(`该科目只有 ${r.data.questions.length} 道题，将全部练习`);
+      }
+
       const qs = r.data.questions;
       setQuestions(qs);
       setAnswers({});
