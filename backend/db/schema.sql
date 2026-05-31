@@ -101,6 +101,19 @@ CREATE TABLE IF NOT EXISTS `practice_answer` (
   CONSTRAINT `fk_answer_question` FOREIGN KEY (`question_id`) REFERENCES `question`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Site statistics (key-value)
+CREATE TABLE IF NOT EXISTS `site_stats` (
+  `stat_key` VARCHAR(64) NOT NULL,
+  `stat_value` BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`stat_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Seed default stats
+INSERT IGNORE INTO `site_stats` (`stat_key`, `stat_value`) VALUES
+('total_visits', 0),
+('today_visits', 0);
+
 -- Seed default subjects
 INSERT IGNORE INTO `subject` (`name`,`slug`) VALUES
 (_utf8mb4 x'E8A880E8AFADE79086E8A7A3','verbal_comprehension'),

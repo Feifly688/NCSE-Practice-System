@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Typography, Card, Row, Col, Button, Space, Statistic, Skeleton } from 'antd';
-import { EditOutlined, HistoryOutlined, ReadOutlined, SafetyOutlined, TrophyOutlined, UserOutlined, BookOutlined, FileTextOutlined } from '@ant-design/icons';
+import { EditOutlined, HistoryOutlined, ReadOutlined, SafetyOutlined, TrophyOutlined, UserOutlined, BookOutlined, FileTextOutlined, EyeOutlined, FireOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
@@ -59,6 +59,7 @@ export default function Home() {
 
   useEffect(() => {
     fetchStats();
+    recordVisit();
   }, []);
 
   async function fetchStats() {
@@ -69,6 +70,14 @@ export default function Home() {
       console.error('Failed to load stats:', err);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function recordVisit() {
+    try {
+      await api.post('/stats/visit');
+    } catch (err) {
+      // 静默失败，不影响用户体验
     }
   }
 
@@ -103,7 +112,7 @@ export default function Home() {
 
       {/* 数据统计卡片 */}
       <Row gutter={[16, 16]} style={{ marginTop: 24 }}>
-        <Col xs={12} sm={12} md={6}>
+        <Col xs={12} sm={8} md={4}>
           <StatCard
             icon={<EditOutlined />}
             title="今日答题"
@@ -112,7 +121,7 @@ export default function Home() {
             loading={loading}
           />
         </Col>
-        <Col xs={12} sm={12} md={6}>
+        <Col xs={12} sm={8} md={4}>
           <StatCard
             icon={<TrophyOutlined />}
             title="今日正确率"
@@ -121,7 +130,7 @@ export default function Home() {
             loading={loading}
           />
         </Col>
-        <Col xs={12} sm={12} md={6}>
+        <Col xs={12} sm={8} md={4}>
           <StatCard
             icon={<UserOutlined />}
             title="注册用户"
@@ -130,12 +139,30 @@ export default function Home() {
             loading={loading}
           />
         </Col>
-        <Col xs={12} sm={12} md={6}>
+        <Col xs={12} sm={8} md={4}>
           <StatCard
             icon={<BookOutlined />}
             title="题库总数"
             value={stats?.totalQuestions ?? '-'}
             color="#DC2626"
+            loading={loading}
+          />
+        </Col>
+        <Col xs={12} sm={8} md={4}>
+          <StatCard
+            icon={<EyeOutlined />}
+            title="总访问量"
+            value={stats?.totalVisits ?? '-'}
+            color="#0891B2"
+            loading={loading}
+          />
+        </Col>
+        <Col xs={12} sm={8} md={4}>
+          <StatCard
+            icon={<FireOutlined />}
+            title="今日访问"
+            value={stats?.todayVisits ?? '-'}
+            color="#EA580C"
             loading={loading}
           />
         </Col>

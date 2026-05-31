@@ -1,0 +1,2501 @@
+{
+  "version": "1.0.0",
+  "gitCommitHash": "3b14eb3dff3fd44078538d0c8f3d554a87a8d259",
+  "generatedAt": "2026-05-31T13:48:54.600Z",
+  "files": {
+    ".env.example": {
+      "filePath": ".env.example",
+      "contentHash": "bfc59878e4b3e6beb11930f934f9c7ff6d64d6cae6457fa3c16d743e5fe95b14",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 13,
+      "hasStructuralAnalysis": true
+    },
+    ".gitignore": {
+      "filePath": ".gitignore",
+      "contentHash": "c4c6dd0f37c46ba806c7bdf0f4b206b689d261a7f5b91421d563d7dda6efabdb",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 12,
+      "hasStructuralAnalysis": false
+    },
+    ".understand-anything/.understandignore": {
+      "filePath": ".understand-anything/.understandignore",
+      "contentHash": "c522f1b6e94a51dbead44070f815b95aff60e2f9ad2652d17905c2414657c681",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 29,
+      "hasStructuralAnalysis": false
+    },
+    ".understand-anything/config.json": {
+      "filePath": ".understand-anything/config.json",
+      "contentHash": "c4a81b476be169d02009b0f55951562958b700b6d831e2b5754648ac73552ec9",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 2,
+      "hasStructuralAnalysis": true
+    },
+    ".understand-anything/tmp/scan-standalone.mjs": {
+      "filePath": ".understand-anything/tmp/scan-standalone.mjs",
+      "contentHash": "806ed561e29460dc0ae7044df846ccecea19de1d232a91916a9d0815c4b636ce",
+      "functions": [
+        {
+          "name": "dotfileKey",
+          "params": [
+            "base"
+          ],
+          "exported": false,
+          "lineCount": 5
+        },
+        {
+          "name": "detectLanguage",
+          "params": [
+            "filePath"
+          ],
+          "exported": false,
+          "lineCount": 15
+        },
+        {
+          "name": "detectCategory",
+          "params": [
+            "filePath"
+          ],
+          "exported": false,
+          "lineCount": 24
+        },
+        {
+          "name": "estimateComplexity",
+          "params": [
+            "totalFiles"
+          ],
+          "exported": false,
+          "lineCount": 6
+        },
+        {
+          "name": "toPosix",
+          "params": [
+            "p"
+          ],
+          "exported": false,
+          "lineCount": 3
+        },
+        {
+          "name": "countLines",
+          "params": [
+            "absPath",
+            "posixPath"
+          ],
+          "exported": false,
+          "lineCount": 13
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "node:fs",
+          "specifiers": [
+            "existsSync",
+            "readFileSync",
+            "readdirSync",
+            "statSync",
+            "writeFileSync"
+          ]
+        },
+        {
+          "source": "node:child_process",
+          "specifiers": [
+            "spawnSync"
+          ]
+        },
+        {
+          "source": "node:path",
+          "specifiers": [
+            "join",
+            "relative",
+            "sep",
+            "basename",
+            "extname"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 215,
+      "hasStructuralAnalysis": true
+    },
+    "backend/.gitignore": {
+      "filePath": "backend/.gitignore",
+      "contentHash": "59fc5cb077047b24da6f0c241425fe14d3e7ad9e576234717139617bfe811f77",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 6,
+      "hasStructuralAnalysis": false
+    },
+    "backend/db/schema.sql": {
+      "filePath": "backend/db/schema.sql",
+      "contentHash": "0cacf5791aedd7199c0dba53d19528f476797a8b475b4895d154ee3a28ccbdc4",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 135,
+      "hasStructuralAnalysis": true
+    },
+    "backend/Dockerfile": {
+      "filePath": "backend/Dockerfile",
+      "contentHash": "00a401b7bf411e0744e651de431bc75e95c4037dcb908978b6ace25be4a880f9",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 17,
+      "hasStructuralAnalysis": true
+    },
+    "backend/package-lock.json": {
+      "filePath": "backend/package-lock.json",
+      "contentHash": "11d4255076998b2026e7c2b4138b671e963ea34a6a91078d8165c985bd0a602b",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 1435,
+      "hasStructuralAnalysis": true
+    },
+    "backend/package.json": {
+      "filePath": "backend/package.json",
+      "contentHash": "b39b7addf15c561cb8615cc2ec070e78e9babc329218127b669b1590e8bf1bcf",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 25,
+      "hasStructuralAnalysis": true
+    },
+    "backend/scripts/check-pages.js": {
+      "filePath": "backend/scripts/check-pages.js",
+      "contentHash": "7f18d372f50fc617fd8d44efa993ec97eff038029cb23b271fc2edfd127ea56a",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 53,
+      "hasStructuralAnalysis": true
+    },
+    "backend/scripts/db_init.js": {
+      "filePath": "backend/scripts/db_init.js",
+      "contentHash": "4b120dd0924b2a2693089d18250dc4ae6e746339ec994dbcf9d887aeb628dc78",
+      "functions": [
+        {
+          "name": "env",
+          "params": [
+            "k",
+            "fallback"
+          ],
+          "exported": false,
+          "lineCount": 3
+        }
+      ],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 38,
+      "hasStructuralAnalysis": true
+    },
+    "backend/scripts/db_ping.js": {
+      "filePath": "backend/scripts/db_ping.js",
+      "contentHash": "cd91685710bdd5d613c2a8afc5bd25a154ce2602b8fff3bc1756137b47ad55e3",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 23,
+      "hasStructuralAnalysis": true
+    },
+    "backend/scripts/dedup_articles.js": {
+      "filePath": "backend/scripts/dedup_articles.js",
+      "contentHash": "c8d11c7eade4c8e560b17da3b7f995378de96b578d6b903dfa409661690feb84",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 40,
+      "hasStructuralAnalysis": true
+    },
+    "backend/scripts/fix_admin_nickname.js": {
+      "filePath": "backend/scripts/fix_admin_nickname.js",
+      "contentHash": "8aa4d6a0f11eecefb2d6f1bf39655d80b297f8bd266a841e7cbc219cb78e227d",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 17,
+      "hasStructuralAnalysis": true
+    },
+    "backend/scripts/fix-practice.js": {
+      "filePath": "backend/scripts/fix-practice.js",
+      "contentHash": "202009909ecbba7f2d8b09ed9d645f89931dc16a99bcd8d031ee882ec36b11fd",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 13,
+      "hasStructuralAnalysis": true
+    },
+    "backend/scripts/refetch-times.js": {
+      "filePath": "backend/scripts/refetch-times.js",
+      "contentHash": "b65daf870532ab32b9a1c1cd4fde3129bd795e9d97142b4de33e03926c480bf8",
+      "functions": [
+        {
+          "name": "parseDate",
+          "params": [
+            "dateStr"
+          ],
+          "exported": false,
+          "lineCount": 12
+        },
+        {
+          "name": "extractPublishTime",
+          "params": [
+            "url"
+          ],
+          "exported": false,
+          "lineCount": 84
+        },
+        {
+          "name": "main",
+          "params": [],
+          "exported": false,
+          "lineCount": 41
+        }
+      ],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 152,
+      "hasStructuralAnalysis": true
+    },
+    "backend/scripts/seed_admin.js": {
+      "filePath": "backend/scripts/seed_admin.js",
+      "contentHash": "81fab6a57e67546bd31b3cb7cc184dd3398c45c36ec2baaec48ea5a07690f5cc",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 36,
+      "hasStructuralAnalysis": true
+    },
+    "backend/scripts/seed_articles.js": {
+      "filePath": "backend/scripts/seed_articles.js",
+      "contentHash": "4aae4deb08ac4432ab4b6266d244382782d68d60c034bfe63b280f6bce877c0e",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 97,
+      "hasStructuralAnalysis": true
+    },
+    "backend/scripts/seed_questions.js": {
+      "filePath": "backend/scripts/seed_questions.js",
+      "contentHash": "e5fa2cbb56a28d0130d01a379766c36937499e5d928aaab153c5d337468796f5",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 157,
+      "hasStructuralAnalysis": true
+    },
+    "backend/scripts/simple_passwords.js": {
+      "filePath": "backend/scripts/simple_passwords.js",
+      "contentHash": "970f02c8c08b7595af05cc27c67033e801bd84c7439306878c2d3dc16ac9c078",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 32,
+      "hasStructuralAnalysis": true
+    },
+    "backend/src/db.js": {
+      "filePath": "backend/src/db.js",
+      "contentHash": "139ef17c7c94ff5ffae90747c1c614a0665e1138e8174a45747d41eeaed44d6f",
+      "functions": [
+        {
+          "name": "getConnection",
+          "params": [],
+          "exported": false,
+          "lineCount": 3
+        },
+        {
+          "name": "withConnection",
+          "params": [
+            "fn"
+          ],
+          "exported": false,
+          "lineCount": 8
+        },
+        {
+          "name": "closePool",
+          "params": [],
+          "exported": false,
+          "lineCount": 3
+        }
+      ],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 39,
+      "hasStructuralAnalysis": true
+    },
+    "backend/src/middleware/auth.js": {
+      "filePath": "backend/src/middleware/auth.js",
+      "contentHash": "f349691d6850dc38c4ef244f4d77fc973a27625ce008783dd0fe7448bb58c12a",
+      "functions": [
+        {
+          "name": "optionalAuth",
+          "params": [
+            "req",
+            "res",
+            "next"
+          ],
+          "exported": false,
+          "lineCount": 14
+        },
+        {
+          "name": "requireAuth",
+          "params": [
+            "req",
+            "res",
+            "next"
+          ],
+          "exported": false,
+          "lineCount": 29
+        },
+        {
+          "name": "requireAdmin",
+          "params": [
+            "req",
+            "res",
+            "next"
+          ],
+          "exported": false,
+          "lineCount": 6
+        },
+        {
+          "name": "signToken",
+          "params": [
+            "user"
+          ],
+          "exported": false,
+          "lineCount": 7
+        }
+      ],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 72,
+      "hasStructuralAnalysis": true
+    },
+    "backend/src/routes/admin.js": {
+      "filePath": "backend/src/routes/admin.js",
+      "contentHash": "de46442d25fff198b537ce02739107973026ae3899034b5905ddb30522791a92",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 95,
+      "hasStructuralAnalysis": true
+    },
+    "backend/src/routes/articles.js": {
+      "filePath": "backend/src/routes/articles.js",
+      "contentHash": "3f6b5d434c8b315f18b021bc2c6e370f54ba7967b3dccc5ff42a7bf3f4d45eb1",
+      "functions": [
+        {
+          "name": "makeFingerprint",
+          "params": [
+            "source",
+            "title"
+          ],
+          "exported": false,
+          "lineCount": 3
+        },
+        {
+          "name": "isArticleUrl",
+          "params": [
+            "url",
+            "sourceId"
+          ],
+          "exported": false,
+          "lineCount": 23
+        },
+        {
+          "name": "isArticleTitle",
+          "params": [
+            "title"
+          ],
+          "exported": false,
+          "lineCount": 7
+        },
+        {
+          "name": "fetchArticlesFromSource",
+          "params": [
+            "sourceId",
+            "count"
+          ],
+          "exported": false,
+          "lineCount": 21
+        },
+        {
+          "name": "extractPublishTime",
+          "params": [
+            "$"
+          ],
+          "exported": false,
+          "lineCount": 16
+        },
+        {
+          "name": "extractContent",
+          "params": [
+            "$",
+            "sourceId"
+          ],
+          "exported": false,
+          "lineCount": 19
+        },
+        {
+          "name": "filterAndCleanContent",
+          "params": [
+            "paragraphs"
+          ],
+          "exported": false,
+          "lineCount": 47
+        },
+        {
+          "name": "isAllowedUrl",
+          "params": [
+            "urlStr"
+          ],
+          "exported": false,
+          "lineCount": 9
+        },
+        {
+          "name": "fetchArticleContent",
+          "params": [
+            "url",
+            "sourceId"
+          ],
+          "exported": false,
+          "lineCount": 16
+        },
+        {
+          "name": "runConcurrent",
+          "params": [
+            "tasks"
+          ],
+          "exported": false,
+          "lineCount": 7
+        },
+        {
+          "name": "getSourceId",
+          "params": [
+            "sourceName"
+          ],
+          "exported": false,
+          "lineCount": 4
+        }
+      ],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 399,
+      "hasStructuralAnalysis": true
+    },
+    "backend/src/routes/auth.js": {
+      "filePath": "backend/src/routes/auth.js",
+      "contentHash": "1f2b21d826c5242935e1d8307853bdb6ebf100e64e62fd06d8ff9182deabde78",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 143,
+      "hasStructuralAnalysis": true
+    },
+    "backend/src/routes/generate.js": {
+      "filePath": "backend/src/routes/generate.js",
+      "contentHash": "943e08d5c572ae6c66a465cee6a547fca17132288c616bfbcb0fffe6986e45c5",
+      "functions": [
+        {
+          "name": "getSystemPrompt",
+          "params": [
+            "subject"
+          ],
+          "exported": false,
+          "lineCount": 9
+        },
+        {
+          "name": "validateQuestion",
+          "params": [
+            "q",
+            "articleText"
+          ],
+          "exported": false,
+          "lineCount": 39
+        },
+        {
+          "name": "generateQuestionsWithAI",
+          "params": [
+            "articleText",
+            "articleTitle",
+            "count"
+          ],
+          "exported": false,
+          "lineCount": 68
+        },
+        {
+          "name": "runConcurrent",
+          "params": [
+            "tasks"
+          ],
+          "exported": false,
+          "lineCount": 7
+        }
+      ],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 372,
+      "hasStructuralAnalysis": true
+    },
+    "backend/src/routes/practice.js": {
+      "filePath": "backend/src/routes/practice.js",
+      "contentHash": "14c91081756b71425934df032488ea2883e4fe1c98f922611e7b5b1a9dee60d7",
+      "functions": [
+        {
+          "name": "parseMetaJson",
+          "params": [
+            "raw"
+          ],
+          "exported": false,
+          "lineCount": 4
+        }
+      ],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 499,
+      "hasStructuralAnalysis": true
+    },
+    "backend/src/routes/questions.js": {
+      "filePath": "backend/src/routes/questions.js",
+      "contentHash": "1c2cea521310709e4c59144b2e11091caa55c294ca310fe0a94f597256d8d6bf",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 220,
+      "hasStructuralAnalysis": true
+    },
+    "backend/src/routes/stats.js": {
+      "filePath": "backend/src/routes/stats.js",
+      "contentHash": "88d9e51d3e906fd715ac68a1f4ea6379a501ad3c701ae1bc5d4b5334f1c6cb65",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 91,
+      "hasStructuralAnalysis": true
+    },
+    "backend/src/server.js": {
+      "filePath": "backend/src/server.js",
+      "contentHash": "16ce304e97b19639b141a8f40d9c336baafc2bb38661ac309a5b17f5a6a3bd67",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 100,
+      "hasStructuralAnalysis": true
+    },
+    "deploy/backup-db.sh": {
+      "filePath": "deploy/backup-db.sh",
+      "contentHash": "dad75cabf584e8b6ca176579686962fc754ed106baa368d159a8bcdc78d328bd",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 26,
+      "hasStructuralAnalysis": true
+    },
+    "deploy/deploy.sh": {
+      "filePath": "deploy/deploy.sh",
+      "contentHash": "1b8228ac0fe317230dcd2f7ddba13088a3707eb8af735c2dd4fbab32570fc21f",
+      "functions": [
+        {
+          "name": "info",
+          "params": [],
+          "exported": false,
+          "lineCount": 1
+        },
+        {
+          "name": "warn",
+          "params": [],
+          "exported": false,
+          "lineCount": 1
+        },
+        {
+          "name": "error",
+          "params": [],
+          "exported": false,
+          "lineCount": 1
+        }
+      ],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 172,
+      "hasStructuralAnalysis": true
+    },
+    "deploy/env.example": {
+      "filePath": "deploy/env.example",
+      "contentHash": "c0903a596b0aa30f55008e018b60810388be3ef534bfb8d69715facb390b8b6a",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 17,
+      "hasStructuralAnalysis": false
+    },
+    "deploy/ncse.conf": {
+      "filePath": "deploy/ncse.conf",
+      "contentHash": "6b80d9db3f2d3475ce4aabb531f7f1ac79178a884390e0c7166dc973a4ac24cf",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 32,
+      "hasStructuralAnalysis": false
+    },
+    "deploy/nginx.conf": {
+      "filePath": "deploy/nginx.conf",
+      "contentHash": "d73e49acdb7384b0e3a6a4792c2f70cfcf32f59fff0396fb1e88a98904e71fa2",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 40,
+      "hasStructuralAnalysis": false
+    },
+    "docker-compose.yml": {
+      "filePath": "docker-compose.yml",
+      "contentHash": "d3478d3d9172821a04ca493d8a96f55b7b7b37e837aef640367751340c8241e5",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 48,
+      "hasStructuralAnalysis": true
+    },
+    "docs/server-guide.md": {
+      "filePath": "docs/server-guide.md",
+      "contentHash": "de8bcfbddbdaae8e210f6cf45d7e11bd892dd7c5fb50e3c7ae32b837e1b80f59",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 416,
+      "hasStructuralAnalysis": true
+    },
+    "frontend/.gitignore": {
+      "filePath": "frontend/.gitignore",
+      "contentHash": "f0892704d39f8a63a7ec488b27b754eb0207c9b103e9096b98068ff0ea34e698",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 5,
+      "hasStructuralAnalysis": false
+    },
+    "frontend/index.html": {
+      "filePath": "frontend/index.html",
+      "contentHash": "39f5edb9b2a99873209ddb483ebb705e7a743d661f0069e31db90c3085449d9d",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 12,
+      "hasStructuralAnalysis": false
+    },
+    "frontend/package-lock.json": {
+      "filePath": "frontend/package-lock.json",
+      "contentHash": "5a26de6280a7eca8f2ca474951d517eedb62807c99aa321863e06c52f2544356",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 2939,
+      "hasStructuralAnalysis": true
+    },
+    "frontend/package.json": {
+      "filePath": "frontend/package.json",
+      "contentHash": "c85ee19848d3c00a2d7386dac72a443c8a64a0520b8d43e51d426ecaa6b2b2bd",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 23,
+      "hasStructuralAnalysis": true
+    },
+    "frontend/src/App.jsx": {
+      "filePath": "frontend/src/App.jsx",
+      "contentHash": "e32ec8facdc73dcfe56837a3d2ab4098050b8099511d89efe33c6123f442f8be",
+      "functions": [
+        {
+          "name": "App",
+          "params": [],
+          "exported": true,
+          "lineCount": 35
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "react",
+          "specifiers": [
+            "React"
+          ]
+        },
+        {
+          "source": "react-router-dom",
+          "specifiers": [
+            "BrowserRouter",
+            "Routes",
+            "Route"
+          ]
+        },
+        {
+          "source": "antd",
+          "specifiers": [
+            "ConfigProvider"
+          ]
+        },
+        {
+          "source": "./contexts/AuthContext",
+          "specifiers": [
+            "AuthProvider"
+          ]
+        },
+        {
+          "source": "./layouts/MainLayout",
+          "specifiers": [
+            "MainLayout"
+          ]
+        },
+        {
+          "source": "./layouts/AdminLayout",
+          "specifiers": [
+            "AdminLayout"
+          ]
+        },
+        {
+          "source": "./components/ProtectedRoute",
+          "specifiers": [
+            "ProtectedRoute"
+          ]
+        },
+        {
+          "source": "./components/AdminRoute",
+          "specifiers": [
+            "AdminRoute"
+          ]
+        },
+        {
+          "source": "./pages/Home",
+          "specifiers": [
+            "Home"
+          ]
+        },
+        {
+          "source": "./pages/Login",
+          "specifiers": [
+            "Login"
+          ]
+        },
+        {
+          "source": "./pages/Register",
+          "specifiers": [
+            "Register"
+          ]
+        },
+        {
+          "source": "./pages/Dashboard",
+          "specifiers": [
+            "Dashboard"
+          ]
+        },
+        {
+          "source": "./pages/Practice",
+          "specifiers": [
+            "Practice"
+          ]
+        },
+        {
+          "source": "./pages/History",
+          "specifiers": [
+            "History"
+          ]
+        },
+        {
+          "source": "./pages/WrongBook",
+          "specifiers": [
+            "WrongBook"
+          ]
+        },
+        {
+          "source": "./pages/Favorites",
+          "specifiers": [
+            "Favorites"
+          ]
+        },
+        {
+          "source": "./pages/Profile",
+          "specifiers": [
+            "Profile"
+          ]
+        },
+        {
+          "source": "./pages/Leaderboard",
+          "specifiers": [
+            "Leaderboard"
+          ]
+        },
+        {
+          "source": "./pages/admin/AdminHome",
+          "specifiers": [
+            "AdminHome"
+          ]
+        },
+        {
+          "source": "./pages/admin/Questions",
+          "specifiers": [
+            "Questions"
+          ]
+        },
+        {
+          "source": "./pages/admin/Users",
+          "specifiers": [
+            "Users"
+          ]
+        },
+        {
+          "source": "./pages/admin/Generate",
+          "specifiers": [
+            "Generate"
+          ]
+        },
+        {
+          "source": "./pages/admin/Articles",
+          "specifiers": [
+            "Articles"
+          ]
+        },
+        {
+          "source": "./pages/NotFound",
+          "specifiers": [
+            "NotFound"
+          ]
+        },
+        {
+          "source": "./components/ErrorBoundary",
+          "specifiers": [
+            "ErrorBoundary"
+          ]
+        }
+      ],
+      "exports": [
+        "App"
+      ],
+      "totalLines": 69,
+      "hasStructuralAnalysis": true
+    },
+    "frontend/src/components/AdminRoute.jsx": {
+      "filePath": "frontend/src/components/AdminRoute.jsx",
+      "contentHash": "96da328041ac79ac990926855902f110b77fce7563d1a294ee5d5d4ed39f34e1",
+      "functions": [
+        {
+          "name": "AdminRoute",
+          "params": [],
+          "exported": true,
+          "lineCount": 10
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "react",
+          "specifiers": [
+            "React"
+          ]
+        },
+        {
+          "source": "react-router-dom",
+          "specifiers": [
+            "Navigate"
+          ]
+        },
+        {
+          "source": "../contexts/AuthContext",
+          "specifiers": [
+            "useAuth"
+          ]
+        }
+      ],
+      "exports": [
+        "AdminRoute"
+      ],
+      "totalLines": 14,
+      "hasStructuralAnalysis": true
+    },
+    "frontend/src/components/ErrorBoundary.jsx": {
+      "filePath": "frontend/src/components/ErrorBoundary.jsx",
+      "contentHash": "10d5ec895f9e956e72a14a96946ae44c3f4889697da3e5affc26ee3693d72409",
+      "functions": [],
+      "classes": [
+        {
+          "name": "ErrorBoundary",
+          "methods": [
+            "constructor",
+            "getDerivedStateFromError",
+            "render"
+          ],
+          "properties": [],
+          "exported": false,
+          "lineCount": 29
+        }
+      ],
+      "imports": [
+        {
+          "source": "react",
+          "specifiers": [
+            "React"
+          ]
+        },
+        {
+          "source": "antd",
+          "specifiers": [
+            "Button",
+            "Typography"
+          ]
+        }
+      ],
+      "exports": [
+        "default"
+      ],
+      "totalLines": 33,
+      "hasStructuralAnalysis": true
+    },
+    "frontend/src/components/FlexTable.jsx": {
+      "filePath": "frontend/src/components/FlexTable.jsx",
+      "contentHash": "d9710d157e9a173afb078088b661f6509c83569342cb45744b7cee56a264939a",
+      "functions": [
+        {
+          "name": "FlexTable",
+          "params": [],
+          "exported": true,
+          "lineCount": 247
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "react",
+          "specifiers": [
+            "React",
+            "useState",
+            "useCallback",
+            "useEffect",
+            "useMemo"
+          ]
+        },
+        {
+          "source": "antd",
+          "specifiers": [
+            "Space",
+            "Button",
+            "Select",
+            "Input",
+            "Empty",
+            "Typography",
+            "Tooltip"
+          ]
+        },
+        {
+          "source": "@ant-design/icons",
+          "specifiers": [
+            "ReloadOutlined",
+            "ColumnWidthOutlined",
+            "CaretUpOutlined",
+            "CaretDownOutlined"
+          ]
+        }
+      ],
+      "exports": [
+        "FlexTable"
+      ],
+      "totalLines": 260,
+      "hasStructuralAnalysis": true
+    },
+    "frontend/src/components/Pagination.jsx": {
+      "filePath": "frontend/src/components/Pagination.jsx",
+      "contentHash": "e12f79d331a9d3889c6751f125869f45010af25159978a085b347678a3a30ce5",
+      "functions": [
+        {
+          "name": "Pagination",
+          "params": [],
+          "exported": true,
+          "lineCount": 43
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "react",
+          "specifiers": [
+            "React",
+            "useState"
+          ]
+        },
+        {
+          "source": "antd",
+          "specifiers": [
+            "Button",
+            "Input",
+            "Space",
+            "Typography"
+          ]
+        }
+      ],
+      "exports": [
+        "Pagination"
+      ],
+      "totalLines": 49,
+      "hasStructuralAnalysis": true
+    },
+    "frontend/src/components/ProtectedRoute.jsx": {
+      "filePath": "frontend/src/components/ProtectedRoute.jsx",
+      "contentHash": "710cd1093b87baaecca61684b6bd34430a93f1eab3bdb8286cadf08be98a50c0",
+      "functions": [
+        {
+          "name": "ProtectedRoute",
+          "params": [],
+          "exported": true,
+          "lineCount": 7
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "react",
+          "specifiers": [
+            "React"
+          ]
+        },
+        {
+          "source": "react-router-dom",
+          "specifiers": [
+            "Navigate"
+          ]
+        },
+        {
+          "source": "../contexts/AuthContext",
+          "specifiers": [
+            "useAuth"
+          ]
+        }
+      ],
+      "exports": [
+        "ProtectedRoute"
+      ],
+      "totalLines": 11,
+      "hasStructuralAnalysis": true
+    },
+    "frontend/src/contexts/AuthContext.jsx": {
+      "filePath": "frontend/src/contexts/AuthContext.jsx",
+      "contentHash": "1fa51608e587ca6433dfe4f507ab46675ec096155e858c1e1d39b4e02eaebd5c",
+      "functions": [
+        {
+          "name": "AuthProvider",
+          "params": [],
+          "exported": true,
+          "lineCount": 62
+        },
+        {
+          "name": "useAuth",
+          "params": [],
+          "exported": true,
+          "lineCount": 5
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "react",
+          "specifiers": [
+            "React",
+            "createContext",
+            "useContext",
+            "useState",
+            "useEffect",
+            "useRef"
+          ]
+        },
+        {
+          "source": "../services/api",
+          "specifiers": [
+            "api"
+          ]
+        }
+      ],
+      "exports": [
+        "AuthProvider",
+        "useAuth"
+      ],
+      "totalLines": 74,
+      "hasStructuralAnalysis": true
+    },
+    "frontend/src/layouts/AdminLayout.jsx": {
+      "filePath": "frontend/src/layouts/AdminLayout.jsx",
+      "contentHash": "cc6087f58e40c1aafd84fd53d301ad120558170e1266b59a6dbb6bf5409549d2",
+      "functions": [
+        {
+          "name": "AdminLayout",
+          "params": [],
+          "exported": true,
+          "lineCount": 33
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "react",
+          "specifiers": [
+            "React"
+          ]
+        },
+        {
+          "source": "antd",
+          "specifiers": [
+            "Layout",
+            "Menu"
+          ]
+        },
+        {
+          "source": "react-router-dom",
+          "specifiers": [
+            "Outlet",
+            "useNavigate",
+            "useLocation"
+          ]
+        },
+        {
+          "source": "@ant-design/icons",
+          "specifiers": [
+            "FileTextOutlined",
+            "UserOutlined",
+            "ThunderboltOutlined",
+            "ArrowLeftOutlined",
+            "ReadOutlined"
+          ]
+        }
+      ],
+      "exports": [
+        "AdminLayout"
+      ],
+      "totalLines": 40,
+      "hasStructuralAnalysis": true
+    },
+    "frontend/src/layouts/MainLayout.jsx": {
+      "filePath": "frontend/src/layouts/MainLayout.jsx",
+      "contentHash": "813657d375189ba530b700191626655427f1e3aae00b902b9e70585ee0bbec58",
+      "functions": [
+        {
+          "name": "MainLayout",
+          "params": [],
+          "exported": true,
+          "lineCount": 69
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "react",
+          "specifiers": [
+            "React"
+          ]
+        },
+        {
+          "source": "antd",
+          "specifiers": [
+            "Layout",
+            "Menu",
+            "Button",
+            "Space",
+            "Typography",
+            "Dropdown"
+          ]
+        },
+        {
+          "source": "react-router-dom",
+          "specifiers": [
+            "Outlet",
+            "useNavigate",
+            "useLocation"
+          ]
+        },
+        {
+          "source": "@ant-design/icons",
+          "specifiers": [
+            "HomeOutlined",
+            "EditOutlined",
+            "HistoryOutlined",
+            "DashboardOutlined",
+            "SettingOutlined",
+            "LogoutOutlined",
+            "LoginOutlined",
+            "UserAddOutlined",
+            "UserOutlined",
+            "BookOutlined",
+            "StarFilled",
+            "TrophyOutlined"
+          ]
+        },
+        {
+          "source": "../contexts/AuthContext",
+          "specifiers": [
+            "useAuth"
+          ]
+        }
+      ],
+      "exports": [
+        "MainLayout"
+      ],
+      "totalLines": 78,
+      "hasStructuralAnalysis": true
+    },
+    "frontend/src/main.jsx": {
+      "filePath": "frontend/src/main.jsx",
+      "contentHash": "de3662f37d7e20676e25e9f24499ceef5a0ae5d75109dc25c6583ee2d6ef4ab2",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "react",
+          "specifiers": [
+            "React"
+          ]
+        },
+        {
+          "source": "react-dom/client",
+          "specifiers": [
+            "ReactDOM"
+          ]
+        },
+        {
+          "source": "./App",
+          "specifiers": [
+            "App"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 10,
+      "hasStructuralAnalysis": true
+    },
+    "frontend/src/pages/admin/AdminHome.jsx": {
+      "filePath": "frontend/src/pages/admin/AdminHome.jsx",
+      "contentHash": "a98f382bed45cc989071dd6bdb784bdf5089b7440ee847de922726fcfad85f86",
+      "functions": [
+        {
+          "name": "AdminHome",
+          "params": [],
+          "exported": true,
+          "lineCount": 61
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "react",
+          "specifiers": [
+            "React",
+            "useState",
+            "useEffect"
+          ]
+        },
+        {
+          "source": "antd",
+          "specifiers": [
+            "Typography",
+            "Card",
+            "Row",
+            "Col",
+            "Statistic",
+            "Spin",
+            "Space",
+            "Button",
+            "message"
+          ]
+        },
+        {
+          "source": "@ant-design/icons",
+          "specifiers": [
+            "FileTextOutlined",
+            "UserOutlined",
+            "ReadOutlined",
+            "CheckCircleOutlined",
+            "ClockCircleOutlined",
+            "EditOutlined"
+          ]
+        },
+        {
+          "source": "react-router-dom",
+          "specifiers": [
+            "useNavigate"
+          ]
+        },
+        {
+          "source": "../../services/api",
+          "specifiers": [
+            "api"
+          ]
+        }
+      ],
+      "exports": [
+        "AdminHome"
+      ],
+      "totalLines": 68,
+      "hasStructuralAnalysis": true
+    },
+    "frontend/src/pages/admin/Articles.jsx": {
+      "filePath": "frontend/src/pages/admin/Articles.jsx",
+      "contentHash": "84194a88cba39257bec321b723a4bebc89e0d8e83afcc77f73c045d611f04038",
+      "functions": [
+        {
+          "name": "Articles",
+          "params": [],
+          "exported": true,
+          "lineCount": 353
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "react",
+          "specifiers": [
+            "React",
+            "useState",
+            "useEffect"
+          ]
+        },
+        {
+          "source": "antd",
+          "specifiers": [
+            "Typography",
+            "Tag",
+            "Button",
+            "Select",
+            "Modal",
+            "message",
+            "InputNumber",
+            "Checkbox",
+            "Divider",
+            "Space",
+            "List",
+            "Empty",
+            "Spin"
+          ]
+        },
+        {
+          "source": "@ant-design/icons",
+          "specifiers": [
+            "EyeOutlined",
+            "DownloadOutlined",
+            "CheckCircleOutlined",
+            "CopyOutlined",
+            "DeleteOutlined",
+            "ExclamationCircleOutlined"
+          ]
+        },
+        {
+          "source": "../../components/FlexTable",
+          "specifiers": [
+            "FlexTable"
+          ]
+        },
+        {
+          "source": "../../services/api",
+          "specifiers": [
+            "api"
+          ]
+        }
+      ],
+      "exports": [
+        "Articles"
+      ],
+      "totalLines": 376,
+      "hasStructuralAnalysis": true
+    },
+    "frontend/src/pages/admin/Generate.jsx": {
+      "filePath": "frontend/src/pages/admin/Generate.jsx",
+      "contentHash": "fbc51cdf838379f0bb43863c4c278540f415247ece4476bc8ef2815fb911743c",
+      "functions": [
+        {
+          "name": "Generate",
+          "params": [],
+          "exported": true,
+          "lineCount": 475
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "react",
+          "specifiers": [
+            "React",
+            "useState",
+            "useEffect"
+          ]
+        },
+        {
+          "source": "antd",
+          "specifiers": [
+            "Typography",
+            "Card",
+            "Button",
+            "Select",
+            "Modal",
+            "message",
+            "InputNumber",
+            "Checkbox",
+            "Divider",
+            "Space",
+            "List",
+            "Empty",
+            "Tag",
+            "Table"
+          ]
+        },
+        {
+          "source": "@ant-design/icons",
+          "specifiers": [
+            "ThunderboltOutlined",
+            "EyeOutlined",
+            "CheckCircleOutlined",
+            "ExperimentOutlined"
+          ]
+        },
+        {
+          "source": "../../services/api",
+          "specifiers": [
+            "api"
+          ]
+        }
+      ],
+      "exports": [
+        "Generate"
+      ],
+      "totalLines": 482,
+      "hasStructuralAnalysis": true
+    },
+    "frontend/src/pages/admin/Questions.jsx": {
+      "filePath": "frontend/src/pages/admin/Questions.jsx",
+      "contentHash": "ce3e79537cf3c203d1319ab3727fe200918a1d8c9db85756411f741816f3925f",
+      "functions": [
+        {
+          "name": "Questions",
+          "params": [],
+          "exported": true,
+          "lineCount": 417
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "react",
+          "specifiers": [
+            "React",
+            "useState",
+            "useEffect"
+          ]
+        },
+        {
+          "source": "antd",
+          "specifiers": [
+            "Typography",
+            "Button",
+            "Select",
+            "Modal",
+            "message",
+            "Checkbox",
+            "Divider",
+            "Space",
+            "Tag",
+            "Input",
+            "Popconfirm",
+            "Form",
+            "Radio"
+          ]
+        },
+        {
+          "source": "@ant-design/icons",
+          "specifiers": [
+            "EditOutlined",
+            "DeleteOutlined",
+            "CheckOutlined",
+            "CloseOutlined"
+          ]
+        },
+        {
+          "source": "../../services/api",
+          "specifiers": [
+            "api"
+          ]
+        },
+        {
+          "source": "../../utils",
+          "specifiers": [
+            "parseOptions"
+          ]
+        },
+        {
+          "source": "../../components/Pagination",
+          "specifiers": [
+            "Pagination"
+          ]
+        }
+      ],
+      "exports": [
+        "Questions"
+      ],
+      "totalLines": 435,
+      "hasStructuralAnalysis": true
+    },
+    "frontend/src/pages/admin/Users.jsx": {
+      "filePath": "frontend/src/pages/admin/Users.jsx",
+      "contentHash": "0de4254ae7280f3e6ca6948ee483d311d45ef893876890f96895c7e85f302573",
+      "functions": [
+        {
+          "name": "Users",
+          "params": [],
+          "exported": true,
+          "lineCount": 121
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "react",
+          "specifiers": [
+            "React",
+            "useState",
+            "useEffect"
+          ]
+        },
+        {
+          "source": "antd",
+          "specifiers": [
+            "Typography",
+            "Button",
+            "Select",
+            "message",
+            "Space",
+            "Tag",
+            "Popconfirm",
+            "Modal",
+            "Form"
+          ]
+        },
+        {
+          "source": "@ant-design/icons",
+          "specifiers": [
+            "DeleteOutlined",
+            "EditOutlined",
+            "UserOutlined"
+          ]
+        },
+        {
+          "source": "../../services/api",
+          "specifiers": [
+            "api"
+          ]
+        },
+        {
+          "source": "../../components/Pagination",
+          "specifiers": [
+            "Pagination"
+          ]
+        }
+      ],
+      "exports": [
+        "Users"
+      ],
+      "totalLines": 135,
+      "hasStructuralAnalysis": true
+    },
+    "frontend/src/pages/Dashboard.jsx": {
+      "filePath": "frontend/src/pages/Dashboard.jsx",
+      "contentHash": "e89d29a5a4fc99a8cbcb299591836696c3299ac2dc97d8ea5150f359a3736b6f",
+      "functions": [
+        {
+          "name": "Dashboard",
+          "params": [],
+          "exported": true,
+          "lineCount": 111
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "react",
+          "specifiers": [
+            "React",
+            "useState",
+            "useEffect"
+          ]
+        },
+        {
+          "source": "antd",
+          "specifiers": [
+            "Typography",
+            "Card",
+            "Row",
+            "Col",
+            "Statistic",
+            "Button",
+            "Space",
+            "Spin",
+            "message",
+            "List",
+            "Tag",
+            "Empty"
+          ]
+        },
+        {
+          "source": "@ant-design/icons",
+          "specifiers": [
+            "EditOutlined",
+            "HistoryOutlined",
+            "TrophyOutlined",
+            "ClockCircleOutlined",
+            "CheckCircleOutlined",
+            "PlayCircleOutlined"
+          ]
+        },
+        {
+          "source": "react-router-dom",
+          "specifiers": [
+            "useNavigate"
+          ]
+        },
+        {
+          "source": "../contexts/AuthContext",
+          "specifiers": [
+            "useAuth"
+          ]
+        },
+        {
+          "source": "../services/api",
+          "specifiers": [
+            "api"
+          ]
+        }
+      ],
+      "exports": [
+        "Dashboard"
+      ],
+      "totalLines": 120,
+      "hasStructuralAnalysis": true
+    },
+    "frontend/src/pages/Favorites.jsx": {
+      "filePath": "frontend/src/pages/Favorites.jsx",
+      "contentHash": "782183452b879832503abafa67963dc069c367a2eb169997bc509e35930c661b",
+      "functions": [
+        {
+          "name": "Favorites",
+          "params": [],
+          "exported": true,
+          "lineCount": 97
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "react",
+          "specifiers": [
+            "React",
+            "useState",
+            "useEffect"
+          ]
+        },
+        {
+          "source": "antd",
+          "specifiers": [
+            "Typography",
+            "Card",
+            "Button",
+            "Space",
+            "Tag",
+            "message",
+            "Spin",
+            "Empty",
+            "Modal",
+            "Radio"
+          ]
+        },
+        {
+          "source": "@ant-design/icons",
+          "specifiers": [
+            "StarFilled"
+          ]
+        },
+        {
+          "source": "../services/api",
+          "specifiers": [
+            "api"
+          ]
+        },
+        {
+          "source": "../utils",
+          "specifiers": [
+            "parseOptions",
+            "cleanOption"
+          ]
+        },
+        {
+          "source": "../components/Pagination",
+          "specifiers": [
+            "Pagination"
+          ]
+        }
+      ],
+      "exports": [
+        "Favorites"
+      ],
+      "totalLines": 106,
+      "hasStructuralAnalysis": true
+    },
+    "frontend/src/pages/History.jsx": {
+      "filePath": "frontend/src/pages/History.jsx",
+      "contentHash": "ad968f85352f0ee49d90a8cef70cc70df32966203ae6b7d66f92a9bbe680591d",
+      "functions": [
+        {
+          "name": "History",
+          "params": [],
+          "exported": true,
+          "lineCount": 106
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "react",
+          "specifiers": [
+            "React",
+            "useState",
+            "useEffect"
+          ]
+        },
+        {
+          "source": "antd",
+          "specifiers": [
+            "Typography",
+            "Card",
+            "Tag",
+            "Statistic",
+            "Row",
+            "Col",
+            "Spin",
+            "message",
+            "Space",
+            "Button"
+          ]
+        },
+        {
+          "source": "@ant-design/icons",
+          "specifiers": [
+            "CheckCircleOutlined",
+            "ClockCircleOutlined",
+            "EditOutlined",
+            "TrophyOutlined",
+            "EyeOutlined",
+            "PlayCircleOutlined"
+          ]
+        },
+        {
+          "source": "react-router-dom",
+          "specifiers": [
+            "useNavigate"
+          ]
+        },
+        {
+          "source": "../services/api",
+          "specifiers": [
+            "api"
+          ]
+        },
+        {
+          "source": "../components/Pagination",
+          "specifiers": [
+            "Pagination"
+          ]
+        }
+      ],
+      "exports": [
+        "History"
+      ],
+      "totalLines": 115,
+      "hasStructuralAnalysis": true
+    },
+    "frontend/src/pages/Home.jsx": {
+      "filePath": "frontend/src/pages/Home.jsx",
+      "contentHash": "533c6d21695c544b63ee99fe3e3fbdd52551da5edf6238d1212e031911e99249",
+      "functions": [
+        {
+          "name": "StatCard",
+          "params": [],
+          "exported": false,
+          "lineCount": 15
+        },
+        {
+          "name": "WeekTrend",
+          "params": [],
+          "exported": false,
+          "lineCount": 29
+        },
+        {
+          "name": "Home",
+          "params": [],
+          "exported": true,
+          "lineCount": 112
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "react",
+          "specifiers": [
+            "React",
+            "useState",
+            "useEffect"
+          ]
+        },
+        {
+          "source": "antd",
+          "specifiers": [
+            "Typography",
+            "Card",
+            "Row",
+            "Col",
+            "Button",
+            "Space",
+            "Statistic",
+            "Skeleton"
+          ]
+        },
+        {
+          "source": "@ant-design/icons",
+          "specifiers": [
+            "EditOutlined",
+            "HistoryOutlined",
+            "ReadOutlined",
+            "SafetyOutlined",
+            "TrophyOutlined",
+            "UserOutlined",
+            "BookOutlined",
+            "FileTextOutlined"
+          ]
+        },
+        {
+          "source": "react-router-dom",
+          "specifiers": [
+            "useNavigate"
+          ]
+        },
+        {
+          "source": "../contexts/AuthContext",
+          "specifiers": [
+            "useAuth"
+          ]
+        },
+        {
+          "source": "../services/api",
+          "specifiers": [
+            "api"
+          ]
+        }
+      ],
+      "exports": [
+        "Home"
+      ],
+      "totalLines": 166,
+      "hasStructuralAnalysis": true
+    },
+    "frontend/src/pages/Leaderboard.jsx": {
+      "filePath": "frontend/src/pages/Leaderboard.jsx",
+      "contentHash": "5ca89b6009c065c48fc77931e478832ed0b2e6ed8f488f4fd051c158da606771",
+      "functions": [
+        {
+          "name": "Leaderboard",
+          "params": [],
+          "exported": true,
+          "lineCount": 56
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "react",
+          "specifiers": [
+            "React",
+            "useState",
+            "useEffect"
+          ]
+        },
+        {
+          "source": "antd",
+          "specifiers": [
+            "Typography",
+            "Table",
+            "Tag",
+            "Spin",
+            "message"
+          ]
+        },
+        {
+          "source": "@ant-design/icons",
+          "specifiers": [
+            "TrophyOutlined"
+          ]
+        },
+        {
+          "source": "../contexts/AuthContext",
+          "specifiers": [
+            "useAuth"
+          ]
+        },
+        {
+          "source": "../services/api",
+          "specifiers": [
+            "api"
+          ]
+        }
+      ],
+      "exports": [
+        "Leaderboard"
+      ],
+      "totalLines": 65,
+      "hasStructuralAnalysis": true
+    },
+    "frontend/src/pages/Login.jsx": {
+      "filePath": "frontend/src/pages/Login.jsx",
+      "contentHash": "cb07b93633c6cdf7b720e32a799c3a1dab6d0de1398bf527838fc0dff94a8ddf",
+      "functions": [
+        {
+          "name": "Login",
+          "params": [],
+          "exported": true,
+          "lineCount": 38
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "react",
+          "specifiers": [
+            "React"
+          ]
+        },
+        {
+          "source": "antd",
+          "specifiers": [
+            "Card",
+            "Form",
+            "Input",
+            "Button",
+            "Typography",
+            "message",
+            "Space"
+          ]
+        },
+        {
+          "source": "@ant-design/icons",
+          "specifiers": [
+            "MailOutlined",
+            "LockOutlined"
+          ]
+        },
+        {
+          "source": "react-router-dom",
+          "specifiers": [
+            "useNavigate",
+            "Link"
+          ]
+        },
+        {
+          "source": "../contexts/AuthContext",
+          "specifiers": [
+            "useAuth"
+          ]
+        }
+      ],
+      "exports": [
+        "Login"
+      ],
+      "totalLines": 44,
+      "hasStructuralAnalysis": true
+    },
+    "frontend/src/pages/NotFound.jsx": {
+      "filePath": "frontend/src/pages/NotFound.jsx",
+      "contentHash": "649da6cd1002f9e4995c19d3525e3f49010175e09e6710b4162e6563fca22087",
+      "functions": [
+        {
+          "name": "NotFound",
+          "params": [],
+          "exported": true,
+          "lineCount": 12
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "react",
+          "specifiers": [
+            "React"
+          ]
+        },
+        {
+          "source": "antd",
+          "specifiers": [
+            "Button",
+            "Typography"
+          ]
+        },
+        {
+          "source": "@ant-design/icons",
+          "specifiers": [
+            "HomeOutlined"
+          ]
+        },
+        {
+          "source": "react-router-dom",
+          "specifiers": [
+            "useNavigate"
+          ]
+        }
+      ],
+      "exports": [
+        "NotFound"
+      ],
+      "totalLines": 20,
+      "hasStructuralAnalysis": true
+    },
+    "frontend/src/pages/Practice.jsx": {
+      "filePath": "frontend/src/pages/Practice.jsx",
+      "contentHash": "18e1e76d3c7aa7fa9c9414ecdb0005be896403d64e04dea2b6e11baff262926a",
+      "functions": [
+        {
+          "name": "Practice",
+          "params": [],
+          "exported": true,
+          "lineCount": 568
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "react",
+          "specifiers": [
+            "React",
+            "useState",
+            "useEffect",
+            "useRef"
+          ]
+        },
+        {
+          "source": "antd",
+          "specifiers": [
+            "Typography",
+            "Card",
+            "Button",
+            "Radio",
+            "Space",
+            "Select",
+            "InputNumber",
+            "Progress",
+            "message",
+            "Spin",
+            "Divider",
+            "Tag",
+            "Modal"
+          ]
+        },
+        {
+          "source": "@ant-design/icons",
+          "specifiers": [
+            "CheckCircleOutlined",
+            "CloseCircleOutlined",
+            "ArrowRightOutlined",
+            "ArrowLeftOutlined",
+            "ReloadOutlined",
+            "ClockCircleOutlined",
+            "FileTextOutlined",
+            "PauseCircleOutlined",
+            "PlayCircleOutlined",
+            "StarOutlined"
+          ]
+        },
+        {
+          "source": "react-router-dom",
+          "specifiers": [
+            "useSearchParams",
+            "useNavigate"
+          ]
+        },
+        {
+          "source": "../services/api",
+          "specifiers": [
+            "api"
+          ]
+        },
+        {
+          "source": "../utils",
+          "specifiers": [
+            "parseOptions",
+            "cleanOption",
+            "formatTime"
+          ]
+        }
+      ],
+      "exports": [
+        "Practice"
+      ],
+      "totalLines": 577,
+      "hasStructuralAnalysis": true
+    },
+    "frontend/src/pages/Profile.jsx": {
+      "filePath": "frontend/src/pages/Profile.jsx",
+      "contentHash": "b8eaec18afc1b5b7345602031f9d851a4fae3e19d2889c0b3851ccfe08f732b6",
+      "functions": [
+        {
+          "name": "Profile",
+          "params": [],
+          "exported": true,
+          "lineCount": 100
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "react",
+          "specifiers": [
+            "React",
+            "useState",
+            "useEffect"
+          ]
+        },
+        {
+          "source": "antd",
+          "specifiers": [
+            "Typography",
+            "Card",
+            "Form",
+            "Input",
+            "Button",
+            "Space",
+            "message",
+            "Descriptions"
+          ]
+        },
+        {
+          "source": "@ant-design/icons",
+          "specifiers": [
+            "UserOutlined",
+            "MailOutlined",
+            "LockOutlined",
+            "SaveOutlined"
+          ]
+        },
+        {
+          "source": "react-router-dom",
+          "specifiers": [
+            "useNavigate"
+          ]
+        },
+        {
+          "source": "../contexts/AuthContext",
+          "specifiers": [
+            "useAuth"
+          ]
+        },
+        {
+          "source": "../services/api",
+          "specifiers": [
+            "api"
+          ]
+        }
+      ],
+      "exports": [
+        "Profile"
+      ],
+      "totalLines": 110,
+      "hasStructuralAnalysis": true
+    },
+    "frontend/src/pages/Register.jsx": {
+      "filePath": "frontend/src/pages/Register.jsx",
+      "contentHash": "8fcedac9663934adc66daab13c008c0fa3f470b712fca7bae8cb2590f17d566c",
+      "functions": [
+        {
+          "name": "Register",
+          "params": [],
+          "exported": true,
+          "lineCount": 41
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "react",
+          "specifiers": [
+            "React"
+          ]
+        },
+        {
+          "source": "antd",
+          "specifiers": [
+            "Card",
+            "Form",
+            "Input",
+            "Button",
+            "Typography",
+            "message",
+            "Space"
+          ]
+        },
+        {
+          "source": "@ant-design/icons",
+          "specifiers": [
+            "MailOutlined",
+            "LockOutlined",
+            "UserOutlined"
+          ]
+        },
+        {
+          "source": "react-router-dom",
+          "specifiers": [
+            "useNavigate",
+            "Link"
+          ]
+        },
+        {
+          "source": "../contexts/AuthContext",
+          "specifiers": [
+            "useAuth"
+          ]
+        }
+      ],
+      "exports": [
+        "Register"
+      ],
+      "totalLines": 47,
+      "hasStructuralAnalysis": true
+    },
+    "frontend/src/pages/WrongBook.jsx": {
+      "filePath": "frontend/src/pages/WrongBook.jsx",
+      "contentHash": "ebf5675554f0967a468cb35d5f4092cb157ab4023c575c035a5b5f57734dae07",
+      "functions": [
+        {
+          "name": "WrongBook",
+          "params": [],
+          "exported": true,
+          "lineCount": 242
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "react",
+          "specifiers": [
+            "React",
+            "useState",
+            "useEffect"
+          ]
+        },
+        {
+          "source": "antd",
+          "specifiers": [
+            "Typography",
+            "Card",
+            "Button",
+            "Space",
+            "Tag",
+            "message",
+            "Spin",
+            "Empty",
+            "Modal",
+            "Radio",
+            "Switch",
+            "Popconfirm"
+          ]
+        },
+        {
+          "source": "@ant-design/icons",
+          "specifiers": [
+            "CheckCircleOutlined",
+            "CloseCircleOutlined",
+            "ReloadOutlined",
+            "BookOutlined",
+            "StarFilled",
+            "StarOutlined",
+            "ExportOutlined",
+            "DeleteOutlined",
+            "SettingOutlined"
+          ]
+        },
+        {
+          "source": "react-router-dom",
+          "specifiers": [
+            "useNavigate"
+          ]
+        },
+        {
+          "source": "../services/api",
+          "specifiers": [
+            "api"
+          ]
+        },
+        {
+          "source": "../utils",
+          "specifiers": [
+            "parseOptions",
+            "cleanOption"
+          ]
+        },
+        {
+          "source": "../components/Pagination",
+          "specifiers": [
+            "Pagination"
+          ]
+        }
+      ],
+      "exports": [
+        "WrongBook"
+      ],
+      "totalLines": 252,
+      "hasStructuralAnalysis": true
+    },
+    "frontend/src/services/api.js": {
+      "filePath": "frontend/src/services/api.js",
+      "contentHash": "26bc8f5dfb1bfa60f72405e556a19cb8aaa5cfa7fef92503d32f153ed054c6b9",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "axios",
+          "specifiers": [
+            "axios"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 36,
+      "hasStructuralAnalysis": true
+    },
+    "frontend/src/utils.js": {
+      "filePath": "frontend/src/utils.js",
+      "contentHash": "12da3b9ae436ac33604137bda8447d338958e8f8a8afcb5af11306a7876aae7c",
+      "functions": [
+        {
+          "name": "parseOptions",
+          "params": [
+            "opts"
+          ],
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "cleanOption",
+          "params": [
+            "text"
+          ],
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "formatTime",
+          "params": [
+            "seconds"
+          ],
+          "exported": true,
+          "lineCount": 6
+        }
+      ],
+      "classes": [],
+      "imports": [],
+      "exports": [
+        "parseOptions",
+        "cleanOption",
+        "formatTime"
+      ],
+      "totalLines": 17,
+      "hasStructuralAnalysis": true
+    },
+    "frontend/vite.config.js": {
+      "filePath": "frontend/vite.config.js",
+      "contentHash": "c2c740f12c7a3ccb68fcfc789868940379776a46a2016df15fbf4d4eead83d70",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "vite",
+          "specifiers": [
+            "defineConfig"
+          ]
+        },
+        {
+          "source": "@vitejs/plugin-react",
+          "specifiers": [
+            "react"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 17,
+      "hasStructuralAnalysis": true
+    },
+    "package.json": {
+      "filePath": "package.json",
+      "contentHash": "223c4b29ab25508864ce9e9b4b5abe72e1f5138003c37777e4950d82813a6d56",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 12,
+      "hasStructuralAnalysis": true
+    },
+    "README.md": {
+      "filePath": "README.md",
+      "contentHash": "23f33ba68ee467744488b6c514ebdd3bb60253a11ae24e94926ca3e6e1b452cb",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 132,
+      "hasStructuralAnalysis": true
+    }
+  }
+}

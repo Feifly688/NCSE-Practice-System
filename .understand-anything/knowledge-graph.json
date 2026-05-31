@@ -1,0 +1,3365 @@
+{
+  "version": "1.0.0",
+  "project": {
+    "name": "ncse-practice-system",
+    "languages": [
+      "javascript",
+      "json",
+      "markdown",
+      "shell",
+      "sql",
+      "dockerfile",
+      "yaml",
+      "html"
+    ],
+    "frameworks": [
+      "React",
+      "Vite",
+      "Ant Design",
+      "Express",
+      "MySQL",
+      "Docker",
+      "Docker Compose"
+    ],
+    "description": "公务员考试在线练习平台，支持单选题练习、模拟考试、错题本、收藏、排行榜等功能。后端使用 Express + MySQL，前端使用 React + Ant Design + Vite。",
+    "analyzedAt": "2026-05-31T13:47:08.122Z",
+    "gitCommitHash": "3b14eb3dff3fd44078538d0c8f3d554a87a8d259"
+  },
+  "nodes": [
+    {
+      "id": "file:frontend/src/App.jsx",
+      "type": "file",
+      "name": "App.jsx",
+      "filePath": "frontend/src/App.jsx",
+      "summary": "应用根组件，配置 Ant Design 主题并定义前台/后台全部路由，包含 ErrorBoundary、AuthProvider 等全局包裹器。",
+      "tags": [
+        "entry-point",
+        "routing",
+        "barrel"
+      ],
+      "complexity": "moderate",
+      "languageNotes": "React 函数式组件，使用 react-router-dom v6 嵌套路由定义前台和管理员后台两条路由线。"
+    },
+    {
+      "id": "function:frontend/src/App.jsx:App",
+      "type": "function",
+      "name": "App",
+      "filePath": "frontend/src/App.jsx",
+      "lineRange": [
+        35,
+        69
+      ],
+      "summary": "根组件函数，渲染 ErrorBoundary > ConfigProvider > BrowserRouter > AuthProvider 及全部路由配置。",
+      "tags": [
+        "entry-point",
+        "routing"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:frontend/src/components/AdminRoute.jsx",
+      "type": "file",
+      "name": "AdminRoute.jsx",
+      "filePath": "frontend/src/components/AdminRoute.jsx",
+      "summary": "管理员路由守卫，验证用户已登录且具备 admin 角色，否则重定向至登录页或首页。",
+      "tags": [
+        "routing",
+        "auth",
+        "middleware"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:frontend/src/components/ErrorBoundary.jsx",
+      "type": "file",
+      "name": "ErrorBoundary.jsx",
+      "filePath": "frontend/src/components/ErrorBoundary.jsx",
+      "summary": "React 类组件实现的全局错误边界，捕获子组件渲染异常并展示中文错误提示页，支持返回首页恢复。",
+      "tags": [
+        "error-handling",
+        "component"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:frontend/src/components/ErrorBoundary.jsx:ErrorBoundary",
+      "type": "class",
+      "name": "ErrorBoundary",
+      "filePath": "frontend/src/components/ErrorBoundary.jsx",
+      "lineRange": [
+        4,
+        32
+      ],
+      "summary": "React 类组件错误边界，通过 getDerivedStateFromError 捕获渲染错误，render 方法在出错时展示友好错误页。",
+      "tags": [
+        "error-handling",
+        "component"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:frontend/src/components/ProtectedRoute.jsx",
+      "type": "file",
+      "name": "ProtectedRoute.jsx",
+      "filePath": "frontend/src/components/ProtectedRoute.jsx",
+      "summary": "通用路由守卫，检查用户是否已登录，未登录则重定向至登录页。",
+      "tags": [
+        "routing",
+        "auth",
+        "middleware"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:frontend/src/contexts/AuthContext.jsx",
+      "type": "file",
+      "name": "AuthContext.jsx",
+      "filePath": "frontend/src/contexts/AuthContext.jsx",
+      "summary": "全局认证上下文，提供用户状态、login/register/logout 方法，支持 token 持久化和启动时有效性验证。",
+      "tags": [
+        "auth",
+        "context",
+        "state-management"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:frontend/src/contexts/AuthContext.jsx:AuthProvider",
+      "type": "function",
+      "name": "AuthProvider",
+      "filePath": "frontend/src/contexts/AuthContext.jsx",
+      "lineRange": [
+        6,
+        67
+      ],
+      "summary": "认证 Context Provider，管理 user 状态和 loading 标志，从 localStorage 恢复 token，提供 login/register/logout 三个异步方法。",
+      "tags": [
+        "auth",
+        "context",
+        "state-management"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:frontend/src/layouts/AdminLayout.jsx",
+      "type": "file",
+      "name": "AdminLayout.jsx",
+      "filePath": "frontend/src/layouts/AdminLayout.jsx",
+      "summary": "管理后台侧边栏布局，提供题目管理、文章来源、用户管理、题目生成等导航菜单项。",
+      "tags": [
+        "layout",
+        "navigation",
+        "component"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:frontend/src/layouts/AdminLayout.jsx:AdminLayout",
+      "type": "function",
+      "name": "AdminLayout",
+      "filePath": "frontend/src/layouts/AdminLayout.jsx",
+      "lineRange": [
+        8,
+        40
+      ],
+      "summary": "管理员后台布局组件，使用 Ant Design Sider + Menu 实现左侧导航，通过 Outlet 渲染子路由。",
+      "tags": [
+        "layout",
+        "navigation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:frontend/src/layouts/MainLayout.jsx",
+      "type": "file",
+      "name": "MainLayout.jsx",
+      "filePath": "frontend/src/layouts/MainLayout.jsx",
+      "summary": "前台主布局，包含顶部导航栏（根据登录状态动态显示菜单）、用户下拉菜单和页脚。",
+      "tags": [
+        "layout",
+        "navigation",
+        "component"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:frontend/src/layouts/MainLayout.jsx:MainLayout",
+      "type": "function",
+      "name": "MainLayout",
+      "filePath": "frontend/src/layouts/MainLayout.jsx",
+      "lineRange": [
+        9,
+        77
+      ],
+      "summary": "前台主布局组件，根据 isAuthenticated/isAdmin 动态构建导航菜单项，管理用户下拉菜单和个人中心入口。",
+      "tags": [
+        "layout",
+        "navigation"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:frontend/src/main.jsx",
+      "type": "file",
+      "name": "main.jsx",
+      "filePath": "frontend/src/main.jsx",
+      "summary": "Vite 应用入口，使用 ReactDOM.createRoot 将 App 挂载到 DOM，启用 StrictMode。",
+      "tags": [
+        "entry-point",
+        "bootstrap"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:frontend/src/pages/Dashboard.jsx",
+      "type": "file",
+      "name": "Dashboard.jsx",
+      "filePath": "frontend/src/pages/Dashboard.jsx",
+      "summary": "用户仪表盘页面，展示总答题数、正确率、平均分、练习次数等统计数据，包含最近练习列表和成绩趋势柱状图。",
+      "tags": [
+        "page",
+        "statistics",
+        "dashboard"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:frontend/src/pages/Dashboard.jsx:Dashboard",
+      "type": "function",
+      "name": "Dashboard",
+      "filePath": "frontend/src/pages/Dashboard.jsx",
+      "lineRange": [
+        10,
+        120
+      ],
+      "summary": "仪表盘组件，加载 /practice/stats 和 /practice/trend 数据，渲染统计卡片、最近练习列表和成绩趋势可视化。",
+      "tags": [
+        "page",
+        "statistics"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:frontend/src/pages/Home.jsx",
+      "type": "file",
+      "name": "Home.jsx",
+      "filePath": "frontend/src/pages/Home.jsx",
+      "summary": "系统首页，展示今日答题/正确率/注册用户/题库总数等公共统计、7天答题趋势图和平台功能介绍卡片。",
+      "tags": [
+        "page",
+        "landing",
+        "statistics"
+      ],
+      "complexity": "moderate",
+      "languageNotes": "包含 StatCard 和 WeekTrend 两个内部子组件用于数据可视化。"
+    },
+    {
+      "id": "function:frontend/src/pages/Home.jsx:StatCard",
+      "type": "function",
+      "name": "StatCard",
+      "filePath": "frontend/src/pages/Home.jsx",
+      "lineRange": [
+        8,
+        22
+      ],
+      "summary": "统计卡片子组件，展示图标、标题和数值，支持骨架屏加载状态。",
+      "tags": [
+        "component",
+        "statistics"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:frontend/src/pages/Home.jsx:WeekTrend",
+      "type": "function",
+      "name": "WeekTrend",
+      "filePath": "frontend/src/pages/Home.jsx",
+      "lineRange": [
+        24,
+        52
+      ],
+      "summary": "7天答题趋势子组件，使用 CSS 柱状图渲染每日答题数量，支持骨架屏加载状态。",
+      "tags": [
+        "component",
+        "visualization"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:frontend/src/pages/Home.jsx:Home",
+      "type": "function",
+      "name": "Home",
+      "filePath": "frontend/src/pages/Home.jsx",
+      "lineRange": [
+        54,
+        165
+      ],
+      "summary": "首页组件，加载公共统计数据，根据登录状态展示不同 CTA 按钮（注册/登录或开始练习）。",
+      "tags": [
+        "page",
+        "landing"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:frontend/src/pages/Leaderboard.jsx",
+      "type": "file",
+      "name": "Leaderboard.jsx",
+      "filePath": "frontend/src/pages/Leaderboard.jsx",
+      "summary": "成绩排行榜页面，以表格形式展示用户排名、平均分、答题次数、总题数和正确率，支持排序功能。",
+      "tags": [
+        "page",
+        "ranking",
+        "statistics"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:frontend/src/pages/Leaderboard.jsx:Leaderboard",
+      "type": "function",
+      "name": "Leaderboard",
+      "filePath": "frontend/src/pages/Leaderboard.jsx",
+      "lineRange": [
+        9,
+        64
+      ],
+      "summary": "排行榜组件，从 /practice/leaderboard 加载数据，渲染排名表格并高亮当前用户行。",
+      "tags": [
+        "page",
+        "ranking"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:frontend/src/pages/Login.jsx",
+      "type": "file",
+      "name": "Login.jsx",
+      "filePath": "frontend/src/pages/Login.jsx",
+      "summary": "登录页面，包含邮箱和密码表单，调用 AuthContext 的 login 方法完成认证，支持跳转至注册页。",
+      "tags": [
+        "page",
+        "auth",
+        "form"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:frontend/src/pages/NotFound.jsx",
+      "type": "file",
+      "name": "NotFound.jsx",
+      "filePath": "frontend/src/pages/NotFound.jsx",
+      "summary": "404 页面，展示错误码和返回首页按钮。",
+      "tags": [
+        "page",
+        "error-handling"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:frontend/src/pages/Profile.jsx",
+      "type": "file",
+      "name": "Profile.jsx",
+      "filePath": "frontend/src/pages/Profile.jsx",
+      "summary": "个人信息页面，包含账号信息展示、资料修改表单和密码修改表单，密码修改后自动登出。",
+      "tags": [
+        "page",
+        "auth",
+        "form"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:frontend/src/pages/Profile.jsx:Profile",
+      "type": "function",
+      "name": "Profile",
+      "filePath": "frontend/src/pages/Profile.jsx",
+      "lineRange": [
+        10,
+        109
+      ],
+      "summary": "个人资料组件，管理两个 Form 实例（资料修改和密码修改），调用 /auth/profile 和 /auth/password API。",
+      "tags": [
+        "page",
+        "auth",
+        "form"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:frontend/src/pages/Register.jsx",
+      "type": "file",
+      "name": "Register.jsx",
+      "filePath": "frontend/src/pages/Register.jsx",
+      "summary": "注册页面，包含昵称、邮箱、密码表单，调用 AuthContext 的 register 方法完成注册，支持跳转至登录页。",
+      "tags": [
+        "page",
+        "auth",
+        "form"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:frontend/src/pages/Login.jsx:Login",
+      "type": "function",
+      "name": "Login",
+      "filePath": "frontend/src/pages/Login.jsx",
+      "lineRange": [
+        7,
+        44
+      ],
+      "summary": "登录组件，使用 Ant Design Form 管理邮箱密码表单，调用 login 方法认证后跳转至仪表盘。",
+      "tags": [
+        "page",
+        "auth",
+        "form"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:frontend/src/pages/Register.jsx:Register",
+      "type": "function",
+      "name": "Register",
+      "filePath": "frontend/src/pages/Register.jsx",
+      "lineRange": [
+        7,
+        47
+      ],
+      "summary": "注册组件，使用 Ant Design Form 管理昵称、邮箱、密码表单，调用 register 方法后跳转至仪表盘。",
+      "tags": [
+        "page",
+        "auth",
+        "form"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:frontend/src/pages/NotFound.jsx:NotFound",
+      "type": "function",
+      "name": "NotFound",
+      "filePath": "frontend/src/pages/NotFound.jsx",
+      "lineRange": [
+        8,
+        19
+      ],
+      "summary": "404 页面组件，展示错误码和返回首页导航按钮。",
+      "tags": [
+        "page",
+        "error-handling"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:frontend/src/components/Pagination.jsx",
+      "type": "file",
+      "name": "Pagination.jsx",
+      "filePath": "frontend/src/components/Pagination.jsx",
+      "summary": "通用分页组件，支持页码导航、上下翻页和跳页功能，被多个页面复用。",
+      "tags": [
+        "component",
+        "ui",
+        "pagination",
+        "reusable"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:frontend/src/components/Pagination.jsx:Pagination",
+      "type": "function",
+      "name": "Pagination",
+      "filePath": "frontend/src/components/Pagination.jsx",
+      "lineRange": [
+        6,
+        48
+      ],
+      "summary": "分页组件，接收当前页、总数、每页条数和回调，渲染页码按钮和跳页输入框。",
+      "tags": [
+        "component",
+        "ui",
+        "pagination"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:frontend/src/pages/Favorites.jsx",
+      "type": "file",
+      "name": "Favorites.jsx",
+      "filePath": "frontend/src/pages/Favorites.jsx",
+      "summary": "用户收藏题目页面，展示收藏列表，支持取消收藏和题目详情预览。",
+      "tags": [
+        "page",
+        "favorites",
+        "user-features"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:frontend/src/pages/Favorites.jsx:Favorites",
+      "type": "function",
+      "name": "Favorites",
+      "filePath": "frontend/src/pages/Favorites.jsx",
+      "lineRange": [
+        10,
+        106
+      ],
+      "summary": "收藏页面组件，加载收藏列表并提供取消收藏、详情弹窗等功能。",
+      "tags": [
+        "page",
+        "favorites",
+        "user-features"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:frontend/src/pages/History.jsx",
+      "type": "file",
+      "name": "History.jsx",
+      "filePath": "frontend/src/pages/History.jsx",
+      "summary": "答题历史页面，展示练习统计和历史会话记录，支持继续答题和查看详情。",
+      "tags": [
+        "page",
+        "history",
+        "statistics",
+        "user-features"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:frontend/src/pages/History.jsx:History",
+      "type": "function",
+      "name": "History",
+      "filePath": "frontend/src/pages/History.jsx",
+      "lineRange": [
+        10,
+        115
+      ],
+      "summary": "历史记录页面组件，加载统计和会话数据并以表格形式展示。",
+      "tags": [
+        "page",
+        "history",
+        "statistics"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:frontend/src/pages/Practice.jsx",
+      "type": "file",
+      "name": "Practice.jsx",
+      "filePath": "frontend/src/pages/Practice.jsx",
+      "summary": "核心练习页面，支持单选题练习、模拟考试、倒计时、暂停、AI解析、进度保存和答题卡导航等功能。",
+      "tags": [
+        "page",
+        "practice",
+        "exam",
+        "core-feature"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:frontend/src/pages/Practice.jsx:Practice",
+      "type": "function",
+      "name": "Practice",
+      "filePath": "frontend/src/pages/Practice.jsx",
+      "lineRange": [
+        10,
+        577
+      ],
+      "summary": "练习页面主组件，管理答题状态、计时器、进度保存、提交评分和结果展示。",
+      "tags": [
+        "page",
+        "practice",
+        "exam",
+        "core-feature"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:frontend/src/pages/WrongBook.jsx",
+      "type": "file",
+      "name": "WrongBook.jsx",
+      "filePath": "frontend/src/pages/WrongBook.jsx",
+      "summary": "错题本页面，展示错题列表及统计，支持筛选掌握状态、标记已掌握、移出错题、重做错题和HTML导出。",
+      "tags": [
+        "page",
+        "wrong-book",
+        "review",
+        "user-features"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:frontend/src/pages/WrongBook.jsx:WrongBook",
+      "type": "function",
+      "name": "WrongBook",
+      "filePath": "frontend/src/pages/WrongBook.jsx",
+      "lineRange": [
+        11,
+        252
+      ],
+      "summary": "错题本页面组件，加载错题列表，提供掌握状态切换、重做和导出功能。",
+      "tags": [
+        "page",
+        "wrong-book",
+        "review"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:frontend/src/pages/admin/AdminHome.jsx",
+      "type": "file",
+      "name": "AdminHome.jsx",
+      "filePath": "frontend/src/pages/admin/AdminHome.jsx",
+      "summary": "管理后台首页，展示题目、用户、文章和练习的统计概览，并提供快速导航入口。",
+      "tags": [
+        "page",
+        "admin",
+        "dashboard",
+        "statistics"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:frontend/src/pages/admin/AdminHome.jsx:AdminHome",
+      "type": "function",
+      "name": "AdminHome",
+      "filePath": "frontend/src/pages/admin/AdminHome.jsx",
+      "lineRange": [
+        7,
+        67
+      ],
+      "summary": "管理后台首页组件，加载统计数据并以卡片形式展示各维度指标。",
+      "tags": [
+        "page",
+        "admin",
+        "dashboard"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:frontend/src/pages/admin/Generate.jsx",
+      "type": "file",
+      "name": "Generate.jsx",
+      "filePath": "frontend/src/pages/admin/Generate.jsx",
+      "summary": "AI生题管理页面，支持从文章列表中选择内容，调用AI生成题目，预览和确认入库。",
+      "tags": [
+        "page",
+        "admin",
+        "ai-generation",
+        "question-management"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:frontend/src/pages/admin/Generate.jsx:Generate",
+      "type": "function",
+      "name": "Generate",
+      "filePath": "frontend/src/pages/admin/Generate.jsx",
+      "lineRange": [
+        8,
+        482
+      ],
+      "summary": "AI生题页面组件，管理文章选择、AI生成请求、题目预览和确认入库流程。",
+      "tags": [
+        "page",
+        "admin",
+        "ai-generation"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:frontend/src/pages/admin/Questions.jsx",
+      "type": "file",
+      "name": "Questions.jsx",
+      "filePath": "frontend/src/pages/admin/Questions.jsx",
+      "summary": "题目管理页面，提供题目的分页列表、筛选排序、增删改查、批量操作和状态管理功能。",
+      "tags": [
+        "page",
+        "admin",
+        "question-management",
+        "crud"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:frontend/src/pages/admin/Questions.jsx:Questions",
+      "type": "function",
+      "name": "Questions",
+      "filePath": "frontend/src/pages/admin/Questions.jsx",
+      "lineRange": [
+        19,
+        435
+      ],
+      "summary": "题目管理页面组件，加载题目列表并提供增删改查、筛选排序和批量操作。",
+      "tags": [
+        "page",
+        "admin",
+        "question-management",
+        "crud"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:frontend/src/pages/admin/Users.jsx",
+      "type": "file",
+      "name": "Users.jsx",
+      "filePath": "frontend/src/pages/admin/Users.jsx",
+      "summary": "用户管理页面，展示用户列表，支持编辑用户信息、切换角色和删除用户。",
+      "tags": [
+        "page",
+        "admin",
+        "user-management",
+        "crud"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:frontend/src/pages/admin/Users.jsx:Users",
+      "type": "function",
+      "name": "Users",
+      "filePath": "frontend/src/pages/admin/Users.jsx",
+      "lineRange": [
+        14,
+        134
+      ],
+      "summary": "用户管理页面组件，加载用户列表并提供编辑、角色切换和删除功能。",
+      "tags": [
+        "page",
+        "admin",
+        "user-management"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:frontend/src/services/api.js",
+      "type": "file",
+      "name": "api.js",
+      "filePath": "frontend/src/services/api.js",
+      "summary": "Axios API客户端，配置请求拦截器自动附加Bearer Token，响应拦截器处理401跳转登录页。",
+      "tags": [
+        "service",
+        "api-client",
+        "http",
+        "authentication"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:frontend/src/utils.js",
+      "type": "file",
+      "name": "utils.js",
+      "filePath": "frontend/src/utils.js",
+      "summary": "前端通用工具函数，提供选项JSON解析、选项文本清理和时间格式化功能。",
+      "tags": [
+        "utility",
+        "helpers",
+        "parsing",
+        "formatting"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:frontend/src/utils.js:parseOptions",
+      "type": "function",
+      "name": "parseOptions",
+      "filePath": "frontend/src/utils.js",
+      "lineRange": [
+        1,
+        4
+      ],
+      "summary": "将选项JSON字符串解析为数组，已为数组则直接返回，解析失败返回空数组。",
+      "tags": [
+        "utility",
+        "parsing"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:frontend/src/utils.js:cleanOption",
+      "type": "function",
+      "name": "cleanOption",
+      "filePath": "frontend/src/utils.js",
+      "lineRange": [
+        6,
+        9
+      ],
+      "summary": "清理选项文本，移除开头的A/B/C/D标记前缀。",
+      "tags": [
+        "utility",
+        "formatting"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:frontend/src/utils.js:formatTime",
+      "type": "function",
+      "name": "formatTime",
+      "filePath": "frontend/src/utils.js",
+      "lineRange": [
+        11,
+        16
+      ],
+      "summary": "将秒数格式化为MM:SS格式的字符串。",
+      "tags": [
+        "utility",
+        "formatting"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:backend/src/db.js",
+      "type": "file",
+      "name": "db.js",
+      "filePath": "backend/src/db.js",
+      "summary": "MySQL 连接池管理模块，封装了连接获取、自动生命周期管理和连接池关闭功能，所有数据库操作通过此模块获取连接。",
+      "tags": [
+        "database",
+        "connection-pool",
+        "mysql",
+        "utility"
+      ],
+      "complexity": "simple",
+      "languageNotes": "使用 mysql2/promise 异步驱动，连接池配置了 keepAlive 和 20 连接上限以应对高并发。"
+    },
+    {
+      "id": "file:backend/src/middleware/auth.js",
+      "type": "file",
+      "name": "auth.js",
+      "filePath": "backend/src/middleware/auth.js",
+      "summary": "JWT 认证中间件模块，提供可选认证、强制认证、管理员权限校验三种中间件，以及 JWT 签发工具函数。",
+      "tags": [
+        "middleware",
+        "authentication",
+        "jwt",
+        "authorization",
+        "security"
+      ],
+      "complexity": "moderate",
+      "languageNotes": "requireAuth 会从数据库获取最新用户状态和角色，防止降级后旧 token 仍有效。"
+    },
+    {
+      "id": "file:backend/src/routes/admin.js",
+      "type": "file",
+      "name": "admin.js",
+      "filePath": "backend/src/routes/admin.js",
+      "summary": "管理后台路由模块，提供系统统计概览、用户列表查询、用户角色/状态修改和用户删除功能，所有接口需管理员权限。",
+      "tags": [
+        "api-handler",
+        "admin",
+        "user-management",
+        "statistics"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:backend/src/routes/articles.js",
+      "type": "file",
+      "name": "articles.js",
+      "filePath": "backend/src/routes/articles.js",
+      "summary": "文章爬取与管理路由模块，支持从人民日报、新华社等官方媒体抓取文章，包含 URL 过滤、正文提取、内容清洗、分类管理和 CRUD 操作。",
+      "tags": [
+        "api-handler",
+        "web-scraping",
+        "content-management",
+        "admin"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:backend/src/routes/auth.js",
+      "type": "file",
+      "name": "auth.js",
+      "filePath": "backend/src/routes/auth.js",
+      "summary": "用户认证路由模块，提供注册、登录、获取当前用户信息、修改个人资料和修改密码功能，集成了速率限制和 bcrypt 密码加密。",
+      "tags": [
+        "api-handler",
+        "authentication",
+        "rate-limiting",
+        "user-management"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:backend/src/routes/generate.js",
+      "type": "file",
+      "name": "generate.js",
+      "filePath": "backend/src/routes/generate.js",
+      "summary": "AI 题目生成路由模块，调用 MIMO AI API 根据新闻文章自动生成公务员考试题目（言语理解与政治板块），包含题目质量验证和批量入库功能。",
+      "tags": [
+        "api-handler",
+        "ai-integration",
+        "question-generation",
+        "admin"
+      ],
+      "complexity": "complex",
+      "languageNotes": "支持言语理解和政治板块两套不同的 prompt 模板，题目生成后会进行多维度质量校验（passage 长度、选项一致性、stem 格式等）。"
+    },
+    {
+      "id": "file:backend/src/routes/practice.js",
+      "type": "file",
+      "name": "practice.js",
+      "filePath": "backend/src/routes/practice.js",
+      "summary": "练习核心路由模块，实现练习会话管理（开始/保存进度/提交）、成绩统计、排行榜、错题本、收藏夹、成绩趋势和 AI 个性化解析等完整练习流程。",
+      "tags": [
+        "api-handler",
+        "practice-session",
+        "leaderboard",
+        "wrong-book",
+        "favorites"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:backend/src/routes/questions.js",
+      "type": "file",
+      "name": "questions.js",
+      "filePath": "backend/src/routes/questions.js",
+      "summary": "题目管理路由模块，提供随机出题、科目列表、题目 CRUD、批量状态更新和批量删除功能，区分普通用户和管理员权限。",
+      "tags": [
+        "api-handler",
+        "question-management",
+        "crud",
+        "admin"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:backend/src/routes/stats.js",
+      "type": "file",
+      "name": "stats.js",
+      "filePath": "backend/src/routes/stats.js",
+      "summary": "公开统计路由模块，提供首页展示所需的今日答题数、正确率、总用户数、总题目数和近 7 天答题趋势等统计数据。",
+      "tags": [
+        "api-handler",
+        "statistics",
+        "public-data"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:backend/src/server.js",
+      "type": "file",
+      "name": "server.js",
+      "filePath": "backend/src/server.js",
+      "summary": "Express 服务器入口文件，负责加载环境变量、配置 CORS、注册所有路由模块、提供健康检查端点、生产环境托管前端静态文件以及优雅退出处理。",
+      "tags": [
+        "entry-point",
+        "server",
+        "configuration",
+        "deployment"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:backend/src/db.js:withConnection",
+      "type": "function",
+      "name": "withConnection",
+      "filePath": "backend/src/db.js",
+      "lineRange": [
+        24,
+        31
+      ],
+      "summary": "自动管理数据库连接生命周期的高阶函数，获取连接后执行回调并在 finally 中释放，防止连接泄漏。",
+      "tags": [
+        "utility",
+        "database",
+        "connection-management"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:backend/src/middleware/auth.js:optionalAuth",
+      "type": "function",
+      "name": "optionalAuth",
+      "filePath": "backend/src/middleware/auth.js",
+      "lineRange": [
+        8,
+        21
+      ],
+      "summary": "可选认证中间件，有 token 则解析用户信息挂载到 req.user，没有或无效则作为游客继续。",
+      "tags": [
+        "middleware",
+        "authentication",
+        "jwt"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:backend/src/middleware/auth.js:requireAuth",
+      "type": "function",
+      "name": "requireAuth",
+      "filePath": "backend/src/middleware/auth.js",
+      "lineRange": [
+        25,
+        53
+      ],
+      "summary": "强制认证中间件，验证 JWT token 有效性、用户存在性和账号状态，并从数据库获取最新角色信息。",
+      "tags": [
+        "middleware",
+        "authentication",
+        "authorization"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:backend/src/routes/articles.js:fetchArticlesFromSource",
+      "type": "function",
+      "name": "fetchArticlesFromSource",
+      "filePath": "backend/src/routes/articles.js",
+      "lineRange": [
+        69,
+        89
+      ],
+      "summary": "从指定新闻源列表页抓取文章链接，通过 HTML 解析和 URL 模式匹配筛选有效文章。",
+      "tags": [
+        "web-scraping",
+        "content-extraction"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:backend/src/routes/articles.js:filterAndCleanContent",
+      "type": "function",
+      "name": "filterAndCleanContent",
+      "filePath": "backend/src/routes/articles.js",
+      "lineRange": [
+        145,
+        191
+      ],
+      "summary": "智能内容清洗函数，过滤噪音段落（编辑信息、版权信息等）并合并被拆分的短句。",
+      "tags": [
+        "content-cleaning",
+        "text-processing"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:backend/src/routes/articles.js:fetchArticleContent",
+      "type": "function",
+      "name": "fetchArticleContent",
+      "filePath": "backend/src/routes/articles.js",
+      "lineRange": [
+        213,
+        228
+      ],
+      "summary": "抓取单篇文章内容，包含 SSRF 防护检查、重试机制和正文/发布时间提取。",
+      "tags": [
+        "web-scraping",
+        "content-extraction",
+        "security"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:backend/src/routes/generate.js:validateQuestion",
+      "type": "function",
+      "name": "validateQuestion",
+      "filePath": "backend/src/routes/generate.js",
+      "lineRange": [
+        153,
+        191
+      ],
+      "summary": "题目质量验证函数，检查 passage 长度、原文一致性、选项数量与长度差异、stem 格式和答案有效性。",
+      "tags": [
+        "validation",
+        "quality-check"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:backend/src/routes/generate.js:generateQuestionsWithAI",
+      "type": "function",
+      "name": "generateQuestionsWithAI",
+      "filePath": "backend/src/routes/generate.js",
+      "lineRange": [
+        193,
+        260
+      ],
+      "summary": "调用 MIMO AI API 根据文章内容生成题目，支持言语理解和政治板块两套 prompt 模板，包含 JSON 解析容错处理。",
+      "tags": [
+        "ai-integration",
+        "api-call",
+        "question-generation"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:backend/src/routes/practice.js:parseMetaJson",
+      "type": "function",
+      "name": "parseMetaJson",
+      "filePath": "backend/src/routes/practice.js",
+      "lineRange": [
+        15,
+        18
+      ],
+      "summary": "安全解析练习会话的 meta_json 字段，处理字符串和对象两种格式，解析失败返回空对象。",
+      "tags": [
+        "utility",
+        "json-parsing"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:backend/Dockerfile",
+      "type": "file",
+      "name": "Dockerfile",
+      "filePath": "backend/Dockerfile",
+      "summary": "基于 node:20-alpine 的单阶段 Docker 构建文件，用于构建后端 Express 服务。利用 Docker 缓存层优化先安装 npm 生产依赖再复制源码的构建流程，暴露 4000 端口并通过 node src/server.js 启动服务。",
+      "tags": [
+        "containerization",
+        "infrastructure",
+        "deployment"
+      ],
+      "complexity": "simple",
+      "languageNotes": "单阶段构建，适合小型项目；生产环境中可通过多阶段构建进一步减小镜像体积。"
+    },
+    {
+      "id": "service:backend/Dockerfile:node",
+      "type": "service",
+      "name": "node",
+      "filePath": "backend/Dockerfile",
+      "lineRange": [
+        1,
+        16
+      ],
+      "summary": "基于 node:20-alpine 的后端服务容器，暴露 4000 端口，通过 node src/server.js 启动 Express 应用。",
+      "tags": [
+        "containerization",
+        "backend-service"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "config:.env.example",
+      "type": "config",
+      "name": ".env.example",
+      "filePath": ".env.example",
+      "summary": "Docker 部署环境变量模板，包含 MySQL root 密码、JWT 密钥和 MIMO AI API 配置项。",
+      "tags": [
+        "configuration",
+        "environment",
+        "security"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "document:README.md",
+      "type": "document",
+      "name": "README.md",
+      "filePath": "README.md",
+      "summary": "项目主文档，包含环境要求、快速开始指南、功能列表、项目结构、角色权限说明和版本更新记录。",
+      "tags": [
+        "documentation",
+        "entry-point",
+        "overview"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "service:docker-compose.yml",
+      "type": "service",
+      "name": "docker-compose.yml",
+      "filePath": "docker-compose.yml",
+      "summary": "Docker Compose 编排文件，定义后端 Node.js 服务和前端构建服务，挂载前端产物卷并连接外部网络。",
+      "tags": [
+        "containerization",
+        "infrastructure",
+        "orchestration"
+      ],
+      "complexity": "moderate",
+      "languageNotes": "使用 external network '1panel-network'，表明项目与 1Panel 面板集成部署。"
+    },
+    {
+      "id": "config:package.json",
+      "type": "config",
+      "name": "package.json",
+      "filePath": "package.json",
+      "summary": "项目根 package.json，定义 monorepo 脚本入口，包含前后端开发、数据库测试、构建和部署命令。",
+      "tags": [
+        "configuration",
+        "build-system",
+        "entry-point"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "service:docker-compose.yml:backend",
+      "type": "service",
+      "name": "backend",
+      "filePath": "docker-compose.yml",
+      "lineRange": [
+        2,
+        27
+      ],
+      "summary": "后端 Node.js 服务容器，使用 node:20-alpine 镜像，安装依赖并运行 src/server.js，挂载后端代码和前端产物卷。",
+      "tags": [
+        "containerization",
+        "backend",
+        "deployment"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "service:docker-compose.yml:frontend-builder",
+      "type": "service",
+      "name": "frontend-builder",
+      "filePath": "docker-compose.yml",
+      "lineRange": [
+        29,
+        40
+      ],
+      "summary": "前端构建服务容器，使用 node:20-alpine 镜像，执行 npm install && npm run build，输出到共享卷。",
+      "tags": [
+        "containerization",
+        "build-system",
+        "frontend"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:frontend/index.html",
+      "type": "file",
+      "name": "index.html",
+      "filePath": "frontend/index.html",
+      "summary": "前端应用的 HTML 入口文件，为 React 应用提供根节点容器。",
+      "tags": [
+        "entry-point",
+        "markup",
+        "frontend"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "config:frontend/package-lock.json",
+      "type": "config",
+      "name": "package-lock.json",
+      "filePath": "frontend/package-lock.json",
+      "summary": "前端依赖包的锁定文件，确保团队成员使用相同的依赖版本。",
+      "tags": [
+        "configuration",
+        "dependency-management",
+        "build-system"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "config:frontend/package.json",
+      "type": "config",
+      "name": "package.json",
+      "filePath": "frontend/package.json",
+      "summary": "前端项目的配置文件，定义了项目元信息、脚本命令、依赖和开发依赖。",
+      "tags": [
+        "configuration",
+        "dependency-management",
+        "build-system",
+        "entry-point"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:.gitignore",
+      "type": "file",
+      "name": ".gitignore",
+      "filePath": ".gitignore",
+      "summary": "项目根目录的 Git 忽略配置，排除 node_modules、dist、.env 文件、日志文件及部分部署脚本。",
+      "tags": [
+        "configuration",
+        "git",
+        "ignore-patterns"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:.understand-anything/.understandignore",
+      "type": "file",
+      "name": ".understandignore",
+      "filePath": ".understand-anything/.understandignore",
+      "summary": "Understand-Anything 插件的忽略规则配置文件，用于排除不需要分析的文件和目录模式，当前大部分规则处于注释状态。",
+      "tags": [
+        "configuration",
+        "analysis-tooling"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "config:.understand-anything/config.json",
+      "type": "config",
+      "name": "config.json",
+      "filePath": ".understand-anything/config.json",
+      "summary": "Understand-Anything 插件的输出语言配置，设定所有分析输出使用中文。",
+      "tags": [
+        "configuration",
+        "analysis-tooling",
+        "localization"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:.understand-anything/tmp/scan-standalone.mjs",
+      "type": "file",
+      "name": "scan-standalone.mjs",
+      "filePath": ".understand-anything/tmp/scan-standalone.mjs",
+      "summary": "项目文件扫描脚本，通过 git ls-files 枚举所有文件，检测语言类型、文件类别和行数，输出结构化的项目文件清单。",
+      "tags": [
+        "utility",
+        "scanning",
+        "project-analysis"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:.understand-anything/tmp/scan-standalone.mjs:detectLanguage",
+      "type": "function",
+      "name": "detectLanguage",
+      "filePath": ".understand-anything/tmp/scan-standalone.mjs",
+      "lineRange": [
+        70,
+        84
+      ],
+      "summary": "根据文件路径的扩展名和文件名检测编程语言类型，支持 30+ 种语言的映射。",
+      "tags": [
+        "utility",
+        "language-detection"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:.understand-anything/tmp/scan-standalone.mjs:detectCategory",
+      "type": "function",
+      "name": "detectCategory",
+      "filePath": ".understand-anything/tmp/scan-standalone.mjs",
+      "lineRange": [
+        86,
+        109
+      ],
+      "summary": "根据文件路径、扩展名和目录位置判断文件所属类别（code/config/docs/infra/data/script/markup），识别 Docker、CI/CD、K8s 等基础设施文件。",
+      "tags": [
+        "utility",
+        "file-classification"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:.understand-anything/tmp/scan-standalone.mjs:countLines",
+      "type": "function",
+      "name": "countLines",
+      "filePath": ".understand-anything/tmp/scan-standalone.mjs",
+      "lineRange": [
+        122,
+        134
+      ],
+      "summary": "逐字节读取文件并统计换行符数量，返回文件总行数，读取失败时输出警告并返回 null。",
+      "tags": [
+        "utility",
+        "file-analysis"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:backend/.gitignore",
+      "type": "file",
+      "name": ".gitignore",
+      "filePath": "backend/.gitignore",
+      "summary": "后端目录的 Git 忽略配置，排除 node_modules、.env 文件、dist 目录及临时 JSON 文件。",
+      "tags": [
+        "configuration",
+        "git"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:backend/db/schema.sql",
+      "type": "file",
+      "name": "schema.sql",
+      "filePath": "backend/db/schema.sql",
+      "summary": "数据库完整建表脚本，定义了用户、科目、文章、题目、练习会话、答题记录、错题本、收藏共 8 张表及其外键关系。",
+      "tags": [
+        "database",
+        "schema-definition",
+        "migration"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "table:backend/db/schema.sql:user",
+      "type": "table",
+      "name": "user",
+      "filePath": "backend/db/schema.sql",
+      "lineRange": [
+        2,
+        13
+      ],
+      "summary": "用户表，存储邮箱、昵称、密码哈希、角色（user/admin）和账号状态，支持注册登录与权限控制。",
+      "tags": [
+        "database",
+        "authentication",
+        "user-management"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "table:backend/db/schema.sql:subject",
+      "type": "table",
+      "name": "subject",
+      "filePath": "backend/db/schema.sql",
+      "lineRange": [
+        16,
+        22
+      ],
+      "summary": "科目/分类表，存储题目所属学科（如言语理解、政治），包含名称和 slug 标识，用于按科目组织练习。",
+      "tags": [
+        "database",
+        "classification"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "table:backend/db/schema.sql:article",
+      "type": "table",
+      "name": "article",
+      "filePath": "backend/db/schema.sql",
+      "lineRange": [
+        25,
+        41
+      ],
+      "summary": "文章来源表，存储人民日报、新华社等媒体文章的标题、URL、发布时间、正文内容和指纹去重字段，支持分类筛选。",
+      "tags": [
+        "database",
+        "content-management"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "table:backend/db/schema.sql:question",
+      "type": "table",
+      "name": "question",
+      "filePath": "backend/db/schema.sql",
+      "lineRange": [
+        44,
+        65
+      ],
+      "summary": "题目表，存储题干、选项（JSON 格式）、答案、解析、难度、题型等，关联来源文章和创建者，支持审核状态管理。",
+      "tags": [
+        "database",
+        "core-entity",
+        "exam-content"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "table:backend/db/schema.sql:practice_session",
+      "type": "table",
+      "name": "practice_session",
+      "filePath": "backend/db/schema.sql",
+      "lineRange": [
+        68,
+        87
+      ],
+      "summary": "练习会话表，记录用户的每次练习活动，包括科目、模式、总题数、正确数、用时、得分和完成状态。",
+      "tags": [
+        "database",
+        "practice-tracking"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "table:backend/db/schema.sql:practice_answer",
+      "type": "table",
+      "name": "practice_answer",
+      "filePath": "backend/db/schema.sql",
+      "lineRange": [
+        90,
+        102
+      ],
+      "summary": "答题记录表，存储每次练习中每道题的用户答案、是否正确和耗时，级联删除关联练习会话。",
+      "tags": [
+        "database",
+        "answer-tracking"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "table:backend/db/schema.sql:wrong_book",
+      "type": "table",
+      "name": "wrong_book",
+      "filePath": "backend/db/schema.sql",
+      "lineRange": [
+        110,
+        122
+      ],
+      "summary": "错题本表，记录用户答错的题目、错误次数和是否已掌握，支持按用户和掌握状态查询。",
+      "tags": [
+        "database",
+        "wrong-book"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "table:backend/db/schema.sql:favorite",
+      "type": "table",
+      "name": "favorite",
+      "filePath": "backend/db/schema.sql",
+      "lineRange": [
+        125,
+        134
+      ],
+      "summary": "收藏表，存储用户收藏的题目，通过用户ID和题目ID的联合唯一约束防止重复收藏。",
+      "tags": [
+        "database",
+        "favorites"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "config:backend/package-lock.json",
+      "type": "config",
+      "name": "package-lock.json",
+      "filePath": "backend/package-lock.json",
+      "summary": "后端 npm 依赖锁定文件，固定所有依赖包的精确版本，确保团队和部署环境的依赖一致性。",
+      "tags": [
+        "configuration",
+        "dependency-management",
+        "lockfile"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "config:backend/package.json",
+      "type": "config",
+      "name": "package.json",
+      "filePath": "backend/package.json",
+      "summary": "后端 Node.js 项目配置，定义入口文件 src/server.js、启动脚本及依赖（Express、MySQL2、bcryptjs、jsonwebtoken 等）。",
+      "tags": [
+        "configuration",
+        "build-system",
+        "entry-point"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:backend/scripts/check-pages.js",
+      "type": "file",
+      "name": "check-pages.js",
+      "filePath": "backend/scripts/check-pages.js",
+      "summary": "前端页面检查脚本，遍历所有前端页面文件，检测乱码文本、未导入的 Hook 使用以及花括号/圆括号不匹配等常见问题。",
+      "tags": [
+        "utility",
+        "validation",
+        "quality-check"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:backend/scripts/db_init.js",
+      "type": "file",
+      "name": "db_init.js",
+      "filePath": "backend/scripts/db_init.js",
+      "summary": "数据库初始化脚本，连接 MySQL 后重建数据库并导入 schema.sql 完整建表结构，用于开发环境搭建。",
+      "tags": [
+        "database",
+        "initialization",
+        "setup"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:backend/scripts/db_ping.js",
+      "type": "file",
+      "name": "db_ping.js",
+      "filePath": "backend/scripts/db_ping.js",
+      "summary": "数据库连通性测试脚本，尝试连接 MySQL 并查询版本号和当前用户，用于验证数据库配置是否正确。",
+      "tags": [
+        "utility",
+        "database",
+        "health-check"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:backend/scripts/dedup_articles.js",
+      "type": "file",
+      "name": "dedup_articles.js",
+      "filePath": "backend/scripts/dedup_articles.js",
+      "summary": "文章去重脚本，删除 source+title 重复的文章（保留最新记录），并基于 source::title 重新计算内容指纹。",
+      "tags": [
+        "utility",
+        "data-cleanup",
+        "deduplication"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:backend/scripts/fix_admin_nickname.js",
+      "type": "file",
+      "name": "fix_admin_nickname.js",
+      "filePath": "backend/scripts/fix_admin_nickname.js",
+      "summary": "管理员昵称修复脚本，将管理员用户的昵称更新为指定值，用于数据修复。",
+      "tags": [
+        "utility",
+        "data-fix"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:backend/scripts/fix-practice.js",
+      "type": "file",
+      "name": "fix-practice.js",
+      "filePath": "backend/scripts/fix-practice.js",
+      "summary": "练习数据修复脚本，用于修正练习会话中的异常数据。",
+      "tags": [
+        "utility",
+        "data-fix"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:backend/scripts/refetch-times.js",
+      "type": "file",
+      "name": "refetch-times.js",
+      "filePath": "backend/scripts/refetch-times.js",
+      "summary": "文章发布时间重新抓取脚本，通过 HTTP 请求各文章页面并用 Cheerio 解析多种日期格式，更新数据库中缺失或错误的发布时间。",
+      "tags": [
+        "utility",
+        "data-pipeline",
+        "web-scraping"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:backend/scripts/refetch-times.js:parseDate",
+      "type": "function",
+      "name": "parseDate",
+      "filePath": "backend/scripts/refetch-times.js",
+      "lineRange": [
+        12,
+        23
+      ],
+      "summary": "日期字符串解析函数，支持 YYYY-MM-DD 和 YYYYMMDD 两种格式，返回 Date 对象或 null。",
+      "tags": [
+        "utility",
+        "date-parsing"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:backend/scripts/refetch-times.js:extractPublishTime",
+      "type": "function",
+      "name": "extractPublishTime",
+      "filePath": "backend/scripts/refetch-times.js",
+      "lineRange": [
+        25,
+        108
+      ],
+      "summary": "从文章 URL 抓取并解析发布时间，依次尝试页面标题日期、div.info 日期、meta 标签、CSS 类名等多种策略提取日期信息。",
+      "tags": [
+        "utility",
+        "web-scraping",
+        "date-extraction"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:backend/scripts/refetch-times.js:main",
+      "type": "function",
+      "name": "main",
+      "filePath": "backend/scripts/refetch-times.js",
+      "lineRange": [
+        110,
+        150
+      ],
+      "summary": "脚本主函数，连接数据库查询无发布时间的文章，逐篇调用 extractPublishTime 获取时间并更新数据库，使用延迟避免请求过快。",
+      "tags": [
+        "entry-point",
+        "data-pipeline"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:backend/scripts/seed_admin.js",
+      "type": "file",
+      "name": "seed_admin.js",
+      "filePath": "backend/scripts/seed_admin.js",
+      "summary": "管理员账号种子脚本，检查管理员邮箱是否已存在，不存在则使用 bcrypt 加密密码后插入 admin 角色用户。",
+      "tags": [
+        "seed",
+        "authentication",
+        "setup"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:backend/scripts/seed_articles.js",
+      "type": "file",
+      "name": "seed_articles.js",
+      "filePath": "backend/scripts/seed_articles.js",
+      "summary": "文章种子脚本，预置 8 篇人民日报、新华社、学习强国的时政文章，使用 INSERT IGNORE 避免重复插入，同时计算 URL 指纹。",
+      "tags": [
+        "seed",
+        "content-management",
+        "data-initialization"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:backend/scripts/seed_questions.js",
+      "type": "file",
+      "name": "seed_questions.js",
+      "filePath": "backend/scripts/seed_questions.js",
+      "summary": "题目种子脚本，预置 10 道覆盖言语理解和政治两个科目的单选题，关联科目和管理员用户后插入题目表。",
+      "tags": [
+        "seed",
+        "exam-content",
+        "data-initialization"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:backend/scripts/simple_passwords.js",
+      "type": "file",
+      "name": "simple_passwords.js",
+      "filePath": "backend/scripts/simple_passwords.js",
+      "summary": "密码简化脚本，将管理员和测试用户的密码分别重置为 admin123 和 test123，用于开发环境快速登录。",
+      "tags": [
+        "utility",
+        "development",
+        "password-management"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:deploy/backup-db.sh",
+      "type": "file",
+      "name": "backup-db.sh",
+      "filePath": "deploy/backup-db.sh",
+      "summary": "数据库自动备份脚本，通过 Docker exec 执行 mysqldump 导出并 gzip 压缩，自动清理 7 天前的旧备份。",
+      "tags": [
+        "backup",
+        "database",
+        "deployment"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:deploy/deploy.sh",
+      "type": "file",
+      "name": "deploy.sh",
+      "filePath": "deploy/deploy.sh",
+      "summary": "一键部署脚本，自动完成环境检查、.env 配置、数据库创建与表结构导入、依赖安装、前端构建、PM2 启动后端和 Nginx 配置等全流程。",
+      "tags": [
+        "deployment",
+        "automation",
+        "infrastructure",
+        "entry-point"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:deploy/env.example",
+      "type": "file",
+      "name": "env.example",
+      "filePath": "deploy/env.example",
+      "summary": "环境变量配置模板，定义了 MySQL 连接参数、应用端口、JWT 密钥和 MIMO AI API 配置项。",
+      "tags": [
+        "configuration",
+        "environment",
+        "template"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:deploy/ncse.conf",
+      "type": "file",
+      "name": "ncse.conf",
+      "filePath": "deploy/ncse.conf",
+      "summary": "Nginx 站点配置（1Panel 风格），监听 8082 端口，将 /api/ 请求代理到后端 4000 端口，静态资源启用 7 天缓存。",
+      "tags": [
+        "configuration",
+        "nginx",
+        "reverse-proxy"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:deploy/nginx.conf",
+      "type": "file",
+      "name": "nginx.conf",
+      "filePath": "deploy/nginx.conf",
+      "summary": "Nginx 反向代理配置，监听 8082 端口，将 API 请求转发到 Node.js 后端，AI 生成请求设置 600 秒超时，静态资源缓存 7 天。",
+      "tags": [
+        "configuration",
+        "nginx",
+        "reverse-proxy",
+        "deployment"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "document:docs/server-guide.md",
+      "type": "document",
+      "name": "server-guide.md",
+      "filePath": "docs/server-guide.md",
+      "summary": "服务器运维教程文档，包含 8 大章节：服务器配置、服务管理（Docker/Cloudflare）、数据库管理、备份恢复、代码更新、安全配置、故障排查和常用命令速查。",
+      "tags": [
+        "documentation",
+        "operations",
+        "server-administration"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:frontend/.gitignore",
+      "type": "file",
+      "name": ".gitignore",
+      "filePath": "frontend/.gitignore",
+      "summary": "前端项目的 Git 忽略配置文件，排除 node_modules 依赖目录、dist 构建输出目录以及本地环境变量文件。",
+      "tags": [
+        "configuration",
+        "git",
+        "ignore-rules"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:frontend/src/components/FlexTable.jsx",
+      "type": "file",
+      "name": "FlexTable.jsx",
+      "filePath": "frontend/src/components/FlexTable.jsx",
+      "summary": "通用的可伸缩表格组件，内置搜索、排序、分页和列宽拖拽调整功能，支持受控和非受控两种排序模式，作为管理后台表格的基础组件被复用。",
+      "tags": [
+        "component",
+        "table",
+        "ui-library",
+        "reusable"
+      ],
+      "complexity": "complex",
+      "languageNotes": "组件使用 React Hooks（useState、useEffect、useCallback、useMemo）管理状态，支持列宽拖拽通过 mousedown/mousemove/mouseup 事件实现，分页逻辑内建。"
+    },
+    {
+      "id": "function:frontend/src/components/FlexTable.jsx:FlexTable",
+      "type": "function",
+      "name": "FlexTable",
+      "filePath": "frontend/src/components/FlexTable.jsx",
+      "lineRange": [
+        13,
+        259
+      ],
+      "summary": "FlexTable 核心函数组件，接收 columns、dataSource、pagination 等 props，提供搜索过滤、列排序、列宽拖拽、自动适应和分页渲染的完整表格功能。",
+      "tags": [
+        "component",
+        "table",
+        "state-management"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:frontend/src/pages/admin/Articles.jsx",
+      "type": "file",
+      "name": "Articles.jsx",
+      "filePath": "frontend/src/pages/admin/Articles.jsx",
+      "summary": "后台文章管理页面，支持文章列表的查看、分类筛选、来源筛选、排序、删除和链接复制，以及从人民日报、新华社等多个新闻源抓取文章并导入到系统中。",
+      "tags": [
+        "page",
+        "admin",
+        "crud",
+        "api-handler",
+        "content-management"
+      ],
+      "complexity": "complex",
+      "languageNotes": "页面使用 Ant Design 组件库构建 UI，通过 api 服务调用后端接口，内含多步骤抓取流程（配置来源 -> 预览候选 -> 确认导入），状态管理使用 useState 集中管理。"
+    },
+    {
+      "id": "function:frontend/src/pages/admin/Articles.jsx:Articles",
+      "type": "function",
+      "name": "Articles",
+      "filePath": "frontend/src/pages/admin/Articles.jsx",
+      "lineRange": [
+        23,
+        375
+      ],
+      "summary": "Articles 管理页面核心函数组件，管理文章列表加载、来源筛选、分类过滤、文章预览、链接复制、删除确认以及从外部新闻源抓取导入文章的完整流程。",
+      "tags": [
+        "page-component",
+        "admin",
+        "fetch-data"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:frontend/vite.config.js",
+      "type": "file",
+      "name": "vite.config.js",
+      "filePath": "frontend/vite.config.js",
+      "summary": "Vite 构建工具配置文件，启用 React 插件，设置开发服务器端口 5173 并将 /api 路径代理到后端 localhost:4000，生产构建输出到 dist 目录。",
+      "tags": [
+        "configuration",
+        "build-system",
+        "proxy",
+        "vite"
+      ],
+      "complexity": "simple"
+    }
+  ],
+  "edges": [
+    {
+      "source": "file:frontend/src/App.jsx",
+      "target": "file:frontend/src/components/AdminRoute.jsx",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/App.jsx",
+      "target": "file:frontend/src/components/ErrorBoundary.jsx",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/App.jsx",
+      "target": "file:frontend/src/components/ProtectedRoute.jsx",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/App.jsx",
+      "target": "file:frontend/src/contexts/AuthContext.jsx",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/App.jsx",
+      "target": "file:frontend/src/layouts/AdminLayout.jsx",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/App.jsx",
+      "target": "file:frontend/src/layouts/MainLayout.jsx",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/App.jsx",
+      "target": "file:frontend/src/pages/admin/AdminHome.jsx",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/App.jsx",
+      "target": "file:frontend/src/pages/admin/Articles.jsx",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/App.jsx",
+      "target": "file:frontend/src/pages/admin/Generate.jsx",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/App.jsx",
+      "target": "file:frontend/src/pages/admin/Questions.jsx",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/App.jsx",
+      "target": "file:frontend/src/pages/admin/Users.jsx",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/App.jsx",
+      "target": "file:frontend/src/pages/Dashboard.jsx",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/App.jsx",
+      "target": "file:frontend/src/pages/Favorites.jsx",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/App.jsx",
+      "target": "file:frontend/src/pages/History.jsx",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/App.jsx",
+      "target": "file:frontend/src/pages/Home.jsx",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/App.jsx",
+      "target": "file:frontend/src/pages/Leaderboard.jsx",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/App.jsx",
+      "target": "file:frontend/src/pages/Login.jsx",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/App.jsx",
+      "target": "file:frontend/src/pages/NotFound.jsx",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/App.jsx",
+      "target": "file:frontend/src/pages/Practice.jsx",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/App.jsx",
+      "target": "file:frontend/src/pages/Profile.jsx",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/App.jsx",
+      "target": "file:frontend/src/pages/Register.jsx",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/App.jsx",
+      "target": "file:frontend/src/pages/WrongBook.jsx",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/App.jsx",
+      "target": "function:frontend/src/App.jsx:App",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:frontend/src/App.jsx",
+      "target": "function:frontend/src/App.jsx:App",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:frontend/src/components/AdminRoute.jsx",
+      "target": "file:frontend/src/contexts/AuthContext.jsx",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/components/ErrorBoundary.jsx",
+      "target": "class:frontend/src/components/ErrorBoundary.jsx:ErrorBoundary",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:frontend/src/components/ErrorBoundary.jsx",
+      "target": "class:frontend/src/components/ErrorBoundary.jsx:ErrorBoundary",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:frontend/src/components/ProtectedRoute.jsx",
+      "target": "file:frontend/src/contexts/AuthContext.jsx",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/contexts/AuthContext.jsx",
+      "target": "file:frontend/src/services/api.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/contexts/AuthContext.jsx",
+      "target": "function:frontend/src/contexts/AuthContext.jsx:AuthProvider",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:frontend/src/contexts/AuthContext.jsx",
+      "target": "function:frontend/src/contexts/AuthContext.jsx:AuthProvider",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:frontend/src/layouts/MainLayout.jsx",
+      "target": "file:frontend/src/contexts/AuthContext.jsx",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/layouts/MainLayout.jsx",
+      "target": "function:frontend/src/layouts/MainLayout.jsx:MainLayout",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:frontend/src/layouts/MainLayout.jsx",
+      "target": "function:frontend/src/layouts/MainLayout.jsx:MainLayout",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:frontend/src/layouts/AdminLayout.jsx",
+      "target": "function:frontend/src/layouts/AdminLayout.jsx:AdminLayout",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:frontend/src/layouts/AdminLayout.jsx",
+      "target": "function:frontend/src/layouts/AdminLayout.jsx:AdminLayout",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:frontend/src/main.jsx",
+      "target": "file:frontend/src/App.jsx",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/pages/Dashboard.jsx",
+      "target": "file:frontend/src/contexts/AuthContext.jsx",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/pages/Dashboard.jsx",
+      "target": "file:frontend/src/services/api.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/pages/Dashboard.jsx",
+      "target": "function:frontend/src/pages/Dashboard.jsx:Dashboard",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:frontend/src/pages/Dashboard.jsx",
+      "target": "function:frontend/src/pages/Dashboard.jsx:Dashboard",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:frontend/src/pages/Home.jsx",
+      "target": "file:frontend/src/contexts/AuthContext.jsx",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/pages/Home.jsx",
+      "target": "file:frontend/src/services/api.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/pages/Home.jsx",
+      "target": "function:frontend/src/pages/Home.jsx:Home",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:frontend/src/pages/Home.jsx",
+      "target": "function:frontend/src/pages/Home.jsx:Home",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:frontend/src/pages/Home.jsx",
+      "target": "function:frontend/src/pages/Home.jsx:StatCard",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:frontend/src/pages/Home.jsx",
+      "target": "function:frontend/src/pages/Home.jsx:WeekTrend",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:frontend/src/pages/Leaderboard.jsx",
+      "target": "file:frontend/src/contexts/AuthContext.jsx",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/pages/Leaderboard.jsx",
+      "target": "file:frontend/src/services/api.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/pages/Leaderboard.jsx",
+      "target": "function:frontend/src/pages/Leaderboard.jsx:Leaderboard",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:frontend/src/pages/Leaderboard.jsx",
+      "target": "function:frontend/src/pages/Leaderboard.jsx:Leaderboard",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:frontend/src/pages/Login.jsx",
+      "target": "file:frontend/src/contexts/AuthContext.jsx",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/pages/Login.jsx",
+      "target": "function:frontend/src/pages/Login.jsx:Login",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:frontend/src/pages/Login.jsx",
+      "target": "function:frontend/src/pages/Login.jsx:Login",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:frontend/src/pages/NotFound.jsx",
+      "target": "function:frontend/src/pages/NotFound.jsx:NotFound",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:frontend/src/pages/NotFound.jsx",
+      "target": "function:frontend/src/pages/NotFound.jsx:NotFound",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:frontend/src/pages/Profile.jsx",
+      "target": "file:frontend/src/contexts/AuthContext.jsx",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/pages/Profile.jsx",
+      "target": "file:frontend/src/services/api.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/pages/Profile.jsx",
+      "target": "function:frontend/src/pages/Profile.jsx:Profile",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:frontend/src/pages/Profile.jsx",
+      "target": "function:frontend/src/pages/Profile.jsx:Profile",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:frontend/src/pages/Register.jsx",
+      "target": "file:frontend/src/contexts/AuthContext.jsx",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/pages/Register.jsx",
+      "target": "function:frontend/src/pages/Register.jsx:Register",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:frontend/src/pages/Register.jsx",
+      "target": "function:frontend/src/pages/Register.jsx:Register",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:frontend/src/pages/Favorites.jsx",
+      "target": "file:frontend/src/components/Pagination.jsx",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/pages/Favorites.jsx",
+      "target": "file:frontend/src/services/api.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/pages/Favorites.jsx",
+      "target": "file:frontend/src/utils.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/pages/History.jsx",
+      "target": "file:frontend/src/components/Pagination.jsx",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/pages/History.jsx",
+      "target": "file:frontend/src/services/api.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/pages/Practice.jsx",
+      "target": "file:frontend/src/services/api.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/pages/Practice.jsx",
+      "target": "file:frontend/src/utils.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/pages/WrongBook.jsx",
+      "target": "file:frontend/src/components/Pagination.jsx",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/pages/WrongBook.jsx",
+      "target": "file:frontend/src/services/api.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/pages/WrongBook.jsx",
+      "target": "file:frontend/src/utils.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/pages/admin/AdminHome.jsx",
+      "target": "file:frontend/src/services/api.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/pages/admin/Generate.jsx",
+      "target": "file:frontend/src/services/api.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/pages/admin/Questions.jsx",
+      "target": "file:frontend/src/components/Pagination.jsx",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/pages/admin/Questions.jsx",
+      "target": "file:frontend/src/services/api.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/pages/admin/Questions.jsx",
+      "target": "file:frontend/src/utils.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/pages/admin/Users.jsx",
+      "target": "file:frontend/src/components/Pagination.jsx",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/pages/admin/Users.jsx",
+      "target": "file:frontend/src/services/api.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/components/Pagination.jsx",
+      "target": "function:frontend/src/components/Pagination.jsx:Pagination",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:frontend/src/pages/Favorites.jsx",
+      "target": "function:frontend/src/pages/Favorites.jsx:Favorites",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:frontend/src/pages/History.jsx",
+      "target": "function:frontend/src/pages/History.jsx:History",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:frontend/src/pages/Practice.jsx",
+      "target": "function:frontend/src/pages/Practice.jsx:Practice",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:frontend/src/pages/WrongBook.jsx",
+      "target": "function:frontend/src/pages/WrongBook.jsx:WrongBook",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:frontend/src/pages/admin/AdminHome.jsx",
+      "target": "function:frontend/src/pages/admin/AdminHome.jsx:AdminHome",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:frontend/src/pages/admin/Generate.jsx",
+      "target": "function:frontend/src/pages/admin/Generate.jsx:Generate",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:frontend/src/pages/admin/Questions.jsx",
+      "target": "function:frontend/src/pages/admin/Questions.jsx:Questions",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:frontend/src/pages/admin/Users.jsx",
+      "target": "function:frontend/src/pages/admin/Users.jsx:Users",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:frontend/src/utils.js",
+      "target": "function:frontend/src/utils.js:parseOptions",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:frontend/src/utils.js",
+      "target": "function:frontend/src/utils.js:cleanOption",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:frontend/src/utils.js",
+      "target": "function:frontend/src/utils.js:formatTime",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:frontend/src/components/Pagination.jsx",
+      "target": "function:frontend/src/components/Pagination.jsx:Pagination",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:frontend/src/pages/Favorites.jsx",
+      "target": "function:frontend/src/pages/Favorites.jsx:Favorites",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:frontend/src/pages/History.jsx",
+      "target": "function:frontend/src/pages/History.jsx:History",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:frontend/src/pages/Practice.jsx",
+      "target": "function:frontend/src/pages/Practice.jsx:Practice",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:frontend/src/pages/WrongBook.jsx",
+      "target": "function:frontend/src/pages/WrongBook.jsx:WrongBook",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:frontend/src/pages/admin/AdminHome.jsx",
+      "target": "function:frontend/src/pages/admin/AdminHome.jsx:AdminHome",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:frontend/src/pages/admin/Generate.jsx",
+      "target": "function:frontend/src/pages/admin/Generate.jsx:Generate",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:frontend/src/pages/admin/Questions.jsx",
+      "target": "function:frontend/src/pages/admin/Questions.jsx:Questions",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:frontend/src/pages/admin/Users.jsx",
+      "target": "function:frontend/src/pages/admin/Users.jsx:Users",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:frontend/src/utils.js",
+      "target": "function:frontend/src/utils.js:parseOptions",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:frontend/src/utils.js",
+      "target": "function:frontend/src/utils.js:cleanOption",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:frontend/src/utils.js",
+      "target": "function:frontend/src/utils.js:formatTime",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:backend/src/db.js",
+      "target": "function:backend/src/db.js:withConnection",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:backend/src/middleware/auth.js",
+      "target": "function:backend/src/middleware/auth.js:optionalAuth",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:backend/src/middleware/auth.js",
+      "target": "function:backend/src/middleware/auth.js:requireAuth",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:backend/src/routes/articles.js",
+      "target": "function:backend/src/routes/articles.js:fetchArticlesFromSource",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:backend/src/routes/articles.js",
+      "target": "function:backend/src/routes/articles.js:filterAndCleanContent",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:backend/src/routes/articles.js",
+      "target": "function:backend/src/routes/articles.js:fetchArticleContent",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:backend/src/routes/generate.js",
+      "target": "function:backend/src/routes/generate.js:validateQuestion",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:backend/src/routes/generate.js",
+      "target": "function:backend/src/routes/generate.js:generateQuestionsWithAI",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:backend/src/routes/practice.js",
+      "target": "function:backend/src/routes/practice.js:parseMetaJson",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:backend/src/middleware/auth.js",
+      "target": "file:backend/src/db.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:backend/src/routes/admin.js",
+      "target": "file:backend/src/db.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:backend/src/routes/admin.js",
+      "target": "file:backend/src/middleware/auth.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:backend/src/routes/articles.js",
+      "target": "file:backend/src/db.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:backend/src/routes/articles.js",
+      "target": "file:backend/src/middleware/auth.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:backend/src/routes/auth.js",
+      "target": "file:backend/src/db.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:backend/src/routes/auth.js",
+      "target": "file:backend/src/middleware/auth.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:backend/src/routes/generate.js",
+      "target": "file:backend/src/db.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:backend/src/routes/generate.js",
+      "target": "file:backend/src/middleware/auth.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:backend/src/routes/practice.js",
+      "target": "file:backend/src/db.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:backend/src/routes/practice.js",
+      "target": "file:backend/src/middleware/auth.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:backend/src/routes/questions.js",
+      "target": "file:backend/src/db.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:backend/src/routes/questions.js",
+      "target": "file:backend/src/middleware/auth.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:backend/src/routes/stats.js",
+      "target": "file:backend/src/db.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:backend/src/server.js",
+      "target": "file:backend/src/db.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:backend/src/server.js",
+      "target": "file:backend/src/routes/admin.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:backend/src/server.js",
+      "target": "file:backend/src/routes/articles.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:backend/src/server.js",
+      "target": "file:backend/src/routes/auth.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:backend/src/server.js",
+      "target": "file:backend/src/routes/generate.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:backend/src/server.js",
+      "target": "file:backend/src/routes/practice.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:backend/src/server.js",
+      "target": "file:backend/src/routes/questions.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:backend/src/server.js",
+      "target": "file:backend/src/routes/stats.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:backend/Dockerfile",
+      "target": "service:backend/Dockerfile:node",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "service:backend/Dockerfile:node",
+      "target": "file:backend/src/server.js",
+      "type": "deploys",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "service:docker-compose.yml",
+      "target": "service:docker-compose.yml:backend",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "service:docker-compose.yml",
+      "target": "service:docker-compose.yml:frontend-builder",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "service:docker-compose.yml:backend",
+      "target": "config:.env.example",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "service:docker-compose.yml:frontend-builder",
+      "target": "config:package.json",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "document:README.md",
+      "target": "config:.env.example",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:README.md",
+      "target": "service:docker-compose.yml",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "config:frontend/package-lock.json",
+      "target": "config:frontend/package.json",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "file:.understand-anything/tmp/scan-standalone.mjs",
+      "target": "function:.understand-anything/tmp/scan-standalone.mjs:detectLanguage",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:.understand-anything/tmp/scan-standalone.mjs",
+      "target": "function:.understand-anything/tmp/scan-standalone.mjs:detectCategory",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:.understand-anything/tmp/scan-standalone.mjs",
+      "target": "function:.understand-anything/tmp/scan-standalone.mjs:countLines",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:backend/scripts/refetch-times.js",
+      "target": "function:backend/scripts/refetch-times.js:parseDate",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:backend/scripts/refetch-times.js",
+      "target": "function:backend/scripts/refetch-times.js:extractPublishTime",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:backend/scripts/refetch-times.js",
+      "target": "function:backend/scripts/refetch-times.js:main",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:backend/db/schema.sql",
+      "target": "table:backend/db/schema.sql:user",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:backend/db/schema.sql",
+      "target": "table:backend/db/schema.sql:subject",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:backend/db/schema.sql",
+      "target": "table:backend/db/schema.sql:article",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:backend/db/schema.sql",
+      "target": "table:backend/db/schema.sql:question",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:backend/db/schema.sql",
+      "target": "table:backend/db/schema.sql:practice_session",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:backend/db/schema.sql",
+      "target": "table:backend/db/schema.sql:practice_answer",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:backend/db/schema.sql",
+      "target": "table:backend/db/schema.sql:wrong_book",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:backend/db/schema.sql",
+      "target": "table:backend/db/schema.sql:favorite",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:backend/scripts/db_init.js",
+      "target": "file:backend/db/schema.sql",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:deploy/deploy.sh",
+      "target": "file:deploy/nginx.conf",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:deploy/deploy.sh",
+      "target": "file:deploy/env.example",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:deploy/deploy.sh",
+      "target": "file:backend/db/schema.sql",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:deploy/deploy.sh",
+      "target": "file:backend/scripts/seed_admin.js",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:deploy/deploy.sh",
+      "target": "config:backend/package.json",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "document:docs/server-guide.md",
+      "target": "file:deploy/deploy.sh",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:docs/server-guide.md",
+      "target": "file:deploy/backup-db.sh",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:docs/server-guide.md",
+      "target": "file:backend/db/schema.sql",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:docs/server-guide.md",
+      "target": "config:backend/package.json",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:docs/server-guide.md",
+      "target": "file:deploy/ncse.conf",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "file:deploy/deploy.sh",
+      "target": "file:deploy/backup-db.sh",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "file:frontend/src/components/FlexTable.jsx",
+      "target": "function:frontend/src/components/FlexTable.jsx:FlexTable",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:frontend/src/pages/admin/Articles.jsx",
+      "target": "function:frontend/src/pages/admin/Articles.jsx:Articles",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:frontend/src/pages/admin/Articles.jsx",
+      "target": "file:frontend/src/components/FlexTable.jsx",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/src/pages/admin/Articles.jsx",
+      "target": "file:frontend/src/services/api.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:frontend/vite.config.js",
+      "target": "file:frontend/src/pages/admin/Articles.jsx",
+      "type": "configures",
+      "direction": "forward",
+      "weight": 0.6
+    }
+  ],
+  "layers": [
+    {
+      "id": "layer:frontend",
+      "name": "前端页面与组件",
+      "description": "React 前端应用，包含所有页面、可复用组件、布局、认证上下文、API 客户端和工具函数",
+      "nodeIds": [
+        "file:frontend/src/App.jsx",
+        "file:frontend/src/main.jsx",
+        "file:frontend/src/components/AdminRoute.jsx",
+        "file:frontend/src/components/ErrorBoundary.jsx",
+        "file:frontend/src/components/ProtectedRoute.jsx",
+        "file:frontend/src/components/Pagination.jsx",
+        "file:frontend/src/components/FlexTable.jsx",
+        "file:frontend/src/contexts/AuthContext.jsx",
+        "file:frontend/src/layouts/AdminLayout.jsx",
+        "file:frontend/src/layouts/MainLayout.jsx",
+        "file:frontend/src/pages/Dashboard.jsx",
+        "file:frontend/src/pages/Home.jsx",
+        "file:frontend/src/pages/Leaderboard.jsx",
+        "file:frontend/src/pages/Login.jsx",
+        "file:frontend/src/pages/NotFound.jsx",
+        "file:frontend/src/pages/Profile.jsx",
+        "file:frontend/src/pages/Register.jsx",
+        "file:frontend/src/pages/Favorites.jsx",
+        "file:frontend/src/pages/History.jsx",
+        "file:frontend/src/pages/Practice.jsx",
+        "file:frontend/src/pages/WrongBook.jsx",
+        "file:frontend/src/pages/admin/AdminHome.jsx",
+        "file:frontend/src/pages/admin/Articles.jsx",
+        "file:frontend/src/pages/admin/Generate.jsx",
+        "file:frontend/src/pages/admin/Questions.jsx",
+        "file:frontend/src/pages/admin/Users.jsx",
+        "file:frontend/src/services/api.js",
+        "file:frontend/src/utils.js"
+      ]
+    },
+    {
+      "id": "layer:api",
+      "name": "后端 API 层",
+      "description": "Express 服务器入口、路由处理器、JWT 认证中间件和后端 Docker 构建配置",
+      "nodeIds": [
+        "file:backend/src/server.js",
+        "file:backend/src/middleware/auth.js",
+        "file:backend/src/routes/admin.js",
+        "file:backend/src/routes/articles.js",
+        "file:backend/src/routes/auth.js",
+        "file:backend/src/routes/generate.js",
+        "file:backend/src/routes/practice.js",
+        "file:backend/src/routes/questions.js",
+        "file:backend/src/routes/stats.js",
+        "file:backend/Dockerfile"
+      ]
+    },
+    {
+      "id": "layer:data",
+      "name": "数据层",
+      "description": "MySQL 数据库连接池、建表脚本、数据库表定义，以及数据初始化、种子和维护脚本",
+      "nodeIds": [
+        "file:backend/src/db.js",
+        "file:backend/db/schema.sql",
+        "table:backend/db/schema.sql:user",
+        "table:backend/db/schema.sql:subject",
+        "table:backend/db/schema.sql:article",
+        "table:backend/db/schema.sql:question",
+        "table:backend/db/schema.sql:practice_session",
+        "table:backend/db/schema.sql:practice_answer",
+        "table:backend/db/schema.sql:wrong_book",
+        "table:backend/db/schema.sql:favorite",
+        "file:backend/scripts/check-pages.js",
+        "file:backend/scripts/db_init.js",
+        "file:backend/scripts/db_ping.js",
+        "file:backend/scripts/dedup_articles.js",
+        "file:backend/scripts/fix_admin_nickname.js",
+        "file:backend/scripts/fix-practice.js",
+        "file:backend/scripts/refetch-times.js",
+        "file:backend/scripts/seed_admin.js",
+        "file:backend/scripts/seed_articles.js",
+        "file:backend/scripts/seed_questions.js",
+        "file:backend/scripts/simple_passwords.js"
+      ]
+    },
+    {
+      "id": "layer:infrastructure",
+      "name": "基础设施与部署",
+      "description": "Docker Compose 编排、Nginx 反向代理配置、一键部署和数据库备份脚本",
+      "nodeIds": [
+        "service:docker-compose.yml",
+        "file:deploy/backup-db.sh",
+        "file:deploy/deploy.sh",
+        "file:deploy/ncse.conf",
+        "file:deploy/nginx.conf",
+        "service:backend/Dockerfile:node",
+        "service:docker-compose.yml:backend",
+        "service:docker-compose.yml:frontend-builder"
+      ]
+    },
+    {
+      "id": "layer:documentation",
+      "name": "文档",
+      "description": "项目说明文档和服务器运维教程",
+      "nodeIds": [
+        "document:README.md",
+        "document:docs/server-guide.md"
+      ]
+    },
+    {
+      "id": "layer:config",
+      "name": "配置",
+      "description": "项目配置文件，包括 package.json、环境变量模板、构建配置和 Git 忽略规则",
+      "nodeIds": [
+        "config:package.json",
+        "config:.env.example",
+        "file:.gitignore",
+        "file:frontend/index.html",
+        "file:frontend/.gitignore",
+        "file:frontend/vite.config.js",
+        "config:frontend/package.json",
+        "config:frontend/package-lock.json",
+        "file:backend/.gitignore",
+        "config:backend/package.json",
+        "config:backend/package-lock.json",
+        "file:deploy/env.example"
+      ]
+    },
+    {
+      "id": "layer:tooling",
+      "name": "工具配置",
+      "description": "Understand-Anything 分析工具的配置和脚手架文件",
+      "nodeIds": [
+        "file:.understand-anything/.understandignore",
+        "config:.understand-anything/config.json",
+        "file:.understand-anything/tmp/scan-standalone.mjs"
+      ]
+    }
+  ],
+  "tour": [
+    {
+      "order": 1,
+      "title": "项目概览",
+      "description": "从 README.md 开始了解本项目的全貌。这是一个公务员考试在线练习平台，支持单选题练习、模拟考试、错题本、收藏和排行榜等功能。文档清晰地列出了环境要求（Node.js >= 18、MySQL 8.0）、快速开始步骤、完整功能列表、项目结构和角色权限体系，为后续深入代码提供了完整的上下文地图。",
+      "nodeIds": [
+        "document:README.md"
+      ]
+    },
+    {
+      "order": 2,
+      "title": "后端入口与路由注册",
+      "description": "backend/src/server.js 是 Express 服务器的入口文件，它导入数据库连接模块和全部 7 个路由模块（auth、practice、questions、admin、articles、generate、stats），并完成中间件注册与路由挂载。从这里可以清晰地看到整个后端 API 的组织结构——每个路由模块负责一个独立的业务域。BFS 分析显示，从该入口出发可直达所有后端核心模块。",
+      "nodeIds": [
+        "file:backend/src/server.js",
+        "file:backend/src/db.js"
+      ]
+    },
+    {
+      "order": 3,
+      "title": "JWT 认证中间件",
+      "description": "auth.js 中间件是几乎所有受保护路由的守门人。它验证请求头中的 JWT token，解析用户信息并注入 request 对象，使得后续路由处理器可以直接获取当前用户身份。该模块被 fan-in 排名第 4（6 个路由模块依赖它），是后端安全体系的核心枢纽。",
+      "nodeIds": [
+        "file:backend/src/middleware/auth.js",
+        "file:backend/src/routes/auth.js"
+      ]
+    },
+    {
+      "order": 4,
+      "title": "练习核心路由",
+      "description": "practice.js 是整个系统最核心的后端模块，导出了 13 个处理函数，覆盖练习全流程：开始练习、保存进度、提交答卷、获取历史记录、成绩趋势、排行榜、错题本（收录/重做/移除/标记已掌握）、收藏（查询/切换）、AI 个性化解析。它与数据库交互最频繁，是理解业务逻辑的关键。",
+      "nodeIds": [
+        "file:backend/src/routes/practice.js"
+      ],
+      "languageLesson": "Express 路由模块的常见组织模式：每个文件创建一个 Router 实例，定义多个路由处理函数并 export，最后在 server.js 中通过 app.use() 挂载到对应路径前缀。这种按功能域拆分路由的方式有助于保持代码的高内聚低耦合。"
+    },
+    {
+      "order": 5,
+      "title": "数据库表结构",
+      "description": "schema.sql 定义了支撑整个系统的 8 张核心表：user（用户）、subject（科目分类）、article（文章来源）、question（题目）、practice_session（练习会话）、practice_answer（答题记录）、wrong_book（错题本）和 favorite（收藏）。这些表之间的外键关系直接对应了 practice.js 中的业务逻辑，理解表结构是理解后端代码的基础。",
+      "nodeIds": [
+        "file:backend/db/schema.sql",
+        "table:backend/db/schema.sql:question",
+        "table:backend/db/schema.sql:practice_session",
+        "table:backend/db/schema.sql:user"
+      ],
+      "languageLesson": "MySQL 数据库设计要点：使用外键约束维护表间关系（如 practice_session 关联 user 和 subject）；practice_answer 通过 session_id 关联会话、question_id 关联题目；wrong_book 和 favorite 表通过联合唯一索引防止重复记录。建议在实际部署时为高频查询字段（如 user_id、question_id）建立索引以提升查询性能。"
+    },
+    {
+      "order": 6,
+      "title": "前端路由总览与认证上下文",
+      "description": "App.jsx 是前端应用的根组件（fan-out 排名第一，导入 22 个模块），它配置了 Ant Design 主题并定义了前台/后台全部路由。所有受保护页面通过 ProtectedRoute 路由守卫保护，管理员页面额外通过 AdminRoute 守卫。AuthContext.jsx（fan-in 排名第二，被 10 个组件依赖）提供全局认证状态管理，是前端权限体系的核心。",
+      "nodeIds": [
+        "file:frontend/src/App.jsx",
+        "file:frontend/src/contexts/AuthContext.jsx",
+        "file:frontend/src/components/ProtectedRoute.jsx"
+      ]
+    },
+    {
+      "order": 7,
+      "title": "API 客户端与公共组件",
+      "description": "api.js 是前端与后端通信的唯一桥梁（fan-in 排名第一，被 15 个组件依赖），基于 Axios 封装了统一的 HTTP 请求方法。utils.js 提供前端通用工具函数，Pagination.jsx 和 FlexTable.jsx 是被多个页面复用的公共 UI 组件。这些模块构成了前端的基础设施层，理解它们有助于快速读懂任何页面组件。",
+      "nodeIds": [
+        "file:frontend/src/services/api.js",
+        "file:frontend/src/utils.js",
+        "file:frontend/src/components/Pagination.jsx"
+      ]
+    },
+    {
+      "order": 8,
+      "title": "核心练习页面",
+      "description": "Practice.jsx 是用户端最核心的页面，实现了完整的刷题体验：随机出题、题型/难度筛选、答题进度自动保存、暂停/恢复、模拟考试倒计时等。它直接调用 api.js 与后端 practice 路由交互，是前后端业务逻辑的交汇点。理解这个页面就能理解整个练习流程的用户视角。",
+      "nodeIds": [
+        "file:frontend/src/pages/Practice.jsx",
+        "file:frontend/src/pages/WrongBook.jsx",
+        "file:frontend/src/pages/Dashboard.jsx"
+      ]
+    },
+    {
+      "order": 9,
+      "title": "管理后台页面",
+      "description": "AdminLayout 提供管理后台的侧边栏布局，AdminHome 展示题目/用户/文章/练习的统计概览。Questions.jsx、Articles.jsx、Users.jsx 分别对应题目管理（CRUD、批量审核）、文章管理（抓取人民日报）、用户管理（启用/禁用/角色编辑）。Generate.jsx 实现了基于 MIMO API 的 AI 自动生题功能，是系统的特色能力。",
+      "nodeIds": [
+        "file:frontend/src/layouts/AdminLayout.jsx",
+        "file:frontend/src/pages/admin/AdminHome.jsx",
+        "file:frontend/src/pages/admin/Questions.jsx",
+        "file:frontend/src/pages/admin/Generate.jsx"
+      ]
+    },
+    {
+      "order": 10,
+      "title": "容器化与部署",
+      "description": "Dockerfile 定义了后端的 Docker 构建流程，docker-compose.yml 编排了前后端服务的容器化部署。deploy 目录包含一键部署脚本、Nginx 反向代理配置和数据库自动备份脚本，docs/server-guide.md 提供完整的服务器运维教程。这些文件构成了从开发到生产的完整 DevOps 链路。",
+      "nodeIds": [
+        "file:backend/Dockerfile",
+        "service:docker-compose.yml",
+        "file:deploy/deploy.sh",
+        "file:deploy/nginx.conf",
+        "document:docs/server-guide.md"
+      ],
+      "languageLesson": "Docker Compose 使用 depends_on 控制服务启动顺序，通过 environment 或 .env 文件注入环境变量。Nginx 作为反向代理，将前端静态文件请求和后端 API 请求分别路由到对应容器，同时处理 HTTPS 终止和静态资源缓存。"
+    }
+  ]
+}
