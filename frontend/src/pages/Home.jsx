@@ -75,7 +75,17 @@ export default function Home() {
 
   async function recordVisit() {
     try {
+      // 检查是否在3小时内已记录过（独立访客去重）
+      const lastVisit = sessionStorage.getItem('lastVisitTime');
+      const now = Date.now();
+      const THREE_HOURS = 3 * 60 * 60 * 1000;
+
+      if (lastVisit && now - Number(lastVisit) < THREE_HOURS) {
+        return; // 3小时内已记录，跳过
+      }
+
       await api.post('/stats/visit');
+      sessionStorage.setItem('lastVisitTime', String(now));
     } catch (err) {
       // 静默失败，不影响用户体验
     }
