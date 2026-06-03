@@ -121,7 +121,7 @@ export default function Generate() {
         articleIds: selectedArticles,
         questionsPerArticle,
         subject: selectedSubject
-      });
+      }, { timeout: 600000 }); // 10 minutes for AI generation
       
       if (r.data.total === 0) {
         message.info('未能生成任何题目，请检查文章内容或重试');

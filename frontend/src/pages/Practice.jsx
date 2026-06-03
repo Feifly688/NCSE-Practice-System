@@ -373,7 +373,7 @@ export default function Practice() {
   async function requestAiAnalysis(questionId, userAnswer) {
     setAiLoading(prev => ({ ...prev, [questionId]: true }));
     try {
-      const r = await api.post('/practice/ai-analysis', { question_id: questionId, user_answer: userAnswer });
+      const r = await api.post('/practice/ai-analysis', { question_id: questionId, user_answer: userAnswer }, { timeout: 60000 }); // 60 seconds for AI analysis
       setAiAnalysis(prev => ({ ...prev, [questionId]: r.data.analysis }));
     } catch (err) {
       message.error(err.response?.data?.error || 'AI 解析失败');
