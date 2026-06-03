@@ -2,6 +2,7 @@
 const axios = require('axios');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 const { withConnection } = require('../db');
+const { runConcurrent } = require('../helpers');
 
 const router = express.Router();
 
@@ -257,14 +258,6 @@ ${articleText}
     console.error('AI generation error:', err.message);
     throw err;
   }
-}
-
-async function runConcurrent(tasks, maxConcurrent = 3) {
-  const results = [];
-  let index = 0;
-  async function worker() { while (index < tasks.length) { const i = index++; results[i] = await tasks[i](); } }
-  await Promise.all(Array(Math.min(maxConcurrent, tasks.length)).fill(null).map(() => worker()));
-  return results;
 }
 
 // POST /api/generate/preview

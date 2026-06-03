@@ -2,7 +2,7 @@ import axios from 'axios';
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
-  timeout: 1800000, // 30 minutes for AI generation
+  timeout: 30000, // 普通请求 30 秒超时
 });
 
 // request interceptor: attach token

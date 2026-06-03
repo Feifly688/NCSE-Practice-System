@@ -4,6 +4,7 @@ const axios = require('axios');
 const cheerio = require('cheerio');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 const { withConnection } = require('../db');
+const { runConcurrent } = require('../helpers');
 
 const router = express.Router();
 
@@ -88,18 +89,20 @@ async function fetchArticlesFromSource(sourceId, count) {
   return articles;
 }
 
+// 人民网系列共用选择器
+const PEOPLE_SELECTORS = ['div.rm_txt_con p', 'div.TRS_Editor p', 'div.text_con p'];
+// 新华社系列共用选择器
+const XINHUA_SELECTORS = ['div#detail p', 'div.article p', 'div.content p'];
+
 const SOURCE_CONTENT_SELECTORS = {
-  // 人民网系列
-  people: ['div.rm_txt_con p', 'div#rwb_zw p', 'div.TRS_Editor p'],
-  people_politics: ['div.rm_txt_con p', 'div.TRS_Editor p', 'div.text_con p'],
-  people_economy: ['div.rm_txt_con p', 'div.TRS_Editor p', 'div.text_con p'],
-  people_society: ['div.rm_txt_con p', 'div.TRS_Editor p', 'div.text_con p'],
-  people_legality: ['div.rm_txt_con p', 'div.TRS_Editor p', 'div.text_con p'],
-  // 新华社系列
-  xinhua: ['div#detail p', 'div.article p', 'div.content p'],
+  // 人民网系列（统一使用人民网选择器）
+  people: ['div.rm_txt_con p', 'div#rwb_zw p', ...PEOPLE_SELECTORS],
+  // 以下来源共用 PEOPLE_SELECTORS
+  ...Object.fromEntries(['people_politics', 'people_economy', 'people_society', 'people_legality'].map(id => [id, PEOPLE_SELECTORS])),
+  // 新华社系列（统一使用新华社选择器，xinhua_world 除外）
+  xinhua: XINHUA_SELECTORS,
   xinhua_world: ['div#detail p', 'div.article p', 'div.main-aticle-detail p'],
-  xinhua_education: ['div#detail p', 'div.article p', 'div.content p'],
-  xinhua_military: ['div#detail p', 'div.article p', 'div.content p'],
+  ...Object.fromEntries(['xinhua_education', 'xinhua_military'].map(id => [id, XINHUA_SELECTORS])),
 };
 const FALLBACK_CONTENT_SELECTORS = ['div.rm_txt_con p', 'div#detail p', 'div.TRS_Editor p', 'article p', 'div.content p', 'div.article-content p'];
 
@@ -228,34 +231,34 @@ async function fetchArticleContent(url, sourceId, retries = 2) {
 }
 
 // 通过文章内容自动分类：verbal-言语理解, politics-政治, both-通用
+// 政治类强关键词（出现即高度疑似政治文章）
+const POLITICS_STRONG_KEYWORDS = [
+  '习近平', '总书记', '党中央', '中国特色社会主义', '从严治党',
+  '党的建设', '人大', '政协', '党代会', '政治局', '国务院',
+  '马克思主义', '科学发展观', '治国理政', '新时代中国',
+  '中央委员会', '中央纪委', '中纪委', '全国人大', '全国政协',
+  '政府工作报告', '十四五', '二十大', '人大代表', '政协委员',
+];
+
+// 政治类弱关键词（累计较多才判定为政治）
+const POLITICS_WEAK_KEYWORDS = [
+  '改革', '治理', '脱贫', '小康', '振兴', '民主', '法治',
+  '廉政', '纪律', '监督', '巡视', '党组织', '党员', '干部',
+  '基层', '信访', '扶贫', '攻坚', '现代化', '创新', '和谐',
+  '社会主义核心价值观', '不忘初心', '牢记使命', '四个意识',
+  '四个自信', '两个维护', '政治站位', '政治责任',
+];
+
 function classifyArticleContent(text) {
   if (!text || text.length < 50) return 'both';
-
-  // 政治类强关键词（出现即高度疑似政治文章）
-  const strongPolitics = [
-    '习近平', '总书记', '党中央', '中国特色社会主义', '从严治党',
-    '党的建设', '人大', '政协', '党代会', '政治局', '国务院',
-    '马克思主义', '科学发展观', '治国理政', '新时代中国',
-    '中央委员会', '中央纪委', '中纪委', '全国人大', '全国政协',
-    '政府工作报告', '十四五', '二十大', '人大代表', '政协委员',
-  ];
-
-  // 政治类弱关键词（累计较多才判定为政治）
-  const weakPolitics = [
-    '改革', '治理', '脱贫', '小康', '振兴', '民主', '法治',
-    '廉政', '纪律', '监督', '巡视', '党组织', '党员', '干部',
-    '基层', '信访', '扶贫', '攻坚', '现代化', '创新', '和谐',
-    '社会主义核心价值观', '不忘初心', '牢记使命', '四个意识',
-    '四个自信', '两个维护', '政治站位', '政治责任',
-  ];
 
   let strongCount = 0;
   let weakCount = 0;
 
-  for (const kw of strongPolitics) {
+  for (const kw of POLITICS_STRONG_KEYWORDS) {
     if (text.includes(kw)) strongCount++;
   }
-  for (const kw of weakPolitics) {
+  for (const kw of POLITICS_WEAK_KEYWORDS) {
     if (text.includes(kw)) weakCount++;
   }
 
@@ -268,14 +271,6 @@ function classifyArticleContent(text) {
   if (strongCount === 0 && weakCount === 0) return 'verbal';
 
   return 'both';
-}
-
-async function runConcurrent(tasks, maxConcurrent = 3) {
-  const results = [];
-  let index = 0;
-  async function worker() { while (index < tasks.length) { const i = index++; results[i] = await tasks[i](); } }
-  await Promise.all(Array(Math.min(maxConcurrent, tasks.length)).fill(null).map(() => worker()));
-  return results;
 }
 
 function getSourceId(sourceName) {

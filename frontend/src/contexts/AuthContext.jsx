@@ -21,7 +21,7 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     const token = localStorage.getItem('token');
     if (token && userRef.current) {
-      api.get('/practice/stats').catch(() => {
+      api.get('/auth/me').catch(() => {
         // token 无效时 api.js 的 interceptor 会处理 401 跳转
         // 如果没跳转（如网络错误），清除本地状态
         localStorage.removeItem('token');
