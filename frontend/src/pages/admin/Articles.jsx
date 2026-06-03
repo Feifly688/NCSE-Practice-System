@@ -20,6 +20,10 @@ const AVAILABLE_SOURCES = [
   { id: 'xinhua_military', name: '新华社·军事', desc: '新华网军事频道新闻' },
 ];
 
+const PEOPLE_IDS = ['people', 'people_politics', 'people_economy', 'people_society', 'people_legality'];
+const XINHUA_IDS = ['xinhua', 'xinhua_world', 'xinhua_education', 'xinhua_military'];
+const ALL_SOURCE_IDS = [...PEOPLE_IDS, ...XINHUA_IDS];
+
 export default function Articles() {
   const [loading, setLoading] = useState(true);
   const [articles, setArticles] = useState([]);
@@ -304,7 +308,7 @@ export default function Articles() {
       >
         {!previewStep ? (
           <div>
-            <Paragraph type="secondary">选择文章来源和数量，系统将从真实网站抓取候选文章供你确认后再添加。</Paragraph>
+            <Paragraph type="secondary">选择文章来源和数量，系统将从真实网站抓取文章，并根据内容自动分类（言语/政治/通用）。</Paragraph>
             <Divider style={{ margin: '16px 0' }} />
 
             <div style={{ marginBottom: 16 }}>
@@ -329,16 +333,68 @@ export default function Articles() {
             </div>
 
             <Divider style={{ margin: '12px 0' }} />
-            <Text strong style={{ marginBottom: 12, display: 'block' }}>选择来源渠道：</Text>
 
-            {AVAILABLE_SOURCES.map(src => (
-              <div key={src.id} style={{ padding: '8px 0' }}>
-                <Checkbox checked={enabledSources.includes(src.id)} onChange={e => setEnabledSources(prev => e.target.checked ? [...prev, src.id] : prev.filter(s => s !== src.id))}>
-                  <Text strong>{src.name}</Text>
+            <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 16 }}>
+              <Text strong>选择来源渠道：</Text>
+              <Checkbox
+                checked={enabledSources.length === ALL_SOURCE_IDS.length}
+                indeterminate={enabledSources.length > 0 && enabledSources.length < ALL_SOURCE_IDS.length}
+                onChange={e => setEnabledSources(e.target.checked ? [...ALL_SOURCE_IDS] : [])}
+              >
+                <Text strong style={{ color: '#1D4ED8' }}>全选</Text>
+              </Checkbox>
+              {enabledSources.length > 0 && enabledSources.length < ALL_SOURCE_IDS.length && (
+                <Button size="small" type="link" onClick={() => setEnabledSources([])} style={{ padding: 0 }}>
+                  清空选择
+                </Button>
+              )}
+            </div>
+
+            <div style={{ padding: '12px', background: '#fafafa', borderRadius: 6, marginBottom: 12 }}>
+              <div style={{ marginBottom: 8 }}>
+                <Checkbox
+                  checked={PEOPLE_IDS.every(s => enabledSources.includes(s))}
+                  indeterminate={PEOPLE_IDS.some(s => enabledSources.includes(s)) && !PEOPLE_IDS.every(s => enabledSources.includes(s))}
+                  onChange={e => setEnabledSources(prev => {
+                    const others = prev.filter(s => !PEOPLE_IDS.includes(s));
+                    return e.target.checked ? [...others, ...PEOPLE_IDS] : others;
+                  })}
+                >
+                  <Text strong>人民日报系列</Text>
                 </Checkbox>
-                <div style={{ color: '#999', fontSize: 12, marginLeft: 24 }}>{src.desc}</div>
               </div>
-            ))}
+              {AVAILABLE_SOURCES.filter(s => PEOPLE_IDS.includes(s.id)).map(src => (
+                <div key={src.id} style={{ padding: '4px 0 4px 24px' }}>
+                  <Checkbox checked={enabledSources.includes(src.id)} onChange={e => setEnabledSources(prev => e.target.checked ? [...prev, src.id] : prev.filter(s => s !== src.id))}>
+                    <Text>{src.name}</Text>
+                    <Text type="secondary" style={{ fontSize: 12, marginLeft: 6 }}>{src.desc}</Text>
+                  </Checkbox>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ padding: '12px', background: '#fafafa', borderRadius: 6 }}>
+              <div style={{ marginBottom: 8 }}>
+                <Checkbox
+                  checked={XINHUA_IDS.every(s => enabledSources.includes(s))}
+                  indeterminate={XINHUA_IDS.some(s => enabledSources.includes(s)) && !XINHUA_IDS.every(s => enabledSources.includes(s))}
+                  onChange={e => setEnabledSources(prev => {
+                    const others = prev.filter(s => !XINHUA_IDS.includes(s));
+                    return e.target.checked ? [...others, ...XINHUA_IDS] : others;
+                  })}
+                >
+                  <Text strong>新华社系列</Text>
+                </Checkbox>
+              </div>
+              {AVAILABLE_SOURCES.filter(s => XINHUA_IDS.includes(s.id)).map(src => (
+                <div key={src.id} style={{ padding: '4px 0 4px 24px' }}>
+                  <Checkbox checked={enabledSources.includes(src.id)} onChange={e => setEnabledSources(prev => e.target.checked ? [...prev, src.id] : prev.filter(s => s !== src.id))}>
+                    <Text>{src.name}</Text>
+                    <Text type="secondary" style={{ fontSize: 12, marginLeft: 6 }}>{src.desc}</Text>
+                  </Checkbox>
+                </div>
+              ))}
+            </div>
           </div>
         ) : (
           <div>

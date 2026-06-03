@@ -227,6 +227,49 @@ async function fetchArticleContent(url, sourceId, retries = 2) {
   }
 }
 
+// 通过文章内容自动分类：verbal-言语理解, politics-政治, both-通用
+function classifyArticleContent(text) {
+  if (!text || text.length < 50) return 'both';
+
+  // 政治类强关键词（出现即高度疑似政治文章）
+  const strongPolitics = [
+    '习近平', '总书记', '党中央', '中国特色社会主义', '从严治党',
+    '党的建设', '人大', '政协', '党代会', '政治局', '国务院',
+    '马克思主义', '科学发展观', '治国理政', '新时代中国',
+    '中央委员会', '中央纪委', '中纪委', '全国人大', '全国政协',
+    '政府工作报告', '十四五', '二十大', '人大代表', '政协委员',
+  ];
+
+  // 政治类弱关键词（累计较多才判定为政治）
+  const weakPolitics = [
+    '改革', '治理', '脱贫', '小康', '振兴', '民主', '法治',
+    '廉政', '纪律', '监督', '巡视', '党组织', '党员', '干部',
+    '基层', '信访', '扶贫', '攻坚', '现代化', '创新', '和谐',
+    '社会主义核心价值观', '不忘初心', '牢记使命', '四个意识',
+    '四个自信', '两个维护', '政治站位', '政治责任',
+  ];
+
+  let strongCount = 0;
+  let weakCount = 0;
+
+  for (const kw of strongPolitics) {
+    if (text.includes(kw)) strongCount++;
+  }
+  for (const kw of weakPolitics) {
+    if (text.includes(kw)) weakCount++;
+  }
+
+  // 政治判定逻辑
+  if (strongCount >= 2) return 'politics';
+  if (strongCount >= 1 && weakCount >= 3) return 'politics';
+  if (weakCount >= 6) return 'politics';
+
+  // 不包含政治关键词的归为言语理解
+  if (strongCount === 0 && weakCount === 0) return 'verbal';
+
+  return 'both';
+}
+
 async function runConcurrent(tasks, maxConcurrent = 3) {
   const results = [];
   let index = 0;
@@ -249,17 +292,27 @@ router.post('/preview', async (req, res) => {
     const result = await withConnection(async (conn) => {
       const used = new Set();
       const out = [];
-      for (const sourceId of sources) {
+      const tasks = sources.map(sourceId => async () => {
         const fetched = await fetchArticlesFromSource(sourceId, countPerSource * 2);
+        const filtered = [];
         for (const a of fetched) {
           if (out.length >= (totalCount || 10)) break;
           const fp = makeFingerprint(a.source, a.title);
           if (used.has(fp)) continue;
           const [existing] = await conn.query('SELECT id FROM article WHERE fingerprint = ?', [fp]);
-          if (existing.length === 0) { out.push({ ...a, text: '点击"确认添加"后将自动抓取文章内容...', fingerprint: fp }); used.add(fp); }
+          if (existing.length === 0) {
+            filtered.push({ ...a, text: '点击"确认添加"后将自动抓取文章内容...', fingerprint: fp });
+            used.add(fp);
+          }
         }
+        return filtered;
+      });
+      const results = await runConcurrent(tasks, 3);
+      for (const items of results) {
+        out.push(...items);
+        if (out.length >= (totalCount || 10)) break;
       }
-      return out;
+      return out.slice(0, totalCount || 10);
     });
     return res.json({ candidates: result, total: result.length });
   } catch (err) { return res.status(500).json({ error: String(err.message || err) }); }
@@ -279,7 +332,11 @@ router.post('/confirm', async (req, res) => {
         const { content, publishTime } = await fetchArticleContent(a.url, getSourceId(a.source));
         if (!content || content.length < 200) return 'empty';
         const safePublishTime = publishTime || null;
-        await conn.query('INSERT INTO article (source, title, url, publish_time, author, clean_text, fingerprint, category) VALUES (?,?,?,?,?,?,?,?)', [a.source, a.title, a.url || '', safePublishTime, a.author || a.source, content, fp, category]);
+        // AI 自动分类：根据文章内容判断适合出什么题型
+        const autoCategory = classifyArticleContent(content);
+        // 如果自动分类结果为 'both'（不确定），则使用前端选择的默认分类
+        const finalCategory = autoCategory === 'both' ? category : autoCategory;
+        await conn.query('INSERT INTO article (source, title, url, publish_time, author, clean_text, fingerprint, category) VALUES (?,?,?,?,?,?,?,?)', [a.source, a.title, a.url || '', safePublishTime, a.author || a.source, content, fp, finalCategory]);
         return 'inserted';
       });
       const statuses = await runConcurrent(tasks, 3);
