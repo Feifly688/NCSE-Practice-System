@@ -451,9 +451,9 @@ router.post('/ai-analysis', requireAuth, aiAnalysisLimiter, async (req, res) => 
     const options = JSON.parse(q.options_json || '[]');
     const optionsText = options.map((opt, i) => String.fromCharCode(65 + i) + '. ' + opt).join('\n');
 
-    const MIMO_API_KEY = process.env.MIMO_API_KEY;
-    const MIMO_BASE_URL = process.env.MIMO_BASE_URL || 'https://token-plan-cn.xiaomimimo.com/v1';
-    if (!MIMO_API_KEY) return res.status(500).json({ error: 'AI 服务未配置' });
+    const API_KEY = process.env.API_KEY || process.env.MIMO_API_KEY;
+    const BASE_URL = process.env.BASE_URL || process.env.MIMO_BASE_URL || 'https://api.deepseek.com/v1';
+    if (!API_KEY) return res.status(500).json({ error: 'AI 服务未配置' });
 
     const prompt = `你是一位公务员考试辅导老师。学生做错了以下题目，请给出个性化的解析，重点解释：
 1. 为什么学生选的 ${user_answer || '未选'} 是错的
@@ -472,9 +472,9 @@ ${optionsText}
 请用简洁的中文回答，不超过200字。`;
 
     const aiRes = await axios.post(
-      MIMO_BASE_URL + '/chat/completions',
+      BASE_URL + '/chat/completions',
       {
-        model: 'mimo-v2.5-pro',
+        model: process.env.MODEL || 'deepseek-v4-flash',
         messages: [
           { role: 'system', content: '你是公务员考试辅导专家，擅长用通俗易懂的方式讲解题目。' },
           { role: 'user', content: prompt }
@@ -483,7 +483,7 @@ ${optionsText}
         temperature: 0.7
       },
       {
-        headers: { 'Authorization': 'Bearer ' + MIMO_API_KEY, 'Content-Type': 'application/json' },
+        headers: { 'Authorization': 'Bearer ' + API_KEY, 'Content-Type': 'application/json' },
         timeout: 30000
       }
     );

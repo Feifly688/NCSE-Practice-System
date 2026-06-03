@@ -5,10 +5,10 @@ const { withConnection } = require('../db');
 
 const router = express.Router();
 
-const MIMO_API_KEY = process.env.MIMO_API_KEY;
-if (!MIMO_API_KEY) console.warn('WARNING: MIMO_API_KEY not set in .env');
-const MIMO_BASE_URL = process.env.MIMO_BASE_URL || 'https://token-plan-cn.xiaomimimo.com/v1';
-const MIMO_MODEL = 'mimo-v2.5-pro';
+const API_KEY = process.env.API_KEY;
+if (!API_KEY) console.warn('WARNING: API_KEY not set in .env');
+const BASE_URL = process.env.BASE_URL;
+const MODEL = process.env.MODEL;
 
 router.use(requireAuth, requireAdmin);
 
@@ -224,8 +224,8 @@ ${articleText}
   }
 
   try {
-    const response = await axios.post(MIMO_BASE_URL + '/chat/completions', {
-      model: MIMO_MODEL,
+    const response = await axios.post(BASE_URL + '/chat/completions', {
+      model: MODEL,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt }
@@ -234,7 +234,7 @@ ${articleText}
       max_tokens: 4000
     }, {
       headers: {
-        'Authorization': 'Bearer ' + MIMO_API_KEY,
+        'Authorization': 'Bearer ' + API_KEY,
         'Content-Type': 'application/json'
       },
       timeout: 600000 // 10 minutes per article
@@ -350,13 +350,13 @@ router.post('/confirm', async (req, res) => {
 // POST /api/generate/test
 router.post('/test', async (req, res) => {
   try {
-    const response = await axios.post(MIMO_BASE_URL + '/chat/completions', {
-      model: MIMO_MODEL,
+    const response = await axios.post(BASE_URL + '/chat/completions', {
+      model: MODEL,
       messages: [{ role: 'user', content: '你好，请回复"连接成功"' }],
       max_tokens: 50
     }, {
       headers: {
-        'Authorization': 'Bearer ' + MIMO_API_KEY,
+        'Authorization': 'Bearer ' + API_KEY,
         'Content-Type': 'application/json'
       },
       timeout: 30000
