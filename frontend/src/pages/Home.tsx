@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Typography, Card, Row, Col, Button, Space, Skeleton } from 'antd';
 import {
   EditOutlined, TrophyOutlined, UserOutlined, BookOutlined,
@@ -8,6 +8,8 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
 import { CardStack, CardStackItem } from '../components/ui/card-stack';
+import { SpiralAnimation } from '../components/ui/spiral-animation';
+import { GlowCard } from '../components/ui/spotlight-card';
 
 const { Title, Paragraph } = Typography;
 
@@ -52,27 +54,49 @@ const stackItems: CardStackItem[] = [
   },
 ];
 
+const colorMap: Record<string, { color: string; glow: 'blue' | 'purple' | 'green' | 'red' | 'orange' }> = {
+  todayAnswers: { color: '#1D4ED8', glow: 'blue' },
+  todayCorrectRate: { color: '#059669', glow: 'green' },
+  totalUsers: { color: '#7C3AED', glow: 'purple' },
+  totalQuestions: { color: '#DC2626', glow: 'red' },
+  totalVisits: { color: '#0891B2', glow: 'blue' },
+  todayVisits: { color: '#EA580C', glow: 'orange' },
+};
+
 function StatCard({
-  icon, title, value, color, loading
+  icon, title, value, color, glow, loading
 }: {
   icon: React.ReactNode;
   title: string;
   value: string | number;
   color?: string;
+  glow?: 'blue' | 'purple' | 'green' | 'red' | 'orange';
   loading?: boolean;
 }) {
+  if (loading) {
+    return (
+      <div style={{
+        backdropFilter: 'blur(5px)',
+        borderRadius: 14,
+        border: '3px solid rgba(255,255,255,0.08)',
+        padding: 20,
+        background: 'hsl(0 0% 60% / 0.12)',
+      }}>
+        <Skeleton active paragraph={{ rows: 1 }} />
+      </div>
+    );
+  }
+
   return (
-    <Card hoverable styles={{ body: { height: '100%' } }} style={{ borderRadius: 12, height: '100%' }}>
-      <Skeleton loading={loading} paragraph={{ rows: 1 }} active>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <div style={{ fontSize: 32, color: color || '#1D4ED8', flexShrink: 0 }}>{icon}</div>
-          <div>
-            <div style={{ fontSize: 13, color: '#999', marginBottom: 2 }}>{title}</div>
-            <div style={{ fontSize: 28, fontWeight: 600, color: '#1a1a1a', lineHeight: 1.2 }}>{value}</div>
-          </div>
+    <GlowCard glowColor={glow || 'blue'} customSize className="!h-auto !w-full !p-5 !grid !grid-rows-none">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+        <div style={{ fontSize: 30, color: color || '#1D4ED8', flexShrink: 0 }}>{icon}</div>
+        <div>
+          <div style={{ fontSize: 13, color: 'rgba(0,0,0,0.5)', marginBottom: 2 }}>{title}</div>
+          <div style={{ fontSize: 26, fontWeight: 600, color: '#1a1a1a', lineHeight: 1.2 }}>{value}</div>
         </div>
-      </Skeleton>
-    </Card>
+      </div>
+    </GlowCard>
   );
 }
 
@@ -133,10 +157,14 @@ export default function Home() {
   const { isAuthenticated } = useAuth();
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [heroVisible, setHeroVisible] = useState(false);
+  const statsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     fetchStats();
     recordVisit();
+    const timer = setTimeout(() => setHeroVisible(true), 1000);
+    return () => clearTimeout(timer);
   }, []);
 
   async function fetchStats() {
@@ -164,73 +192,203 @@ export default function Home() {
   }
 
   return (
-    <div style={{ maxWidth: 1100, margin: '0 auto', padding: '0 20px' }}>
-      {/* ─── Hero ─── */}
-      <div style={{ textAlign: 'center', padding: '56px 0 36px' }}>
-        <Title level={2} style={{ marginBottom: 8, fontSize: 32 }}>
-          公务员考试刷题系统
-        </Title>
-        <Paragraph type="secondary" style={{ fontSize: 16, marginBottom: 28 }}>
-          基于权威素材的智能命题与练习平台
-        </Paragraph>
-        <Space size="middle">
-          {isAuthenticated ? (
-            <Button type="primary" size="large" onClick={() => navigate('/practice')}>开始练习</Button>
-          ) : (
-            <>
-              <Button type="primary" size="large" onClick={() => navigate('/register')}>免费注册</Button>
-              <Button size="large" onClick={() => navigate('/login')}>登录</Button>
-            </>
-          )}
-        </Space>
-      </div>
+    <div>
+      {/* ─── Hero Section ─── */}
+      <section
+        style={{
+          position: 'relative',
+          height: '100vh',
+          overflow: 'hidden',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: '#000',
+        }}
+      >
+        <SpiralAnimation />
 
-      {/* ─── Stats Cards ─── */}
-      <Row gutter={[16, 16]}>
-        <Col xs={12} sm={8} md={4}>
-          <StatCard icon={<EditOutlined />} title="今日答题" value={stats?.todayAnswers ?? '-'} color="#1D4ED8" loading={loading} />
-        </Col>
-        <Col xs={12} sm={8} md={4}>
-          <StatCard icon={<TrophyOutlined />} title="今日正确率" value={stats?.todayCorrectRate ? `${stats.todayCorrectRate}%` : '-'} color="#059669" loading={loading} />
-        </Col>
-        <Col xs={12} sm={8} md={4}>
-          <StatCard icon={<UserOutlined />} title="注册用户" value={stats?.totalUsers ?? '-'} color="#7C3AED" loading={loading} />
-        </Col>
-        <Col xs={12} sm={8} md={4}>
-          <StatCard icon={<BookOutlined />} title="题库总数" value={stats?.totalQuestions ?? '-'} color="#DC2626" loading={loading} />
-        </Col>
-        <Col xs={12} sm={8} md={4}>
-          <StatCard icon={<EyeOutlined />} title="总访问量" value={stats?.totalVisits ?? '-'} color="#0891B2" loading={loading} />
-        </Col>
-        <Col xs={12} sm={8} md={4}>
-          <StatCard icon={<FireOutlined />} title="今日访问" value={stats?.todayVisits ?? '-'} color="#EA580C" loading={loading} />
-        </Col>
-      </Row>
-
-      {/* ─── CardStack Features ─── */}
-      <div style={{ marginTop: 48, marginBottom: 8 }}>
-        <div style={{ textAlign: 'center', marginBottom: 32 }}>
-          <Title level={3} style={{ marginBottom: 8 }}>平台亮点</Title>
-          <Paragraph type="secondary" style={{ fontSize: 14, marginBottom: 0 }}>
-            滑动卡片浏览，点击查看详情
-          </Paragraph>
-        </div>
-        <CardStack
-          items={stackItems}
-          initialIndex={2}
-          autoAdvance
-          intervalMs={3000}
-          pauseOnHover
-          showDots
-          loop
+        {/* Dark overlay */}
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            background: 'linear-gradient(180deg, rgba(0,0,0,0.3) 0%, rgba(0,0,0,0.7) 100%)',
+            zIndex: 1,
+          }}
         />
+
+        {/* Hero content */}
+        <div
+          style={{
+            position: 'relative',
+            zIndex: 2,
+            textAlign: 'center',
+            color: '#fff',
+            padding: '0 24px',
+            maxWidth: 800,
+            opacity: heroVisible ? 1 : 0,
+            transform: heroVisible ? 'translateY(0)' : 'translateY(20px)',
+            transition: 'opacity 1.5s ease-out, transform 1.5s ease-out',
+          }}
+        >
+          <h1
+            style={{
+              fontSize: 48,
+              fontWeight: 700,
+              marginBottom: 16,
+              letterSpacing: '0.05em',
+              color: '#fff',
+            }}
+          >
+            公务员考试刷题系统
+          </h1>
+          <p
+            style={{
+              fontSize: 18,
+              color: 'rgba(255,255,255,0.7)',
+              marginBottom: 40,
+              letterSpacing: '0.1em',
+              fontWeight: 300,
+            }}
+          >
+            基于权威素材的智能命题与练习平台
+          </p>
+          <Space size="middle">
+            {isAuthenticated ? (
+              <Button
+                type="primary"
+                size="large"
+                onClick={() => navigate('/practice')}
+                style={{
+                  height: 48,
+                  padding: '0 36px',
+                  fontSize: 16,
+                  borderRadius: 24,
+                  background: '#fff',
+                  color: '#000',
+                  border: 'none',
+                  fontWeight: 600,
+                }}
+              >
+                开始练习
+              </Button>
+            ) : (
+              <>
+                <Button
+                  type="primary"
+                  size="large"
+                  onClick={() => navigate('/register')}
+                  style={{
+                    height: 48,
+                    padding: '0 36px',
+                    fontSize: 16,
+                    borderRadius: 24,
+                    background: '#fff',
+                    color: '#000',
+                    border: 'none',
+                    fontWeight: 600,
+                  }}
+                >
+                  免费注册
+                </Button>
+                <Button
+                  size="large"
+                  onClick={() => navigate('/login')}
+                  style={{
+                    height: 48,
+                    padding: '0 36px',
+                    fontSize: 16,
+                    borderRadius: 24,
+                    background: 'transparent',
+                    color: '#fff',
+                    border: '1px solid rgba(255,255,255,0.4)',
+                  }}
+                >
+                  登录
+                </Button>
+              </>
+            )}
+          </Space>
+        </div>
+
+        {/* Scroll indicator */}
+        <div
+          style={{
+            position: 'absolute',
+            bottom: 32,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 2,
+            opacity: heroVisible ? 1 : 0,
+            transition: 'opacity 2s ease-out 1.5s',
+            animation: 'bounce 2s infinite',
+            color: 'rgba(255,255,255,0.5)',
+            fontSize: 12,
+            letterSpacing: '0.2em',
+            textTransform: 'uppercase',
+          }}
+        >
+          <div style={{ marginBottom: 8 }}>Scroll</div>
+          <div style={{ width: 1, height: 32, background: 'rgba(255,255,255,0.3)', margin: '0 auto' }} />
+        </div>
+      </section>
+
+      {/* ─── Content Sections ─── */}
+      <div style={{ maxWidth: 1100, margin: '0 auto', padding: '48px 20px' }} ref={statsRef}>
+        {/* Stats Cards with Spotlight */}
+        <Row gutter={[16, 16]}>
+          <Col xs={12} sm={8} md={4}>
+            <StatCard icon={<EditOutlined />} title="今日答题" value={stats?.todayAnswers ?? '-'} {...colorMap.todayAnswers} loading={loading} />
+          </Col>
+          <Col xs={12} sm={8} md={4}>
+            <StatCard icon={<TrophyOutlined />} title="今日正确率" value={stats?.todayCorrectRate ? `${stats.todayCorrectRate}%` : '-'} {...colorMap.todayCorrectRate} loading={loading} />
+          </Col>
+          <Col xs={12} sm={8} md={4}>
+            <StatCard icon={<UserOutlined />} title="注册用户" value={stats?.totalUsers ?? '-'} {...colorMap.totalUsers} loading={loading} />
+          </Col>
+          <Col xs={12} sm={8} md={4}>
+            <StatCard icon={<BookOutlined />} title="题库总数" value={stats?.totalQuestions ?? '-'} {...colorMap.totalQuestions} loading={loading} />
+          </Col>
+          <Col xs={12} sm={8} md={4}>
+            <StatCard icon={<EyeOutlined />} title="总访问量" value={stats?.totalVisits ?? '-'} {...colorMap.totalVisits} loading={loading} />
+          </Col>
+          <Col xs={12} sm={8} md={4}>
+            <StatCard icon={<FireOutlined />} title="今日访问" value={stats?.todayVisits ?? '-'} {...colorMap.todayVisits} loading={loading} />
+          </Col>
+        </Row>
+
+        {/* CardStack Features */}
+        <div style={{ marginTop: 48, marginBottom: 8 }}>
+          <div style={{ textAlign: 'center', marginBottom: 32 }}>
+            <Title level={3} style={{ marginBottom: 8 }}>平台亮点</Title>
+            <Paragraph type="secondary" style={{ fontSize: 14, marginBottom: 0 }}>
+              滑动卡片浏览，点击查看详情
+            </Paragraph>
+          </div>
+          <CardStack
+            items={stackItems}
+            initialIndex={2}
+            autoAdvance
+            intervalMs={3000}
+            pauseOnHover
+            showDots
+            loop
+          />
+        </div>
+
+        {/* Trend Chart */}
+        <WeekTrend data={stats?.weekTrend} loading={loading} />
+
+        <div style={{ height: 48 }} />
       </div>
 
-      {/* ─── Trend ─── */}
-      <WeekTrend data={stats?.weekTrend} loading={loading} />
-
-      {/* bottom spacing */}
-      <div style={{ height: 48 }} />
+      {/* CSS animation for scroll indicator */}
+      <style>{`
+        @keyframes bounce {
+          0%, 100% { transform: translateX(-50%) translateY(0); }
+          50% { transform: translateX(-50%) translateY(8px); }
+        }
+      `}</style>
     </div>
   );
 }
