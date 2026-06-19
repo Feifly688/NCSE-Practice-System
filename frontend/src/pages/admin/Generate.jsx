@@ -123,6 +123,7 @@ export default function Generate() {
 
   async function handleGenerate() {
     cancelRef.current = false;
+    setGenProgress({ current: 1, total: selectedArticles.length });
     setGenerating(true);
     const allQuestions = [];
     const totalArticles = selectedArticles.length;
@@ -148,8 +149,6 @@ export default function Generate() {
         }
       }
 
-      setGenProgress({ current: 0, total: 0 });
-
       if (cancelled) {
         if (allQuestions.length > 0) {
           setPreviewQuestions(allQuestions);
@@ -172,10 +171,10 @@ export default function Generate() {
       setPreviewStep(true);
       message.success(`成功生成 ${allQuestions.length} 道题目（${totalArticles} 篇文章）`);
     } catch (err) {
-      setGenProgress({ current: 0, total: 0 });
       message.error('生成题目失败: ' + (err.message || err));
     } finally {
       setGenerating(false);
+      setGenProgress({ current: 0, total: 0 });
     }
   }
 
@@ -434,7 +433,7 @@ export default function Generate() {
           </Button>
         ]}
       >
-        {generating && genProgress.total > 0 ? (
+        {generating ? (
           <div style={{ textAlign: 'center', padding: '40px 0' }}>
             <div style={{ marginBottom: 16 }}>
               <span style={{ fontSize: 18 }}>⏳</span>
