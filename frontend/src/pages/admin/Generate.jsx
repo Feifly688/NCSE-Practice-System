@@ -24,6 +24,7 @@ export default function Generate() {
   const [selectedSubject, setSelectedSubject] = useState('verbal_comprehension');
   const [selectedSource, setSelectedSource] = useState('');
   const [genProgress, setGenProgress] = useState({ current: 0, total: 0 });
+  const [cancelling, setCancelling] = useState(false);
   const cancelRef = useRef(false);
   const pageSize = 10;
 
@@ -174,12 +175,14 @@ export default function Generate() {
       message.error('生成题目失败: ' + (err.message || err));
     } finally {
       setGenerating(false);
+      setCancelling(false);
       setGenProgress({ current: 0, total: 0 });
     }
   }
 
   function handleCancel() {
     cancelRef.current = true;
+    setCancelling(true);
   }
 
   async function handleConfirm() {
@@ -444,8 +447,8 @@ export default function Generate() {
             <Paragraph type="secondary">
               每篇大约需要30-60秒，请耐心等待...
             </Paragraph>
-            <Button danger onClick={handleCancel} style={{ marginTop: 8 }}>
-              中断生成
+            <Button danger onClick={handleCancel} disabled={cancelling} style={{ marginTop: 8 }}>
+              {cancelling ? '正在取消...' : '中断生成'}
             </Button>
           </div>
         ) : !previewStep ? (
