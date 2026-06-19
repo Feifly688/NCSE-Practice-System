@@ -23,6 +23,7 @@ export default function Generate() {
   const [currentQuestion, setCurrentQuestion] = useState(null);
   const [selectedSubject, setSelectedSubject] = useState('verbal_comprehension');
   const [selectedSource, setSelectedSource] = useState('');
+  const [genProgress, setGenProgress] = useState({ current: 0, total: 0 });
   const pageSize = 10;
 
   useEffect(() => { loadArticles(); }, [showGenerated, selectedSubject, selectedSource]);
@@ -126,8 +127,7 @@ export default function Generate() {
 
     try {
       for (let i = 0; i < totalArticles; i++) {
-        message.destroy();
-        message.loading(`正在生成中 ${i + 1}/${totalArticles}...`, 0);
+        setGenProgress({ current: i + 1, total: totalArticles });
 
         try {
           const r = await api.post('/generate/preview', {
@@ -144,7 +144,7 @@ export default function Generate() {
         }
       }
 
-      message.destroy();
+      setGenProgress({ current: 0, total: 0 });
 
       if (allQuestions.length === 0) {
         message.warning('未能生成任何题目，请检查文章内容或重试');
@@ -156,7 +156,7 @@ export default function Generate() {
       setPreviewStep(true);
       message.success(`成功生成 ${allQuestions.length} 道题目（${totalArticles} 篇文章）`);
     } catch (err) {
-      message.destroy();
+      setGenProgress({ current: 0, total: 0 });
       message.error('生成题目失败: ' + (err.message || err));
     } finally {
       setGenerating(false);
@@ -414,7 +414,19 @@ export default function Generate() {
           </Button>
         ]}
       >
-        {!previewStep ? (
+        {generating && genProgress.total > 0 ? (
+          <div style={{ textAlign: 'center', padding: '40px 0' }}>
+            <div style={{ marginBottom: 16 }}>
+              <span style={{ fontSize: 18 }}>⏳</span>
+            </div>
+            <Paragraph>
+              正在生成中：<Text strong>{genProgress.current}/{genProgress.total}</Text> 篇文章
+            </Paragraph>
+            <Paragraph type="secondary">
+              每篇大约需要30-60秒，请耐心等待...
+            </Paragraph>
+          </div>
+        ) : !previewStep ? (
           <div>
             <Paragraph>
               将为选中的 <Text strong>{selectedArticles.length}</Text> 篇文章生成
