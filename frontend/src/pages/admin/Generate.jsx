@@ -121,24 +121,42 @@ export default function Generate() {
 
   async function handleGenerate() {
     setGenerating(true);
+    const allQuestions = [];
+    const totalArticles = selectedArticles.length;
+
     try {
-      const r = await api.post('/generate/preview', {
-        articleIds: selectedArticles,
-        questionsPerArticle,
-        subject: selectedSubject
-      }, { timeout: 1800000 }); // 30 minutes for AI generation
-      
-      if (r.data.total === 0) {
-        message.info('未能生成任何题目，请检查文章内容或重试');
+      for (let i = 0; i < totalArticles; i++) {
+        message.loading({ content: `正在生成中（${i + 1}/${totalArticles}）...`, key: 'genProgress', duration: 0 });
+
+        try {
+          const r = await api.post('/generate/preview', {
+            articleIds: [selectedArticles[i]],
+            questionsPerArticle,
+            subject: selectedSubject
+          }, { timeout: 180000 });
+
+          if (r.data.questions?.length > 0) {
+            allQuestions.push(...r.data.questions);
+          }
+        } catch (err) {
+          console.error('第' + (i + 1) + '篇文章生成失败:', err.message);
+        }
+      }
+
+      message.destroy('genProgress');
+
+      if (allQuestions.length === 0) {
+        message.warning('未能生成任何题目，请检查文章内容或重试');
         return;
       }
-      
-      setPreviewQuestions(r.data.questions);
-      setSelectedQuestions(r.data.questions.map((_, i) => i));
+
+      setPreviewQuestions(allQuestions);
+      setSelectedQuestions(allQuestions.map((_, i) => i));
       setPreviewStep(true);
-      message.success(`成功生成 ${r.data.total} 道题目`);
+      message.success(`成功生成 ${allQuestions.length} 道题目（${totalArticles} 篇文章）`);
     } catch (err) {
-      message.error('生成题目失败: ' + (err.response?.data?.error || err.message));
+      message.destroy('genProgress');
+      message.error('生成题目失败: ' + (err.message || err));
     } finally {
       setGenerating(false);
     }
