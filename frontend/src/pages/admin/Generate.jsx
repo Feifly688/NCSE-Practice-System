@@ -126,7 +126,7 @@ export default function Generate() {
 
     try {
       for (let i = 0; i < totalArticles; i++) {
-        message.loading({ content: `正在生成中（${i + 1}/${totalArticles}）...`, key: 'genProgress', duration: 0 });
+        message.open({ type: 'loading', content: `正在生成中（${i + 1}/${totalArticles}）...`, key: 'genProgress', duration: 0 });
 
         try {
           const r = await api.post('/generate/preview', {
