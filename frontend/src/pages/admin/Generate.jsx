@@ -126,7 +126,8 @@ export default function Generate() {
 
     try {
       for (let i = 0; i < totalArticles; i++) {
-        message.open({ type: 'loading', content: `正在生成中（${i + 1}/${totalArticles}）...`, key: 'genProgress', duration: 0 });
+        message.destroy();
+        message.loading(`正在生成中 ${i + 1}/${totalArticles}...`, 0);
 
         try {
           const r = await api.post('/generate/preview', {
@@ -143,7 +144,7 @@ export default function Generate() {
         }
       }
 
-      message.destroy('genProgress');
+      message.destroy();
 
       if (allQuestions.length === 0) {
         message.warning('未能生成任何题目，请检查文章内容或重试');
@@ -155,7 +156,7 @@ export default function Generate() {
       setPreviewStep(true);
       message.success(`成功生成 ${allQuestions.length} 道题目（${totalArticles} 篇文章）`);
     } catch (err) {
-      message.destroy('genProgress');
+      message.destroy();
       message.error('生成题目失败: ' + (err.message || err));
     } finally {
       setGenerating(false);
