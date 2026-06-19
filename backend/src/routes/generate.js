@@ -231,14 +231,13 @@ ${articleText}
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt }
       ],
-      temperature: 0.7,
-      max_tokens: 4000
+      temperature: 0.7
     }, {
       headers: {
         'Authorization': 'Bearer ' + API_KEY,
         'Content-Type': 'application/json'
       },
-      timeout: 600000 // 10 minutes per article
+      timeout: 1800000 // 30 minutes per article
     });
 
     let content = response.data.choices[0].message.content.trim();
