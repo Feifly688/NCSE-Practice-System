@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect, useRef } from 'react';
 import { Typography, Card, Button, Select, Modal, message, InputNumber, Checkbox, Divider, Space, List, Empty, Tag, Table } from 'antd';
 import { ThunderboltOutlined, EyeOutlined, CheckCircleOutlined, ExperimentOutlined } from '@ant-design/icons';
 import api from '../../services/api';
@@ -24,6 +24,7 @@ export default function Generate() {
   const [selectedSubject, setSelectedSubject] = useState('verbal_comprehension');
   const [selectedSource, setSelectedSource] = useState('');
   const [genProgress, setGenProgress] = useState({ current: 0, total: 0 });
+  const cancelRef = useRef(false);
   const pageSize = 10;
 
   useEffect(() => { loadArticles(); }, [showGenerated, selectedSubject, selectedSource]);
@@ -121,12 +122,15 @@ export default function Generate() {
   }
 
   async function handleGenerate() {
+    cancelRef.current = false;
     setGenerating(true);
     const allQuestions = [];
     const totalArticles = selectedArticles.length;
+    let cancelled = false;
 
     try {
       for (let i = 0; i < totalArticles; i++) {
+        if (cancelRef.current) { cancelled = true; break; }
         setGenProgress({ current: i + 1, total: totalArticles });
 
         try {
@@ -146,6 +150,18 @@ export default function Generate() {
 
       setGenProgress({ current: 0, total: 0 });
 
+      if (cancelled) {
+        if (allQuestions.length > 0) {
+          setPreviewQuestions(allQuestions);
+          setSelectedQuestions(allQuestions.map((_, i) => i));
+          setPreviewStep(true);
+          message.info(`已中断，已生成 ${allQuestions.length} 道题目`);
+        } else {
+          message.warning('已取消生成');
+        }
+        return;
+      }
+
       if (allQuestions.length === 0) {
         message.warning('未能生成任何题目，请检查文章内容或重试');
         return;
@@ -161,6 +177,10 @@ export default function Generate() {
     } finally {
       setGenerating(false);
     }
+  }
+
+  function handleCancel() {
+    cancelRef.current = true;
   }
 
   async function handleConfirm() {
@@ -425,6 +445,9 @@ export default function Generate() {
             <Paragraph type="secondary">
               每篇大约需要30-60秒，请耐心等待...
             </Paragraph>
+            <Button danger onClick={handleCancel} style={{ marginTop: 8 }}>
+              中断生成
+            </Button>
           </div>
         ) : !previewStep ? (
           <div>
