@@ -1,372 +1,389 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
-import { gsap } from 'gsap'
 
-// 向量工具类
-class Vector2D {
-    constructor(public x: number, public y: number) {}
-
-    static random(min: number, max: number): number {
-        return min + Math.random() * (max - min)
-    }
+// ─── 类型 ───
+interface Particle {
+  /** logo 形状上的初始位置（canvas 坐标，中心为原点） */
+  originX: number
+  originY: number
+  /** 当前位置 */
+  x: number
+  y: number
+  /** 当前速度（散开阶段用） */
+  vx: number
+  vy: number
+  /** 基础大小 0-1 */
+  size: number
+  /** 闪烁相位偏移 0-2PI */
+  flickerPhase: number
+  /** 闪烁速度倍率 */
+  flickerSpeed: number
 }
 
-class Vector3D {
-    constructor(public x: number, public y: number, public z: number) {}
-
-    static random(min: number, max: number): number {
-        return min + Math.random() * (max - min)
-    }
+interface AnimationState {
+  particles: Particle[]
+  time: number           // 流逝时间（秒），用于闪烁波形
+  splashProgress: number // splash 模式下的进度 0→1
+  width: number
+  height: number
+  centerX: number
+  centerY: number
+  splashMode: boolean
+  destroyed: boolean
 }
 
-// 动画控制器
-class AnimationController {
-    private timeline: gsap.core.Timeline | null = null
-    private time = 0
-    private canvas: HTMLCanvasElement
-    private ctx: CanvasRenderingContext2D
-    private dpr: number
-    private size: number
-    private stars: Star[] = []
-    private destroyed = false
-
-    // 常量
-    private readonly changeEventTime = 0.32
-    private readonly cameraZ = -400
-    private readonly cameraTravelDistance = 3400
-    private readonly startDotYOffset = 28
-    private readonly viewZoom = 100
-    private readonly numberOfStars = 2000
-    private readonly trailLength = 40
-
-    constructor(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D, dpr: number, size: number) {
-        this.canvas = canvas
-        this.ctx = ctx
-        this.dpr = dpr
-        this.size = size
-
-        this.createStars()
-        this.setupTimeline()
-    }
-
-    private createStars() {
-        for (let i = 0; i < this.numberOfStars; i++) {
-            this.stars.push(new Star(this.cameraZ, this.cameraTravelDistance))
-        }
-    }
-
-    private setupTimeline() {
-        this.timeline = gsap.timeline({ repeat: -1, onUpdate: () => this.render() })
-        this.timeline.to(this, {
-            time: 1,
-            duration: 15,
-            repeat: -1,
-            ease: "none",
-        })
-    }
-
-    public ease(p: number, g: number): number {
-        if (p < 0.5)
-            return 0.5 * Math.pow(2 * p, g)
-        else
-            return 1 - 0.5 * Math.pow(2 * (1 - p), g)
-    }
-
-    public easeOutElastic(x: number): number {
-        const c4 = (2 * Math.PI) / 4.5
-        if (x <= 0) return 0
-        if (x >= 1) return 1
-        return Math.pow(2, -8 * x) * Math.sin((x * 8 - 0.75) * c4) + 1
-    }
-
-    public map(value: number, start1: number, stop1: number, start2: number, stop2: number): number {
-        return start2 + (stop2 - start2) * ((value - start1) / (stop1 - start1))
-    }
-
-    public constrain(value: number, min: number, max: number): number {
-        return Math.min(Math.max(value, min), max)
-    }
-
-    public lerp(start: number, end: number, t: number): number {
-        return start * (1 - t) + end * t
-    }
-
-    public spiralPath(p: number): Vector2D {
-        p = this.constrain(1.2 * p, 0, 1)
-        p = this.ease(p, 1.8)
-        const numberOfSpiralTurns = 6
-        const theta = 2 * Math.PI * numberOfSpiralTurns * Math.sqrt(p)
-        const r = 170 * Math.sqrt(p)
-
-        return new Vector2D(
-            r * Math.cos(theta),
-            r * Math.sin(theta) + this.startDotYOffset
-        )
-    }
-
-    public rotate(v1: Vector2D, v2: Vector2D, p: number, orientation: boolean): Vector2D {
-        const middle = new Vector2D(
-            (v1.x + v2.x) / 2,
-            (v1.y + v2.y) / 2
-        )
-
-        const dx = v1.x - middle.x
-        const dy = v1.y - middle.y
-        const angle = Math.atan2(dy, dx)
-        const o = orientation ? -1 : 1
-        const r = Math.sqrt(dx * dx + dy * dy)
-
-        const bounce = Math.sin(p * Math.PI) * 0.05 * (1 - p)
-
-        return new Vector2D(
-            middle.x + r * (1 + bounce) * Math.cos(angle + o * Math.PI * this.easeOutElastic(p)),
-            middle.y + r * (1 + bounce) * Math.sin(angle + o * Math.PI * this.easeOutElastic(p))
-        )
-    }
-
-    public showProjectedDot(position: Vector3D, sizeFactor: number) {
-        const t2 = this.constrain(this.map(this.time, this.changeEventTime, 1, 0, 1), 0, 1)
-        const newCameraZ = this.cameraZ + this.ease(Math.pow(t2, 1.2), 1.8) * this.cameraTravelDistance
-
-        if (position.z > newCameraZ) {
-            const dotDepthFromCamera = position.z - newCameraZ
-            const x = this.viewZoom * position.x / dotDepthFromCamera
-            const y = this.viewZoom * position.y / dotDepthFromCamera
-            const sw = 400 * sizeFactor / dotDepthFromCamera
-
-            this.ctx.lineWidth = sw
-            this.ctx.beginPath()
-            this.ctx.arc(x, y, 0.5, 0, Math.PI * 2)
-            this.ctx.fill()
-        }
-    }
-
-    private drawStartDot() {
-        if (this.time > this.changeEventTime) {
-            const dy = this.cameraZ * this.startDotYOffset / this.viewZoom
-            const position = new Vector3D(0, dy, this.cameraTravelDistance)
-            this.showProjectedDot(position, 2.5)
-        }
-    }
-
-    public render() {
-        if (this.destroyed) return
-        const ctx = this.ctx
-        if (!ctx) return
-
-        ctx.fillStyle = 'black'
-        ctx.fillRect(0, 0, this.size, this.size)
-
-        ctx.save()
-        ctx.translate(this.size / 2, this.size / 2)
-
-        const t1 = this.constrain(this.map(this.time, 0, this.changeEventTime + 0.25, 0, 1), 0, 1)
-        const t2 = this.constrain(this.map(this.time, this.changeEventTime, 1, 0, 1), 0, 1)
-
-        ctx.rotate(-Math.PI * this.ease(t2, 2.7))
-
-        this.drawTrail(t1)
-
-        ctx.fillStyle = 'white'
-        for (const star of this.stars) {
-            star.render(t1, this)
-        }
-
-        this.drawStartDot()
-
-        ctx.restore()
-    }
-
-    private drawTrail(t1: number) {
-        for (let i = 0; i < this.trailLength; i++) {
-            const f = this.map(i, 0, this.trailLength, 1.1, 0.1)
-            const sw = (1.3 * (1 - t1) + 3.0 * Math.sin(Math.PI * t1)) * f
-
-            this.ctx.fillStyle = 'white'
-            this.ctx.lineWidth = sw
-
-            const pathTime = t1 - 0.00015 * i
-            const position = this.spiralPath(pathTime)
-            const basePos = position
-            const offset = new Vector2D(position.x + 5, position.y + 5)
-            const rotated = this.rotate(
-                basePos,
-                offset,
-                Math.sin(this.time * Math.PI * 2) * 0.5 + 0.5,
-                i % 2 === 0
-            )
-
-            this.ctx.beginPath()
-            this.ctx.arc(rotated.x, rotated.y, sw / 2, 0, Math.PI * 2)
-            this.ctx.fill()
-        }
-    }
-
-    public pause() {
-        this.timeline?.pause()
-    }
-
-    public resume() {
-        this.timeline?.play()
-    }
-
-    public destroy() {
-        this.destroyed = true
-        this.timeline?.kill()
-    }
+// ─── Props ───
+export interface SpiralAnimationProps {
+  /** logo 图片地址 */
+  logoImageSrc?: string
+  /** splash 动画总时长 (ms)，仅 splash 模式有效 */
+  duration?: number
+  /** 粒子数量，默认 2000 */
+  particleCount?: number
+  /** logo 形状缩放，默认 0.4 */
+  logoScale?: number
+  /** 进度回调 0→1，设置后进入 splash 模式（单次播放）；不设置则为背景模式（持续闪烁） */
+  onProgress?: (progress: number) => void
+  /** 动画完成回调 */
+  onComplete?: () => void
 }
 
-class Star {
-    private dx: number
-    private dy: number
-    private spiralLocation: number
-    private strokeWeightFactor: number
-    private z: number
-    private angle: number
-    private distance: number
-    private rotationDirection: number
-    private expansionRate: number
-    private finalScale: number
+// ─── 工具函数 ───
 
-    constructor(cameraZ: number, cameraTravelDistance: number) {
-        this.angle = Math.random() * Math.PI * 2
-        this.distance = 30 * Math.random() + 15
-        this.rotationDirection = Math.random() > 0.5 ? 1 : -1
-        this.expansionRate = 1.2 + Math.random() * 0.8
-        this.finalScale = 0.7 + Math.random() * 0.6
+function extractShapeFromImage(
+  img: HTMLImageElement,
+  targetWidth: number,
+  targetHeight: number
+): { x: number; y: number }[] {
+  const offCanvas = document.createElement('canvas')
+  offCanvas.width = targetWidth
+  offCanvas.height = targetHeight
+  const offCtx = offCanvas.getContext('2d')!
+  offCtx.clearRect(0, 0, targetWidth, targetHeight)
 
-        this.dx = this.distance * Math.cos(this.angle)
-        this.dy = this.distance * Math.sin(this.angle)
+  const imgAspect = img.naturalWidth / img.naturalHeight
+  const canvasAspect = targetWidth / targetHeight
+  let drawW: number, drawH: number, offsetX: number, offsetY: number
 
-        this.spiralLocation = (1 - Math.pow(1 - Math.random(), 3.0)) / 1.3
-        this.z = Vector2D.random(0.5 * cameraZ, cameraTravelDistance + cameraZ)
+  if (imgAspect > canvasAspect) {
+    drawW = targetWidth
+    drawH = targetWidth / imgAspect
+    offsetX = 0
+    offsetY = (targetHeight - drawH) / 2
+  } else {
+    drawH = targetHeight
+    drawW = targetHeight * imgAspect
+    offsetX = (targetWidth - drawW) / 2
+    offsetY = 0
+  }
 
-        const lerp = (start: number, end: number, t: number) => start * (1 - t) + end * t
-        this.z = lerp(this.z, cameraTravelDistance / 2, 0.3 * this.spiralLocation)
-        this.strokeWeightFactor = Math.pow(Math.random(), 2.0)
+  offCtx.drawImage(img, offsetX, offsetY, drawW, drawH)
+  const imageData = offCtx.getImageData(0, 0, targetWidth, targetHeight)
+  const data = imageData.data
+
+  const points: { x: number; y: number }[] = []
+  const step = 2
+
+  for (let y = 0; y < targetHeight; y += step) {
+    for (let x = 0; x < targetWidth; x += step) {
+      const idx = (y * targetWidth + x) * 4
+      if (data[idx + 3] > 128) {
+        points.push({ x: x - targetWidth / 2, y: y - targetHeight / 2 })
+      }
     }
+  }
 
-    render(p: number, controller: AnimationController) {
-        const spiralPos = controller.spiralPath(this.spiralLocation)
-        const q = p - this.spiralLocation
-
-        if (q > 0) {
-            const displacementProgress = controller.constrain(4 * q, 0, 1)
-
-            const linearEasing = displacementProgress;
-            const elasticEasing = controller.easeOutElastic(displacementProgress);
-            const powerEasing = Math.pow(displacementProgress, 2);
-
-            let easing;
-            if (displacementProgress < 0.3) {
-                easing = controller.lerp(linearEasing, powerEasing, displacementProgress / 0.3);
-            } else if (displacementProgress < 0.7) {
-                const t = (displacementProgress - 0.3) / 0.4;
-                easing = controller.lerp(powerEasing, elasticEasing, t);
-            } else {
-                easing = elasticEasing;
-            }
-
-            let screenX: number, screenY: number;
-
-            if (displacementProgress < 0.3) {
-                screenX = controller.lerp(spiralPos.x, spiralPos.x + this.dx * 0.3, easing / 0.3);
-                screenY = controller.lerp(spiralPos.y, spiralPos.y + this.dy * 0.3, easing / 0.3);
-            } else if (displacementProgress < 0.7) {
-                const midProgress = (displacementProgress - 0.3) / 0.4;
-                const curveStrength = Math.sin(midProgress * Math.PI) * this.rotationDirection * 1.5;
-
-                const baseX = spiralPos.x + this.dx * 0.3;
-                const baseY = spiralPos.y + this.dy * 0.3;
-                const targetX = spiralPos.x + this.dx * 0.7;
-                const targetY = spiralPos.y + this.dy * 0.7;
-                const perpX = -this.dy * 0.4 * curveStrength;
-                const perpY = this.dx * 0.4 * curveStrength;
-
-                screenX = controller.lerp(baseX, targetX, midProgress) + perpX * midProgress;
-                screenY = controller.lerp(baseY, targetY, midProgress) + perpY * midProgress;
-            } else {
-                const finalProgress = (displacementProgress - 0.7) / 0.3;
-                const baseX = spiralPos.x + this.dx * 0.7;
-                const baseY = spiralPos.y + this.dy * 0.7;
-                const targetDistance = this.distance * this.expansionRate * 1.5;
-                const spiralTurns = 1.2 * this.rotationDirection;
-                const spiralAngle = this.angle + spiralTurns * finalProgress * Math.PI;
-                const targetX = spiralPos.x + targetDistance * Math.cos(spiralAngle);
-                const targetY = spiralPos.y + targetDistance * Math.sin(spiralAngle);
-
-                screenX = controller.lerp(baseX, targetX, finalProgress);
-                screenY = controller.lerp(baseY, targetY, finalProgress);
-            }
-
-            const vx = (this.z - (controller as any)['cameraZ']) * screenX / (controller as any)['viewZoom'];
-            const vy = (this.z - (controller as any)['cameraZ']) * screenY / (controller as any)['viewZoom'];
-
-            const position = new Vector3D(vx, vy, this.z);
-
-            let sizeMultiplier = 1.0;
-            if (displacementProgress < 0.6) {
-                sizeMultiplier = 1.0 + displacementProgress * 0.2;
-            } else {
-                const t = (displacementProgress - 0.6) / 0.4;
-                sizeMultiplier = 1.2 * (1.0 - t) + this.finalScale * t;
-            }
-
-            const dotSize = 8.5 * this.strokeWeightFactor * sizeMultiplier;
-
-            controller.showProjectedDot(position, dotSize);
-        }
-    }
+  return points
 }
 
-export function SpiralAnimation() {
-    const canvasRef = useRef<HTMLCanvasElement>(null)
-    const animationRef = useRef<AnimationController | null>(null)
-    const [dimensions, setDimensions] = useState({ width: 0, height: 0 })
+function sampleParticles(shapePoints: { x: number; y: number }[], count: number): Particle[] {
+  if (shapePoints.length === 0) {
+    return Array.from({ length: count }, () => {
+      const angle = Math.random() * Math.PI * 2
+      const radius = 40 + Math.random() * 80
+      return {
+        originX: Math.cos(angle) * radius,
+        originY: Math.sin(angle) * radius,
+        x: Math.cos(angle) * radius,
+        y: Math.sin(angle) * radius,
+        vx: 0, vy: 0,
+        size: 0.3 + Math.random() * 0.7,
+        flickerPhase: Math.random() * Math.PI * 2,
+        flickerSpeed: 0.5 + Math.random() * 2.0,
+      }
+    })
+  }
 
-    useEffect(() => {
-        const updateSize = () => {
-            setDimensions({
-                width: window.innerWidth,
-                height: window.innerHeight
-            })
-        }
-        updateSize()
-        window.addEventListener('resize', updateSize)
-        return () => window.removeEventListener('resize', updateSize)
-    }, [])
+  const particles: Particle[] = []
+  for (let i = 0; i < count; i++) {
+    const pt = shapePoints[Math.floor(Math.random() * shapePoints.length)]
+    const angle = Math.random() * Math.PI * 2
+    const speed = 2 + Math.random() * 8
+    particles.push({
+      originX: pt.x, originY: pt.y,
+      x: pt.x, y: pt.y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      size: 0.2 + Math.random() * 0.8,
+      flickerPhase: Math.random() * Math.PI * 2,
+      flickerSpeed: 0.5 + Math.random() * 2.5,
+    })
+  }
 
-    useEffect(() => {
-        const canvas = canvasRef.current
-        if (!canvas || dimensions.width === 0) return
-
-        const ctx = canvas.getContext('2d')
-        if (!ctx) return
-
-        const dpr = window.devicePixelRatio || 1
-        const size = Math.max(dimensions.width, dimensions.height)
-
-        canvas.width = size * dpr
-        canvas.height = size * dpr
-        canvas.style.width = `${dimensions.width}px`
-        canvas.style.height = `${dimensions.height}px`
-
-        ctx.scale(dpr, dpr)
-
-        animationRef.current = new AnimationController(canvas, ctx, dpr, size)
-
-        return () => {
-            if (animationRef.current) {
-                animationRef.current.destroy()
-                animationRef.current = null
-            }
-        }
-    }, [dimensions])
-
-    return (
-        <canvas
-            ref={canvasRef}
-            className="absolute inset-0 w-full h-full"
-        />
-    )
+  return particles
 }
+
+// ─── 渲染 ───
+
+function renderFrame(state: AnimationState, ctx: CanvasRenderingContext2D) {
+  const { particles, width, height, centerX, centerY, time, splashProgress, splashMode } = state
+
+  // 清屏：背景模式用透明（让父级背景透出），splash 用纯黑
+  if (splashMode) {
+    ctx.fillStyle = '#0a0a0f'
+  } else {
+    ctx.clearRect(0, 0, width, height)
+  }
+  ctx.fillRect(0, 0, width, height)
+
+  ctx.save()
+  ctx.translate(centerX, centerY)
+
+  if (splashMode) {
+    // ─── Splash 模式：出现 → 闪两下 → 消散 ───
+    for (const p of particles) {
+      let px: number, py: number, alpha: number, dotSize: number
+
+      if (splashProgress <= 0.15) {
+        // 阶段1：粒子渐显
+        const fadeIn = splashProgress / 0.15  // 0→1
+        px = p.originX; py = p.originY
+        alpha = fadeIn * 0.6
+        dotSize = p.size * 1.6 + 0.4 + fadeIn * 0.5
+      } else if (splashProgress <= 0.55) {
+        // 阶段2：闪烁两下
+        const flashT = (splashProgress - 0.15) / 0.40  // 0→1
+        // 两下闪烁：两个 sin 波峰
+        const flash1 = Math.sin(flashT * Math.PI * 4)  // 2个完整周期
+        const flash2 = Math.sin(flashT * Math.PI * 4 - 0.5)
+        const combined = Math.max(flash1, flash2)
+        const flash = 0.4 + 0.6 * Math.max(0, combined)
+
+        const noise = Math.sin(time * p.flickerSpeed * 25 + p.flickerPhase) * 0.15
+        alpha = Math.max(0.15, Math.min(1, flash + noise))
+        px = p.originX; py = p.originY
+        dotSize = p.size * 2.0 + 0.6
+      } else if (splashProgress <= 0.85) {
+        // 阶段3：慢慢消散（粒子飞散 + 淡出）
+        const dissolveT = (splashProgress - 0.55) / 0.30  // 0→1
+        const easedT = dissolveT * dissolveT
+        px = p.originX + p.vx * easedT * 80
+        py = p.originY + p.vy * easedT * 80
+        alpha = Math.max(0, 0.6 * (1 - dissolveT))
+        dotSize = Math.max(0.15, p.size * 2.0 + 0.6 - dissolveT * 2.0)
+      } else {
+        // 阶段4：完全消散
+        px = p.originX + p.vx * 200
+        py = p.originY + p.vy * 200
+        alpha = 0
+        dotSize = 0.1
+      }
+
+      if (alpha <= 0.01) continue
+      drawParticle(ctx, px, py, dotSize, alpha)
+    }
+  } else {
+    // ─── 背景模式：持续闪烁，不散开 ───
+    for (const p of particles) {
+      const flickerVal = Math.sin(time * p.flickerSpeed * 3 + p.flickerPhase)
+      const flicker = 0.5 + 0.5 * flickerVal
+      const noise = Math.sin(time * p.flickerSpeed * 5.5 + p.flickerPhase * 1.7) * 0.25
+      const alpha = Math.max(0.08, Math.min(1, 0.15 + flicker * 0.35 + noise))
+      const dotSize = p.size * 1.4 + 0.3
+
+      drawParticle(ctx, p.originX, p.originY, dotSize, alpha)
+    }
+  }
+
+  ctx.restore()
+}
+
+function drawParticle(ctx: CanvasRenderingContext2D, x: number, y: number, size: number, alpha: number) {
+  // 光晕
+  ctx.fillStyle = `rgba(255,255,255,${alpha * 0.12})`
+  ctx.beginPath()
+  ctx.arc(x, y, size * 3, 0, Math.PI * 2)
+  ctx.fill()
+
+  // 主体
+  ctx.fillStyle = `rgba(255,255,255,${alpha})`
+  ctx.beginPath()
+  ctx.arc(x, y, size, 0, Math.PI * 2)
+  ctx.fill()
+
+  // 亮点
+  if (alpha > 0.2) {
+    ctx.fillStyle = `rgba(255,255,255,${alpha * 1.4})`
+    ctx.beginPath()
+    ctx.arc(x, y, size * 0.35, 0, Math.PI * 2)
+    ctx.fill()
+  }
+}
+
+// ─── React 组件 ───
+
+export function SpiralAnimation({
+  logoImageSrc = '/logo.png',
+  duration = 3200,
+  particleCount = 2000,
+  logoScale = 0.4,
+  onProgress,
+  onComplete,
+}: SpiralAnimationProps) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const stateRef = useRef<AnimationState | null>(null)
+  const [dimensions, setDimensions] = useState({ width: 0, height: 0 })
+  const [ready, setReady] = useState(false)
+  const splashMode = !!onProgress
+
+  useEffect(() => {
+    const updateSize = () => {
+      setDimensions({ width: window.innerWidth, height: window.innerHeight })
+    }
+    updateSize()
+    window.addEventListener('resize', updateSize)
+    return () => window.removeEventListener('resize', updateSize)
+  }, [])
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas || dimensions.width === 0) return
+
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    const dpr = Math.min(window.devicePixelRatio || 1, 2)
+    const w = dimensions.width
+    const h = dimensions.height
+
+    canvas.width = w * dpr
+    canvas.height = h * dpr
+    canvas.style.width = `${w}px`
+    canvas.style.height = `${h}px`
+
+    ctx.scale(dpr, dpr)
+
+    const centerX = w / 2
+    const centerY = h / 2
+
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.onload = () => {
+      const extractWidth = Math.min(dimensions.width, 600)
+      const extractHeight = Math.min(dimensions.height, 600)
+      const shapePoints = extractShapeFromImage(img, extractWidth, extractHeight)
+
+      const rawScaleX = dimensions.width / extractWidth
+      const rawScaleY = dimensions.height / extractHeight
+      const uniformScale = Math.min(rawScaleX, rawScaleY) * logoScale
+      const scaledPoints = shapePoints.map(pt => ({
+        x: pt.x * uniformScale,
+        y: pt.y * uniformScale,
+      }))
+
+      const particles = sampleParticles(scaledPoints, particleCount)
+      const state: AnimationState = {
+        particles,
+        time: 0,
+        splashProgress: 0,
+        width: w,
+        height: h,
+        centerX,
+        centerY,
+        splashMode,
+        destroyed: false,
+      }
+
+      stateRef.current = state
+      setReady(true)
+
+      if (splashMode) {
+        runSplash(state, ctx, performance.now(), duration, onProgress!, onComplete)
+      } else {
+        runBackground(state, ctx)
+      }
+    }
+    img.src = logoImageSrc
+
+    return () => {
+      if (stateRef.current) stateRef.current.destroyed = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dimensions])
+
+  return (
+    <canvas
+      ref={canvasRef}
+      className="absolute inset-0 w-full h-full"
+      style={{ opacity: ready ? 1 : 0, transition: 'opacity 0.3s ease' }}
+    />
+  )
+}
+
+// ─── 背景模式：持续循环 ───
+
+function runBackground(state: AnimationState, ctx: CanvasRenderingContext2D) {
+  let lastTime = performance.now()
+
+  function frame(now: number) {
+    if (state.destroyed) return
+    const delta = (now - lastTime) / 1000
+    lastTime = now
+    state.time += delta
+    renderFrame(state, ctx)
+    requestAnimationFrame(frame)
+  }
+
+  requestAnimationFrame(frame)
+}
+
+// ─── Splash 模式：单次播放 ───
+
+function runSplash(
+  state: AnimationState,
+  ctx: CanvasRenderingContext2D,
+  startTime: number,
+  duration: number,
+  onProgress: (p: number) => void,
+  onComplete?: () => void
+) {
+  let completeFired = false
+
+  function frame(now: number) {
+    if (state.destroyed) return
+
+    const elapsed = (now - startTime) / 1000
+    state.time = elapsed
+    const rawProgress = Math.min(elapsed / (duration / 1000), 1)
+    const progress = easeInOutCubic(rawProgress)
+    state.splashProgress = progress
+
+    onProgress(progress)
+    renderFrame(state, ctx)
+
+    if (rawProgress < 1) {
+      requestAnimationFrame(frame)
+    } else if (!completeFired) {
+      completeFired = true
+      onComplete?.()
+    }
+  }
+
+  requestAnimationFrame(frame)
+}
+
+function easeInOutCubic(t: number): number {
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2
+}
+
+export default SpiralAnimation

@@ -92,7 +92,7 @@ export default function Home() {
   useEffect(() => {
     fetchStats();
     recordVisit();
-    setTimeout(() => setVisible(true), 500);
+    setTimeout(() => setVisible(true), 1500);
   }, []);
 
   async function fetchStats() {
