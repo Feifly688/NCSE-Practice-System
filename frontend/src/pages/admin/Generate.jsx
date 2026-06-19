@@ -22,9 +22,10 @@ export default function Generate() {
   const [detailModalOpen, setDetailModalOpen] = useState(false);
   const [currentQuestion, setCurrentQuestion] = useState(null);
   const [selectedSubject, setSelectedSubject] = useState('verbal_comprehension');
+  const [selectedSource, setSelectedSource] = useState('');
   const pageSize = 10;
 
-  useEffect(() => { loadArticles(); }, [showGenerated, selectedSubject]);
+  useEffect(() => { loadArticles(); }, [showGenerated, selectedSubject, selectedSource]);
 
   async function loadArticles() {
     setLoading(true);
@@ -32,6 +33,10 @@ export default function Generate() {
       const params = { pageSize: 200 };
       if (showGenerated) {
         params.filterGenerated = 'true';
+      }
+      // 按来源筛选
+      if (selectedSource) {
+        params.source = selectedSource;
       }
       // 根据选中的板块筛选文章（后端会同时匹配指定分类和 'both'）
       if (selectedSubject === 'verbal_comprehension') {
@@ -274,6 +279,25 @@ export default function Generate() {
               options={[
                 { label: '言语理解与表达', value: 'verbal_comprehension' },
                 { label: '政治', value: 'politics' }
+              ]}
+            />
+            <Text strong>来源：</Text>
+            <Select
+              value={selectedSource}
+              onChange={setSelectedSource}
+              allowClear
+              placeholder="全部来源"
+              style={{ width: 160 }}
+              options={[
+                { label: '人民日报·评论', value: '人民日报·评论' },
+                { label: '人民日报·时政', value: '人民日报·时政' },
+                { label: '人民网·经济', value: '人民网·经济' },
+                { label: '人民网·社会', value: '人民网·社会' },
+                { label: '人民网·法治', value: '人民网·法治' },
+                { label: '新华社·时政', value: '新华社·时政' },
+                { label: '新华社·国际', value: '新华社·国际' },
+                { label: '新华社·教育', value: '新华社·教育' },
+                { label: '新华社·军事', value: '新华社·军事' },
               ]}
             />
             <Text strong>AI状态：</Text>
