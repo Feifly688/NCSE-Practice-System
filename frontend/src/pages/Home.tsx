@@ -252,48 +252,50 @@ export default function Home() {
       >
         {/* ─── Hero ─── */}
         <div style={{ position: 'relative', textAlign: 'center', padding: isMobile ? '8px 0 26px' : '10px 0 34px' }}>
-          {/* 背景 logo 徽章：ElectricLogo 电光描边，居中在标题后方 */}
+          {/* 背景 logo 徽章：ElectricLogo 电光描边，居中在标题后方。
+              允许指针事件，这样鼠标靠近时电流会聚拢、点击会迸出电弧。 */}
           <div
             aria-hidden="true"
             style={{
               position: 'absolute',
               left: '50%',
-              top: isMobile ? -34 : -78,
+              top: isMobile ? -6 : -52,
               transform: 'translateX(-50%)',
-              width: isMobile ? 300 : 440,
-              height: isMobile ? 300 : 440,
+              width: isMobile ? 280 : 380,
+              height: isMobile ? 280 : 380,
               zIndex: 0,
-              opacity: 0.82,
-              pointerEvents: 'none',
-              // 四周渐隐，避免被下方卡片硬切出边界
-              maskImage: 'radial-gradient(62% 62% at 50% 42%, #000 42%, transparent 100%)',
-              WebkitMaskImage: 'radial-gradient(62% 62% at 50% 42%, #000 42%, transparent 100%)',
+              // 不再叠加渐隐遮罩：遮罩会把电弧边缘糊掉
+              opacity: 0.95,
             }}
           >
             <Suspense fallback={null}>
               <ElectricLogo
-                src="/logo.png"
+                src="/logo-outline.png"
                 color="#ffffff"
                 glowColor="#ffffff"
                 theme="dark"
-                scale={0.66}
-                intensity={3}
-                glow={1.15}
-                thickness={1.35}
-                strands={3}
-                bend={0.55}
-                crackle={1.2}
-                arcs={2}
-                flicker={0.4}
-                speed={2}
-                interactive={false}
+                scale={0.6}
+                // 源图是 1px 细线轮廓，配合细线 + 高亮 + 低光晕，
+                // 电弧沿轮廓走，不会糊成一圈宽带
+                intensity={7}
+                glow={0.3}
+                thickness={0.55}
+                strands={2}
+                bend={0.2}
+                crackle={0.7}
+                arcs={5}
+                flicker={0.55}
+                speed={2.6}
+                interactive
+                cursorIntensity={1.2}
+                cursorRadius={150}
               />
             </Suspense>
           </div>
 
-          <div style={{ position: 'relative', zIndex: 1 }}>
-            {/* 画布标题，供视觉呈现 */}
-            <div style={{ width: '100%', height: isMobile ? 64 : 112, marginBottom: isMobile ? 2 : 6 }}>
+          <div style={{ position: 'relative', zIndex: 1, pointerEvents: 'none' }}>
+            {/* 画布标题，供视觉呈现。单独恢复指针事件，保留其悬停虚线效果 */}
+            <div style={{ width: '100%', height: isMobile ? 64 : 112, marginBottom: isMobile ? 2 : 6, pointerEvents: 'auto' }}>
               <TechText
                 text="公务员考试刷题系统"
                 fontSize={150}
@@ -327,27 +329,33 @@ export default function Home() {
             基于权威素材的智能命题与练习平台
           </p>
 
-          {/* 登录态：直接进入练习；未登录：内嵌登录/注册卡片 */}
+          {/* 登录态：直接进入练习；未登录：内嵌登录/注册卡片。
+              这两块恢复指针事件，确保可点击；其余空白区域穿透给底层 logo，
+              这样鼠标移入时电弧才会响应。 */}
           {isAuthenticated ? (
-            <Button
-              size="large"
-              onClick={() => navigate('/practice')}
-              icon={<ArrowRightOutlined />}
-              style={{
-                height: 48,
-                padding: '0 38px',
-                fontSize: 15,
-                borderRadius: 24,
-                background: '#fff',
-                color: '#0a0a0f',
-                border: 'none',
-                fontWeight: 600,
-              }}
-            >
-              开始练习
-            </Button>
+            <div style={{ pointerEvents: 'auto', display: 'inline-block' }}>
+              <Button
+                size="large"
+                onClick={() => navigate('/practice')}
+                icon={<ArrowRightOutlined />}
+                style={{
+                  height: 48,
+                  padding: '0 38px',
+                  fontSize: 15,
+                  borderRadius: 24,
+                  background: '#fff',
+                  color: '#0a0a0f',
+                  border: 'none',
+                  fontWeight: 600,
+                }}
+              >
+                开始练习
+              </Button>
+            </div>
           ) : (
-            <HomeAuthCard />
+            <div style={{ pointerEvents: 'auto' }}>
+              <HomeAuthCard />
+            </div>
           )}
           </div>
         </div>
