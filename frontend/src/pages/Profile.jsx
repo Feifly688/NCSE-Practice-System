@@ -4,12 +4,14 @@ import { UserOutlined, MailOutlined, LockOutlined, SaveOutlined, EditOutlined } 
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
+import { useResponsive } from '../hooks/useResponsive';
 
 const { Title } = Typography;
 
 export default function Profile() {
   const navigate = useNavigate();
   const { user, setUser, logout } = useAuth();
+  const { isMobile } = useResponsive();
   const [profileForm] = Form.useForm();
   const [passwordForm] = Form.useForm();
   const [usernameForm] = Form.useForm();
@@ -80,8 +82,8 @@ export default function Profile() {
   }
 
   return (
-    <div style={{ maxWidth: 600, margin: '0 auto' }}>
-      <Title level={3}>个人信息</Title>
+    <div style={{ maxWidth: 600, margin: '0 auto', padding: '0 4px' }}>
+      <Title level={3} style={{ fontSize: isMobile ? 20 : undefined }}>个人信息</Title>
 
       <Card
         title="账号信息"

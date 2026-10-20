@@ -4,6 +4,7 @@ import { EditOutlined, UserOutlined } from '@ant-design/icons';
 import api from '../../services/api';
 import Pagination from '../../components/Pagination';
 import { useAuth } from '../../contexts/AuthContext';
+import { useResponsive } from '../../hooks/useResponsive';
 
 const { Title, Text } = Typography;
 
@@ -14,6 +15,7 @@ const ROLE_OPTIONS = [
 
 export default function Users() {
   const { user: currentUser } = useAuth();
+  const { isMobile } = useResponsive();
   const [users, setUsers] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -60,7 +62,47 @@ export default function Users() {
 
   return (
     <div>
-      <Title level={3} style={{ marginBottom: 16 }}>用户管理</Title>
+      <Title level={3} style={{ marginBottom: 16, fontSize: isMobile ? 20 : undefined }}>用户管理</Title>
+
+      {/* 移动端：卡片列表，避免 10 列表格横向溢出 */}
+      {isMobile ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {loading ? (
+            <div style={{ padding: 40, textAlign: 'center' }}>加载中...</div>
+          ) : users.length === 0 ? (
+            <div style={{ padding: 40, textAlign: 'center' }}>暂无数据</div>
+          ) : users.map((u) => (
+            <div key={u.id} style={{ border: '1px solid #f0f0f0', borderRadius: 8, padding: 12, background: '#fff' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                <UserOutlined style={{ marginRight: 4 }} />
+                <Text strong style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.nickname}</Text>
+                <Tag color={u.role === 'admin' ? 'red' : 'blue'}>{u.role === 'admin' ? '管理员' : '用户'}</Tag>
+                <Tag color={u.status === 'active' ? 'green' : 'red'}>{u.status === 'active' ? '正常' : '禁用'}</Tag>
+              </div>
+              <div style={{ fontSize: 12, color: '#888', lineHeight: 1.8 }}>
+                {u.username && <div>用户名：{u.username}</div>}
+                {u.email && <div>邮箱：{u.email}</div>}
+                <div>练习 {u.practice_count || 0} 次{u.avg_score ? ` · 平均分 ${u.avg_score}` : ''}</div>
+                <div>注册：{new Date(u.created_at).toLocaleDateString('zh-CN')}</div>
+              </div>
+              <div style={{ marginTop: 10, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                {u.id === currentUser?.id ? (
+                  <Text type="secondary" style={{ fontSize: 12 }}>当前账号</Text>
+                ) : (
+                  <>
+                    <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(u)}>编辑</Button>
+                    {u.status === 'active' ? (
+                      <Button size="small" onClick={() => handleUpdate(u.id, { status: 'disabled' })}>禁用</Button>
+                    ) : (
+                      <Button size="small" type="primary" onClick={() => handleUpdate(u.id, { status: 'active' })}>启用</Button>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
       <div style={{ border: '1px solid #f0f0f0', borderRadius: 8, overflow: 'hidden' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
@@ -112,6 +154,7 @@ export default function Users() {
           </tbody>
         </table>
       </div>
+      )}
 
       <Pagination current={page} total={total} pageSize={15} onChange={setPage} />
 

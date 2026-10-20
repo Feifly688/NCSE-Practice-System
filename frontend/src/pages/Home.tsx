@@ -9,6 +9,7 @@ import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
 import { SpiralAnimation } from '../components/ui/spiral-animation';
 import { GlowCard } from '../components/ui/spotlight-card';
+import { useResponsive } from '../hooks/useResponsive';
 import type { CardStackItem } from '../components/ui/card-stack';
 
 // CardStack 依赖 framer-motion（约 100KB+），位于首屏之下，按需加载
@@ -50,7 +51,7 @@ function StatCard({ icon, title, value, color, glow, loading }: {
     <GlowCard glowColor={glow || 'blue'} customSize className="!h-auto !w-full !p-5 !grid !grid-rows-none">
       <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
         <div style={{ fontSize: 30, color: color || '#1D4ED8', flexShrink: 0 }}>{icon}</div>
-        <div>
+        <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)', marginBottom: 2 }}>{title}</div>
           <div style={{ fontSize: 26, fontWeight: 600, color: '#fff', lineHeight: 1.2 }}>{value}</div>
         </div>
@@ -88,6 +89,7 @@ function WeekTrend({ data, loading }: { data?: TrendItem[]; loading?: boolean })
 export default function Home() {
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
+  const { isMobile } = useResponsive();
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
   const [visible, setVisible] = useState(false);
@@ -96,6 +98,20 @@ export default function Home() {
     fetchStats();
     recordVisit();
     setTimeout(() => setVisible(true), 1500);
+  }, []);
+
+  // 首页为深色主题：同步把 html/body 背景设为深色，
+  // 否则滚动条占用的宽度会露出 body 默认浅色，形成一条竖状亮边
+  useEffect(() => {
+    const html = document.documentElement;
+    const prevHtml = html.style.backgroundColor;
+    const prevBody = document.body.style.backgroundColor;
+    html.style.backgroundColor = '#0a0a0f';
+    document.body.style.backgroundColor = '#0a0a0f';
+    return () => {
+      html.style.backgroundColor = prevHtml;
+      document.body.style.backgroundColor = prevBody;
+    };
   }, []);
 
   async function fetchStats() {
@@ -122,7 +138,7 @@ export default function Home() {
   ];
 
   return (
-    <div style={{ position: 'relative', minHeight: '100vh', background: '#0a0a0f', overflow: 'hidden' }}>
+    <div style={{ position: 'relative', background: '#0a0a0f', overflowX: 'clip' }}>
       {/* Fixed spiral background */}
       <div style={{ position: 'fixed', inset: 0, zIndex: 0 }}>
         <SpiralAnimation />
@@ -131,13 +147,25 @@ export default function Home() {
       <div style={{ position: 'fixed', inset: 0, zIndex: 1, background: 'linear-gradient(180deg, rgba(10,10,15,0.3) 0%, rgba(10,10,15,0.92) 100%)', pointerEvents: 'none' }} />
 
       {/* Scrollable content */}
-      <div style={{ position: 'relative', zIndex: 2, maxWidth: 1100, margin: '0 auto', padding: '60px 20px 60px', opacity: visible ? 1 : 0, transition: 'opacity 1s ease-out' }}>
+      <div style={{
+        position: 'relative', zIndex: 2,
+        width: '100%',
+        maxWidth: 1100, margin: '0 auto',
+        padding: isMobile ? '30px 14px 40px' : '60px 20px 60px',
+        opacity: visible ? 1 : 0, transition: 'opacity 1s ease-out',
+      }}>
 
         {/* ─── Hero ─── */}
-        <div style={{ textAlign: 'center', padding: '30px 0 50px' }}>
-          <h1 style={{ fontSize: 44, fontWeight: 700, marginBottom: 12, letterSpacing: '0.05em', color: '#fff', lineHeight: 1.2 }}>公务员考试刷题系统</h1>
-          <p style={{ fontSize: 16, color: 'rgba(255,255,255,0.5)', marginBottom: 36, letterSpacing: '0.1em', fontWeight: 300 }}>基于权威素材的智能命题与练习平台</p>
-          <Space size="middle">
+        <div style={{ textAlign: 'center', padding: isMobile ? '20px 0 34px' : '30px 0 50px' }}>
+          <h1 style={{
+            fontSize: isMobile ? 28 : 44, fontWeight: 700, marginBottom: 12,
+            letterSpacing: '0.05em', color: '#fff', lineHeight: 1.2,
+          }}>公务员考试刷题系统</h1>
+          <p style={{
+            fontSize: isMobile ? 14 : 16, color: 'rgba(255,255,255,0.5)',
+            marginBottom: isMobile ? 26 : 36, letterSpacing: '0.1em', fontWeight: 300,
+          }}>基于权威素材的智能命题与练习平台</p>
+          <Space size="middle" wrap>
             {isAuthenticated ? (
               <Button size="large" onClick={() => navigate('/practice')} style={{ height: 46, padding: '0 36px', fontSize: 15, borderRadius: 23, background: '#fff', color: '#0a0a0f', border: 'none', fontWeight: 600 }}>开始练习</Button>
             ) : (
@@ -150,7 +178,7 @@ export default function Home() {
         </div>
 
         {/* ─── Stats ─── */}
-        <Row gutter={[14, 14]} style={{ marginBottom: 50 }}>
+        <Row gutter={[isMobile ? 8 : 14, isMobile ? 8 : 14]} style={{ marginBottom: isMobile ? 32 : 50 }}>
           <Col xs={12} sm={8} md={4}><StatCard icon={<EditOutlined />} title="今日答题" value={stats?.todayAnswers ?? '-'} {...colorMap.todayAnswers} loading={loading} /></Col>
           <Col xs={12} sm={8} md={4}><StatCard icon={<TrophyOutlined />} title="今日正确率" value={stats?.todayCorrectRate ? `${stats.todayCorrectRate}%` : '-'} {...colorMap.todayCorrectRate} loading={loading} /></Col>
           <Col xs={12} sm={8} md={4}><StatCard icon={<UserOutlined />} title="注册用户" value={stats?.totalUsers ?? '-'} {...colorMap.totalUsers} loading={loading} /></Col>
@@ -160,12 +188,12 @@ export default function Home() {
         </Row>
 
         {/* ─── Feature Cards ─── */}
-        <div style={{ marginBottom: 50 }}>
-          <h2 style={{ textAlign: 'center', fontSize: 26, fontWeight: 700, color: '#fff', marginBottom: 6 }}>功能介绍</h2>
-          <p style={{ textAlign: 'center', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginBottom: 28, marginTop: 0 }}>四大核心能力，助你高效备考</p>
-          <div className="features-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, overflow: 'hidden', background: 'rgba(255,255,255,0.02)' }}>
+        <div style={{ marginBottom: isMobile ? 32 : 50 }}>
+          <h2 style={{ textAlign: 'center', fontSize: isMobile ? 20 : 26, fontWeight: 700, color: '#fff', marginBottom: 6 }}>功能介绍</h2>
+          <p style={{ textAlign: 'center', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginBottom: isMobile ? 18 : 28, marginTop: 0 }}>四大核心能力，助你高效备考</p>
+          <div className="features-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(240px, 100%), 1fr))', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, overflow: 'hidden', background: 'rgba(255,255,255,0.02)' }}>
             {features.map((f, i) => (
-              <div key={i} style={{ padding: '28px 24px', borderRight: i % 2 === 0 ? '1px solid rgba(255,255,255,0.08)' : 'none', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+              <div key={i} style={{ padding: isMobile ? '18px 16px' : '28px 24px', borderRight: i % 2 === 0 ? '1px solid rgba(255,255,255,0.08)' : 'none', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
                 <div style={{ fontSize: 28, marginBottom: 16, opacity: 0.7 }}>
                   {React.createElement(f.icon, { style: { color: '#fff' } })}</div>
                 <h3 style={{ color: '#fff', fontSize: 15, fontWeight: 600, margin: '0 0 8px 0' }}>{f.title}</h3>
@@ -176,10 +204,10 @@ export default function Home() {
         </div>
 
         {/* ─── CardStack ─── */}
-        <div style={{ marginBottom: 50 }}>
-          <h2 style={{ textAlign: 'center', fontSize: 26, fontWeight: 700, color: '#fff', marginBottom: 6 }}>平台亮点</h2>
-          <p style={{ textAlign: 'center', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginBottom: 28, marginTop: 0 }}>滑动卡片浏览，点击切换</p>
-          <Suspense fallback={<div style={{ height: 380 }} />}>
+        <div style={{ marginBottom: isMobile ? 32 : 50 }}>
+          <h2 style={{ textAlign: 'center', fontSize: isMobile ? 20 : 26, fontWeight: 700, color: '#fff', marginBottom: 6 }}>平台亮点</h2>
+          <p style={{ textAlign: 'center', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginBottom: isMobile ? 18 : 28, marginTop: 0 }}>滑动卡片浏览，点击切换</p>
+          <Suspense fallback={<div style={{ height: isMobile ? 300 : 380 }} />}>
             <CardStack items={stackItems} initialIndex={2} autoAdvance intervalMs={3000} pauseOnHover showDots loop />
           </Suspense>
         </div>

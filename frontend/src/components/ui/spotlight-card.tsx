@@ -81,6 +81,9 @@ const GlowCard: React.FC<GlowCardProps> = ({
     border: 'var(--border-size) solid var(--backup-border)',
     position: 'relative' as const,
     touchAction: 'none' as const,
+    // 关键：border-box + 限制最大宽度，避免伪元素外扩导致横向溢出
+    boxSizing: 'border-box' as const,
+    maxWidth: '100%',
   };
 
   if (width !== undefined) {
@@ -91,6 +94,11 @@ const GlowCard: React.FC<GlowCardProps> = ({
   }
 
   const beforeAfterStyles = `
+    [data-glow] {
+      /* 只裁剪横向溢出，避免伪元素外扩撑破容器宽度；
+         overflow-x: clip 不会创建滚动容器，纵向辉光仍完整显示 */
+      overflow-x: clip;
+    }
     [data-glow]::before,
     [data-glow]::after {
       pointer-events: none;
@@ -152,6 +160,7 @@ const GlowCard: React.FC<GlowCardProps> = ({
           ${customSize ? '' : 'aspect-[3/4]'}
           rounded-2xl relative grid grid-rows-[1fr_auto]
           shadow-[0_1rem_2rem_-1rem_black] p-4 gap-4
+          box-border max-w-full
           backdrop-blur-[5px] ${className}
         `}
       >

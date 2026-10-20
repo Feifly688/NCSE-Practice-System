@@ -3,11 +3,13 @@ import { Typography, Table, Tag, Spin, message } from 'antd';
 import { TrophyOutlined } from '@ant-design/icons';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
+import { useResponsive } from '../hooks/useResponsive';
 
 const { Title } = Typography;
 
 export default function Leaderboard() {
   const { user } = useAuth();
+  const { isMobile } = useResponsive();
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -49,7 +51,7 @@ export default function Leaderboard() {
 
   return (
     <div style={{ maxWidth: 900, margin: '0 auto' }}>
-      <Title level={3}><TrophyOutlined /> 成绩排行榜</Title>
+      <Title level={3} style={{ fontSize: isMobile ? 20 : undefined }}><TrophyOutlined /> 成绩排行榜</Title>
       <Table
         dataSource={data}
         columns={columns}
@@ -58,6 +60,7 @@ export default function Leaderboard() {
         pagination={false}
         rowClassName={r => r.id === user?.id ? 'ant-table-row-selected' : ''}
         size="middle"
+        scroll={isMobile ? { x: 700 } : undefined}
       />
     </div>
   );

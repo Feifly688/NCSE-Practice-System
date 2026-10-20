@@ -1,9 +1,10 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Typography, Card, Tag, Statistic, Row, Col, Spin, message, Space, Button } from 'antd';
 import { CheckCircleOutlined, ClockCircleOutlined, EditOutlined, TrophyOutlined, EyeOutlined, PlayCircleOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import Pagination from '../components/Pagination';
+import { useResponsive } from '../hooks/useResponsive';
 
 const { Title, Text } = Typography;
 
@@ -14,6 +15,7 @@ export default function History() {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const navigate = useNavigate();
+  const { isMobile } = useResponsive();
 
   useEffect(() => { loadData(); }, [page]);
 
@@ -44,17 +46,19 @@ export default function History() {
 
   return (
     <div style={{ maxWidth: 960, margin: '0 auto' }}>
-      <Title level={3}>答题历史</Title>
-      
-      <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
+      <Title level={3} style={{ fontSize: isMobile ? 20 : undefined }}>答题历史</Title>
+
+      <Row gutter={[isMobile ? 8 : 16, isMobile ? 8 : 16]} style={{ marginBottom: 24 }}>
         <Col xs={12} sm={6}><Card><Statistic title="总答题数" value={overall.total_questions || 0} prefix={<EditOutlined />} /></Card></Col>
         <Col xs={12} sm={6}><Card><Statistic title="总正确" value={overall.total_correct || 0} prefix={<CheckCircleOutlined />} valueStyle={{ color: '#52c41a' }} /></Card></Col>
         <Col xs={12} sm={6}><Card><Statistic title="平均分" value={overall.avg_score || 0} prefix={<TrophyOutlined />} /></Card></Col>
         <Col xs={12} sm={6}><Card><Statistic title="练习次数" value={overall.total_sessions || 0} prefix={<ClockCircleOutlined />} /></Card></Col>
       </Row>
 
+      {/* 窄屏下表格横向滚动 */}
       <div style={{ border: '1px solid #f0f0f0', borderRadius: 8, overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: isMobile ? 720 : undefined }}>
           <thead>
             <tr style={{ background: '#fafafa' }}>
               <th style={{ padding: '12px 16px', textAlign: 'left' }}>ID</th>
@@ -107,6 +111,7 @@ export default function History() {
             )}
           </tbody>
         </table>
+        </div>
       </div>
 
       <Pagination current={page} total={total} pageSize={15} onChange={setPage} />

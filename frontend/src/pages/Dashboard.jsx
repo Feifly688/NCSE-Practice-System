@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
 import { GlowCard } from '../components/ui/spotlight-card';
+import { useResponsive } from '../hooks/useResponsive';
 
 const { Text } = Typography;
 
@@ -25,6 +26,7 @@ function DashStat({ icon, title, value, prefix, suffix, glowColor }) {
 export default function Dashboard() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { isMobile } = useResponsive();
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState(null);
   const [trend, setTrend] = useState([]);
@@ -53,10 +55,10 @@ export default function Dashboard() {
 
   return (
     <div>
-      <Typography.Title level={3} style={{ marginBottom: 8 }}>欢迎回来，{user?.nickname}</Typography.Title>
+      <Typography.Title level={3} style={{ marginBottom: 8, fontSize: isMobile ? 20 : undefined }}>欢迎回来，{user?.nickname}</Typography.Title>
       <Typography.Paragraph type="secondary" style={{ marginBottom: 24 }}>这里是你学习数据的概览</Typography.Paragraph>
 
-      <Row gutter={[16, 16]}>
+      <Row gutter={[isMobile ? 8 : 16, isMobile ? 8 : 16]}>
         <Col xs={24} sm={12} md={6}>
           <DashStat icon={<EditOutlined style={{ color: '#1D4ED8' }} />} title="总答题数" value={overall.total_questions || 0} glowColor="blue" />
         </Col>
@@ -72,7 +74,7 @@ export default function Dashboard() {
       </Row>
 
       <Card style={{ marginTop: 24, borderRadius: 12, border: '1px solid #e8e8e8' }} bodyStyle={{ padding: 20 }}>
-        <Space size="middle">
+        <Space size="middle" wrap>
           <Button type="primary" size="large" onClick={() => navigate('/practice')} style={{ borderRadius: 8, height: 40, padding: '0 24px', fontWeight: 600 }}>开始练习</Button>
           <Button size="large" onClick={() => navigate('/history')} style={{ borderRadius: 8, height: 40, padding: '0 24px' }}>查看历史</Button>
         </Space>

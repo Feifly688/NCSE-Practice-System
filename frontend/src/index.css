@@ -49,7 +49,65 @@
   * {
     @apply border-border;
   }
+
   body {
     @apply bg-background text-foreground;
+    /* 用 clip 而非 hidden：hidden 会让 overflow-y 隐式变成 auto，
+       body 因此自己成为滚动容器，与 html 叠加出两条滚动条 */
+    overflow-x: clip;
+  }
+
+  html {
+    /* 移动端安全区，避免刘海屏/圆角遮挡内容 */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  /* 去掉移动端点击高亮，提升观感 */
+  a,
+  button,
+  [role='button'] {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* 输入框字号不小于 16px，避免 iOS 聚焦时自动放大页面 */
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}
+
+@layer utilities {
+  /* 小屏隐藏滚动条但保留滚动能力 */
+  .hide-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* 移动端点击目标不小于 44px */
+  .tap-target {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+
+@media (max-width: 767px) {
+  /* antd 表格在窄屏下默认字号偏小 */
+  .ant-table {
+    font-size: 13px;
+  }
+
+  /* 弹窗在小屏占满宽度 */
+  .ant-modal {
+    max-width: calc(100vw - 24px);
+    margin: 12px auto;
+  }
+
+  .ant-modal-content {
+    padding: 20px 16px;
   }
 }

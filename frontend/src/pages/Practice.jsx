@@ -1,15 +1,17 @@
-﻿import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Typography, Card, Button, Radio, Space, Select, InputNumber, Progress, message, Spin, Divider, Tag, Modal } from 'antd';
 import { CheckCircleOutlined, CloseCircleOutlined, ArrowRightOutlined, ArrowLeftOutlined, ReloadOutlined, ClockCircleOutlined, FileTextOutlined, PauseCircleOutlined, PlayCircleOutlined, StarOutlined } from '@ant-design/icons';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import { parseOptions, cleanOption, formatTime } from '../utils';
+import { useResponsive } from '../hooks/useResponsive';
 
 const { Title, Text, Paragraph } = Typography;
 
 export default function Practice() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const { isMobile } = useResponsive();
   const resumeSessionId = searchParams.get('session');
   const viewMode = searchParams.get('view');
   const wrongRedo = searchParams.get('wrongredo') === 'true';
@@ -321,7 +323,7 @@ export default function Practice() {
   // Setup
   if (step === 'setup') {
     return (
-      <div style={{ maxWidth: 500, margin: '40px auto' }}>
+      <div style={{ maxWidth: 500, margin: isMobile ? '8px auto' : '40px auto', padding: '0 4px' }}>
         <Card>
           <div style={{ textAlign: 'center', marginBottom: 24 }}>
             <FileTextOutlined style={{ fontSize: 48, color: '#1890ff', marginBottom: 16 }} />
@@ -388,17 +390,21 @@ export default function Practice() {
       <div style={{ maxWidth: 900, margin: '0 auto', padding: '0 16px' }}>
         <Card style={{ marginBottom: 16, textAlign: 'center' }}>
           <div style={{ marginBottom: 16 }}>
-            {result.score >= 80 ? <CheckCircleOutlined style={{ fontSize: 64, color: '#52c41a' }} /> :
-             result.score >= 60 ? <CheckCircleOutlined style={{ fontSize: 64, color: '#faad14' }} /> :
-             <CloseCircleOutlined style={{ fontSize: 64, color: '#ff4d4f' }} />}
+            {result.score >= 80 ? <CheckCircleOutlined style={{ fontSize: isMobile ? 48 : 64, color: '#52c41a' }} /> :
+             result.score >= 60 ? <CheckCircleOutlined style={{ fontSize: isMobile ? 48 : 64, color: '#faad14' }} /> :
+             <CloseCircleOutlined style={{ fontSize: isMobile ? 48 : 64, color: '#ff4d4f' }} />}
           </div>
           <Title level={2} style={{ margin: 0, color: result.score >= 80 ? '#52c41a' : result.score >= 60 ? '#faad14' : '#ff4d4f' }}>{result.score} 分</Title>
-          <Space size="large" style={{ marginTop: 16 }}>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(70px, 1fr))',
+            gap: 12, marginTop: 16,
+          }}>
             <div><Text type="secondary">答对</Text><br /><Text strong style={{ fontSize: 20 }}>{result.correct}</Text></div>
             <div><Text type="secondary">答错</Text><br /><Text strong style={{ fontSize: 20 }}>{result.total - result.correct}</Text></div>
             <div><Text type="secondary">总题数</Text><br /><Text strong style={{ fontSize: 20 }}>{result.total}</Text></div>
             <div><Text type="secondary">用时</Text><br /><Text strong style={{ fontSize: 20 }}>{formatTime(result.duration_sec)}</Text></div>
-          </Space>
+          </div>
           <div style={{ marginTop: 24 }}>
             <Space>
               {wrongRedo ? (
@@ -471,8 +477,11 @@ export default function Practice() {
     <div style={{ maxWidth: 900, margin: '0 auto', padding: '0 16px' }}>
       {/* Top bar */}
       <Card size="small" style={{ marginBottom: 12, position: 'sticky', top: 0, zIndex: 10 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Space>
+        <div style={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          flexWrap: isMobile ? 'wrap' : 'nowrap', gap: isMobile ? 8 : 0,
+        }}>
+          <Space size={isMobile ? 6 : 8}>
             {!wrongRedo && (
               <>
                 <ClockCircleOutlined />
@@ -485,8 +494,8 @@ export default function Practice() {
             )}
             {wrongRedo && <Text type="secondary">错题练习</Text>}
           </Space>
-          <Progress percent={progress} size="small" style={{ flex: 1, margin: '0 16px' }} />
-          <Space>
+          <Progress percent={progress} size="small" style={{ flex: 1, margin: isMobile ? '0' : '0 16px', minWidth: isMobile ? 80 : undefined }} />
+          <Space size={isMobile ? 6 : 8}>
             <Text type="secondary">{answeredCount}/{questions.length}</Text>
             <Button size="small" onClick={() => setShowAnswerCard(true)}>答题卡</Button>
           </Space>
@@ -495,13 +504,15 @@ export default function Practice() {
 
       {/* Pause overlay */}
       {paused && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.75)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <Card style={{ textAlign: 'center', minWidth: 300 }}>
-            <PauseCircleOutlined style={{ fontSize: 64, color: '#1890ff', marginBottom: 16 }} />
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.75)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <Card style={{ textAlign: 'center', width: '100%', maxWidth: 420 }}>
+            <PauseCircleOutlined style={{ fontSize: isMobile ? 48 : 64, color: '#1890ff', marginBottom: 16 }} />
             <Title level={3} style={{ margin: 0 }}>练习已暂停</Title>
             <Text type="secondary" style={{ display: 'block', margin: '12px 0 24px' }}>计时已暂停，点击继续恢复答题</Text>
-            <Button type="primary" size="large" icon={<PlayCircleOutlined />} onClick={togglePause} style={{ marginRight: 12 }}>继续答题</Button>
-            <Button size="large" danger onClick={() => { saveProgress(); if (timerRef.current) clearInterval(timerRef.current); if (autoSaveRef.current) clearInterval(autoSaveRef.current); setStep('setup'); navigate('/practice'); }}>退出并保存</Button>
+            <Space direction={isMobile ? 'vertical' : 'horizontal'} style={{ width: '100%' }}>
+              <Button type="primary" size="large" icon={<PlayCircleOutlined />} onClick={togglePause} style={{ width: isMobile ? '100%' : undefined }}>继续答题</Button>
+              <Button size="large" danger onClick={() => { saveProgress(); if (timerRef.current) clearInterval(timerRef.current); if (autoSaveRef.current) clearInterval(autoSaveRef.current); setStep('setup'); navigate('/practice'); }} style={{ width: isMobile ? '100%' : undefined }}>退出并保存</Button>
+            </Space>
           </Card>
         </div>
       )}

@@ -161,14 +161,14 @@ export default function FlexTable({
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', minWidth: 0 }}>
           {searchable && searchFields.length > 0 && (
-            <Input.Search placeholder={searchPlaceholder} allowClear style={{ width: 200 }}
+            <Input.Search placeholder={searchPlaceholder} allowClear style={{ width: '100%', maxWidth: 240, minWidth: 140 }}
               onSearch={v => setSearchText(v)} onChange={e => { if (!e.target.value) setSearchText(''); }} />
           )}
           {extraToolbar}
         </div>
-        <Space size="small">
+        <Space size="small" style={{ flexShrink: 0 }}>
           <Select value={rowHeight} onChange={setRowHeight} style={{ width: 90 }} size="small"
             options={[{ label: '紧凑', value: 'compact' }, { label: '默认', value: 'default' }, { label: '宽松', value: 'loose' }]} />
           <Tooltip title="自动调整列宽"><Button size="small" icon={<ColumnWidthOutlined />} onClick={autoFit} /></Tooltip>

@@ -22,8 +22,8 @@ export default function Register() {
   }
 
   return (
-    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
-      <div style={{ width: 420 }}>
+    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh', padding: '0 16px' }}>
+      <div style={{ width: '100%', maxWidth: 420 }}>
         <GlowCard glowColor="green" customSize className="!h-auto !w-full !p-8 !grid !grid-rows-none">
           <div style={{ textAlign: 'center', marginBottom: 24 }}>
             <Typography.Title level={3} style={{ marginBottom: 4 }}>注册</Typography.Title>
