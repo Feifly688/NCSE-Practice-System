@@ -323,11 +323,14 @@ export default function Practice() {
   // Setup
   if (step === 'setup') {
     return (
-      <div style={{ maxWidth: 500, margin: isMobile ? '8px auto' : '40px auto', padding: '0 4px' }}>
-        <Card>
-          <div style={{ textAlign: 'center', marginBottom: 24 }}>
-            <FileTextOutlined style={{ fontSize: 48, color: '#1890ff', marginBottom: 16 }} />
-            <Title level={4} style={{ margin: 0 }}>开始练习</Title>
+      <div style={{ maxWidth: 560, margin: isMobile ? '8px auto' : '32px auto', padding: '0 4px' }}>
+        <Card style={{ borderRadius: 16, border: '1px solid #e2e8f0', boxShadow: '0 12px 30px rgba(15, 23, 42, 0.06)' }} bodyStyle={{ padding: isMobile ? 20 : 28 }}>
+          <div style={{ textAlign: 'center', marginBottom: 28 }}>
+            <div style={{ width: 58, height: 58, margin: '0 auto 14px', display: 'grid', placeItems: 'center', borderRadius: 16, color: '#1d4ed8', background: '#eff6ff' }}>
+              <FileTextOutlined style={{ fontSize: 28 }} />
+            </div>
+            <Title level={3} style={{ margin: '0 0 6px', fontSize: isMobile ? 21 : 24 }}>开始练习</Title>
+            <Text type="secondary">设置本次练习内容，进度将自动保存</Text>
           </div>
           <Space direction="vertical" style={{ width: '100%' }} size="large">
             <div>
@@ -365,7 +368,7 @@ export default function Practice() {
                 </div>
               )}
             </div>
-            <Button type="primary" size="large" block onClick={startPractice}>{examMode ? '开始考试' : '开始答题'}</Button>
+              <Button type="primary" size="large" block onClick={startPractice} style={{ height: 46, borderRadius: 8, fontWeight: 600 }}>{examMode ? '开始考试' : '开始答题'}</Button>
           </Space>
         </Card>
       </div>
@@ -474,9 +477,9 @@ export default function Practice() {
   const progress = Math.round((answeredCount / questions.length) * 100);
 
   return (
-    <div style={{ maxWidth: 900, margin: '0 auto', padding: '0 16px' }}>
+    <div style={{ maxWidth: 900, margin: '0 auto', padding: isMobile ? '0 2px' : '0 16px' }}>
       {/* Top bar */}
-      <Card size="small" style={{ marginBottom: 12, position: 'sticky', top: 0, zIndex: 10 }}>
+      <Card size="small" style={{ marginBottom: 16, position: 'sticky', top: 72, zIndex: 10, borderRadius: 12, boxShadow: '0 6px 18px rgba(15, 23, 42, 0.08)' }} bodyStyle={{ padding: isMobile ? '10px 12px' : '12px 16px' }}>
         <div style={{
           display: 'flex', justifyContent: 'space-between', alignItems: 'center',
           flexWrap: isMobile ? 'wrap' : 'nowrap', gap: isMobile ? 8 : 0,
@@ -494,7 +497,7 @@ export default function Practice() {
             )}
             {wrongRedo && <Text type="secondary">错题练习</Text>}
           </Space>
-          <Progress percent={progress} size="small" style={{ flex: 1, margin: isMobile ? '0' : '0 16px', minWidth: isMobile ? 80 : undefined }} />
+          <Progress percent={progress} size="small" showInfo={!isMobile} strokeColor="#2563eb" trailColor="#e2e8f0" style={{ flex: 1, margin: isMobile ? '0' : '0 16px', minWidth: isMobile ? 80 : undefined }} />
           <Space size={isMobile ? 6 : 8}>
             <Text type="secondary">{answeredCount}/{questions.length}</Text>
             <Button size="small" onClick={() => setShowAnswerCard(true)}>答题卡</Button>
@@ -518,17 +521,17 @@ export default function Practice() {
       )}
 
       {/* Question card */}
-      <Card>
+      <Card style={{ borderRadius: 16, border: '1px solid #e2e8f0' }} bodyStyle={{ padding: isMobile ? 18 : 28 }}>
         <div style={{ marginBottom: 16 }}>
           <Tag color="blue">第 {currentIndex + 1} 题</Tag>
           {q.qtype && <Tag>{q.qtype}</Tag>}
         </div>
 
         {q.passage && (
-          <div style={{ marginBottom: 20, padding: 16, background: '#fafafa', borderRadius: 8, lineHeight: 2, fontSize: 15 }}>{q.passage}</div>
+          <div style={{ marginBottom: 20, padding: isMobile ? 14 : 16, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, lineHeight: 1.9, fontSize: 15 }}>{q.passage}</div>
         )}
 
-        <Text strong style={{ fontSize: 16, display: 'block', marginBottom: 20 }}>{q.stem}</Text>
+        <Text strong style={{ fontSize: isMobile ? 16 : 17, lineHeight: 1.7, display: 'block', marginBottom: 20 }}>{q.stem}</Text>
 
         <Radio.Group value={answers[q.id]} onChange={e => selectAnswer(q.id, e.target.value)} style={{ width: '100%' }}>
           <Space direction="vertical" style={{ width: '100%' }} size={12}>
@@ -537,25 +540,27 @@ export default function Practice() {
               const isSelected = answers[q.id] === letter;
               return (
                 <Radio key={i} value={letter} style={{
-                  width: '100%', padding: '14px 16px',
-                  border: '1px solid ' + (isSelected ? '#1890ff' : '#f0f0f0'),
-                  borderRadius: 8, margin: 0,
-                  background: isSelected ? '#e6f7ff' : '#fff',
-                  display: 'flex', alignItems: 'center'
+                  width: '100%', padding: isMobile ? '13px 14px' : '15px 16px',
+                  border: '1px solid ' + (isSelected ? '#2563eb' : '#e2e8f0'),
+                  borderRadius: 10, margin: 0,
+                  background: isSelected ? '#eff6ff' : '#fff',
+                  display: 'flex', alignItems: 'center',
+                  transition: 'all 0.18s ease',
+                  boxShadow: isSelected ? '0 0 0 3px rgba(37, 99, 235, 0.1)' : 'none',
                 }}>
-                  <Text style={{ fontSize: 15 }}>{letter}. {cleanOption(opt)}</Text>
+                  <Text style={{ fontSize: 15, lineHeight: 1.65 }}><strong style={{ color: isSelected ? '#1d4ed8' : undefined }}>{letter}.</strong> {cleanOption(opt)}</Text>
                 </Radio>
               );
             })}
           </Space>
         </Radio.Group>
 
-        <div style={{ marginTop: 32, display: 'flex', justifyContent: 'space-between' }}>
-          <Button icon={<ArrowLeftOutlined />} onClick={() => { if (currentIndex > 0) setCurrentIndex(currentIndex - 1); }} disabled={currentIndex === 0}>上一题</Button>
+        <div style={{ marginTop: 28, display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+          <Button size={isMobile ? 'middle' : 'large'} icon={<ArrowLeftOutlined />} onClick={() => { if (currentIndex > 0) setCurrentIndex(currentIndex - 1); }} disabled={currentIndex === 0}>上一题</Button>
           {currentIndex === questions.length - 1 ? (
-            <Button type="primary" danger onClick={submitPractice}>交卷</Button>
+            <Button size={isMobile ? 'middle' : 'large'} type="primary" danger onClick={submitPractice}>交卷</Button>
           ) : (
-            <Button type="primary" onClick={() => { setCurrentIndex(currentIndex + 1); saveProgress(); }}>下一题 <ArrowRightOutlined /></Button>
+            <Button size={isMobile ? 'middle' : 'large'} type="primary" onClick={() => { setCurrentIndex(currentIndex + 1); saveProgress(); }}>下一题 <ArrowRightOutlined /></Button>
           )}
         </div>
       </Card>

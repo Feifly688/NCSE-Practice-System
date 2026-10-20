@@ -1,4 +1,4 @@
-import React, { useState, useEffect, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { Card, Row, Col, Button, Space, Skeleton } from 'antd';
 import {
   EditOutlined, TrophyOutlined, UserOutlined, BookOutlined,
@@ -88,17 +88,48 @@ function WeekTrend({ data, loading }: { data?: TrendItem[]; loading?: boolean })
 
 export default function Home() {
   const navigate = useNavigate();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, authModal, openAuth } = useAuth();
   const { isMobile } = useResponsive();
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
   const [visible, setVisible] = useState(false);
+  const autoAuthTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const authModalRef = useRef(authModal);
+
+  useEffect(() => {
+    authModalRef.current = authModal;
+  }, [authModal]);
 
   useEffect(() => {
     fetchStats();
     recordVisit();
     setTimeout(() => setVisible(true), 1500);
   }, []);
+
+  // 未登录首次进入时自动弹窗。用 sessionStorage 标记，
+  // 保证同一次会话内主动关闭后不会被反复弹出。
+  useEffect(() => {
+    if (isAuthenticated || authModal !== null) return;
+    if (sessionStorage.getItem('authModalShown')) return;
+    sessionStorage.setItem('authModalShown', '1');
+    // 稍作延迟，让首页动画先渲染，避免弹窗打断首屏
+    autoAuthTimerRef.current = setTimeout(() => {
+      // 用户可能已通过旧链接或其他入口主动打开了弹窗，不能覆盖其选择。
+      if (authModalRef.current === null) openAuth('login');
+    }, 600);
+    return () => {
+      if (autoAuthTimerRef.current) clearTimeout(autoAuthTimerRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function handleOpenAuth(mode: 'login' | 'register') {
+    if (autoAuthTimerRef.current) {
+      clearTimeout(autoAuthTimerRef.current);
+      autoAuthTimerRef.current = null;
+    }
+    openAuth(mode);
+  }
 
   // 首页为深色主题：同步把 html/body 背景设为深色，
   // 否则滚动条占用的宽度会露出 body 默认浅色，形成一条竖状亮边
@@ -170,8 +201,8 @@ export default function Home() {
               <Button size="large" onClick={() => navigate('/practice')} style={{ height: 46, padding: '0 36px', fontSize: 15, borderRadius: 23, background: '#fff', color: '#0a0a0f', border: 'none', fontWeight: 600 }}>开始练习</Button>
             ) : (
               <>
-                <Button size="large" onClick={() => navigate('/register')} style={{ height: 46, padding: '0 36px', fontSize: 15, borderRadius: 23, background: '#fff', color: '#0a0a0f', border: 'none', fontWeight: 600 }}>免费注册</Button>
-                <Button size="large" onClick={() => navigate('/login')} style={{ height: 46, padding: '0 36px', fontSize: 15, borderRadius: 23, background: 'transparent', color: '#fff', border: '1px solid rgba(255,255,255,0.3)' }}>登录</Button>
+                <Button size="large" onClick={() => handleOpenAuth('register')} style={{ height: 46, padding: '0 36px', fontSize: 15, borderRadius: 23, background: '#fff', color: '#0a0a0f', border: 'none', fontWeight: 600 }}>免费注册</Button>
+                <Button size="large" onClick={() => handleOpenAuth('login')} style={{ height: 46, padding: '0 36px', fontSize: 15, borderRadius: 23, background: 'transparent', color: '#fff', border: '1px solid rgba(255,255,255,0.3)' }}>登录</Button>
               </>
             )}
           </Space>
@@ -193,7 +224,7 @@ export default function Home() {
           <p style={{ textAlign: 'center', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginBottom: isMobile ? 18 : 28, marginTop: 0 }}>四大核心能力，助你高效备考</p>
           <div className="features-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(240px, 100%), 1fr))', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, overflow: 'hidden', background: 'rgba(255,255,255,0.02)' }}>
             {features.map((f, i) => (
-              <div key={i} style={{ padding: isMobile ? '18px 16px' : '28px 24px', borderRight: i % 2 === 0 ? '1px solid rgba(255,255,255,0.08)' : 'none', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+              <div className="home-feature-item" key={i} style={{ padding: isMobile ? '18px 16px' : '28px 24px', borderRight: i % 2 === 0 ? '1px solid rgba(255,255,255,0.08)' : 'none', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
                 <div style={{ fontSize: 28, marginBottom: 16, opacity: 0.7 }}>
                   {React.createElement(f.icon, { style: { color: '#fff' } })}</div>
                 <h3 style={{ color: '#fff', fontSize: 15, fontWeight: 600, margin: '0 0 8px 0' }}>{f.title}</h3>

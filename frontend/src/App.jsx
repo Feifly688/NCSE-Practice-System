@@ -1,17 +1,16 @@
-import React, { lazy, Suspense } from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import React, { lazy, Suspense, useEffect } from 'react';
+import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
 import { ConfigProvider, Spin } from 'antd';
-import { AuthProvider } from './contexts/AuthContext';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
 import MainLayout from './layouts/MainLayout';
 import AdminLayout from './layouts/AdminLayout';
 import ProtectedRoute from './components/ProtectedRoute';
 import AdminRoute from './components/AdminRoute';
 import ErrorBoundary from './components/ErrorBoundary';
+import AuthModal from './components/AuthModal';
 import Home from './pages/Home';
 
 // 首屏核心页面同步加载，其余按需加载
-const Login = lazy(() => import('./pages/Login'));
-const Register = lazy(() => import('./pages/Register'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Practice = lazy(() => import('./pages/Practice'));
 const History = lazy(() => import('./pages/History'));
@@ -43,18 +42,38 @@ function PageFallback() {
   );
 }
 
+/**
+ * 登录 / 注册已改为首页弹窗，不再有独立页面。
+ * 保留这两个路径做兼容：旧的 401 跳转、ProtectedRoute 重定向
+ * 以及外部书签都会落到这里，自动返回首页并弹出对应标签页。
+ */
+function AuthRedirect({ mode }) {
+  const { openAuth } = useAuth();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    openAuth(mode);
+    navigate('/', { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return <PageFallback />;
+}
+
 export default function App() {
   return (
     <ErrorBoundary>
     <ConfigProvider theme={theme}>
       <BrowserRouter>
         <AuthProvider>
+          {/* 全局登录/注册弹窗，由 AuthContext 的 openAuth 控制 */}
+          <AuthModal />
           <Suspense fallback={<PageFallback />}>
             <Routes>
               <Route element={<MainLayout />}>
                 <Route path="/" element={<Home />} />
-                <Route path="/login" element={<Login />} />
-                <Route path="/register" element={<Register />} />
+                <Route path="/login" element={<AuthRedirect mode="login" />} />
+                <Route path="/register" element={<AuthRedirect mode="register" />} />
                 <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
                 <Route path="/practice" element={<ProtectedRoute><Practice /></ProtectedRoute>} />
                 <Route path="/history" element={<ProtectedRoute><History /></ProtectedRoute>} />

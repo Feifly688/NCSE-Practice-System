@@ -10,7 +10,7 @@ const { Header, Content, Footer } = Layout;
 export default function MainLayout() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, isAuthenticated, isAdmin, logout } = useAuth();
+  const { user, isAuthenticated, isAdmin, logout, openAuth } = useAuth();
   const { isMobile } = useResponsive();
   const [drawerOpen, setDrawerOpen] = useState(false);
 
@@ -136,7 +136,7 @@ export default function MainLayout() {
               <Button
                 type="text"
                 icon={<LoginOutlined />}
-                onClick={() => navigate('/login')}
+                onClick={() => openAuth('login')}
                 style={{ color: 'rgba(255,255,255,0.75)', padding: isMobile ? '4px 8px' : undefined }}
               >
                 {!isMobile && '登录'}
@@ -144,7 +144,7 @@ export default function MainLayout() {
               <Button
                 type="primary"
                 icon={<UserAddOutlined />}
-                onClick={() => navigate('/register')}
+                onClick={() => openAuth('register')}
                 style={{ borderRadius: 8, background: '#fff', color: '#000', border: 'none', fontWeight: 600, padding: isMobile ? '4px 10px' : undefined }}
               >
                 {!isMobile && '注册'}

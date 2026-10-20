@@ -11,11 +11,21 @@ export function AuthProvider({ children }) {
     } catch { return null; }
   });
   const [loading, setLoading] = useState(false);
+  // 登录/注册弹窗状态：null 表示关闭，'login' / 'register' 表示当前标签页
+  const [authModal, setAuthModal] = useState(null);
   const userRef = useRef(user);
   userRef.current = user;
 
   const isAuthenticated = !!user;
   const isAdmin = user?.role === 'admin';
+
+  function openAuth(mode = 'login') {
+    setAuthModal(mode);
+  }
+
+  function closeAuth() {
+    setAuthModal(null);
+  }
 
   // 验证 token 是否仍然有效
   useEffect(() => {
@@ -60,7 +70,11 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, setUser, loading, isAuthenticated, isAdmin, login, register, logout }}>
+    <AuthContext.Provider value={{
+      user, setUser, loading, isAuthenticated, isAdmin,
+      login, register, logout,
+      authModal, openAuth, closeAuth,
+    }}>
       {children}
     </AuthContext.Provider>
   );
