@@ -17,6 +17,10 @@ export default function MainLayout() {
   // 首页为深色主题，需与其他页面的浅色布局区分
   const isHome = location.pathname === '/';
 
+  // 未登录访问首页时不渲染导航栏，呈现为纯落地页；
+  // 登录后（或进入登录/注册等子页）才显示。首页 hero 区本身带登录/注册入口。
+  const showHeader = isAuthenticated || !isHome;
+
   // 路由变化时关闭移动端抽屉
   useEffect(() => { setDrawerOpen(false); }, [location.pathname]);
 
@@ -67,19 +71,21 @@ export default function MainLayout() {
 
   return (
     <Layout style={{ minHeight: '100vh', background: isHome ? '#0a0a0f' : '#f8f9fb' }}>
-      <Header
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          padding: isMobile ? '0 12px' : '0 32px',
-          background: '#0a0a0f',
-          borderBottom: '1px solid rgba(255,255,255,0.06)',
-          position: 'sticky',
-          top: 0,
-          zIndex: 100,
-          paddingTop: 'env(safe-area-inset-top)',
-        }}
-      >
+      {showHeader && (
+        <>
+          <Header
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              padding: isMobile ? '0 12px' : '0 32px',
+              background: '#0a0a0f',
+              borderBottom: '1px solid rgba(255,255,255,0.06)',
+              position: 'sticky',
+              top: 0,
+              zIndex: 100,
+              paddingTop: 'env(safe-area-inset-top)',
+            }}
+          >
         {isMobile && (
           <Button
             type="text"
@@ -146,19 +152,21 @@ export default function MainLayout() {
             </>
           )}
         </Space>
-      </Header>
+          </Header>
 
-      {/* 移动端抽屉导航 */}
-      <Drawer
-        title="NCSE 刷题系统"
-        placement="left"
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        width={260}
-        styles={{ body: { padding: 0 }, header: { borderBottom: '1px solid #f0f0f0' } }}
-      >
-        {navMenu}
-      </Drawer>
+          {/* 移动端抽屉导航 */}
+          <Drawer
+            title="NCSE 刷题系统"
+            placement="left"
+            open={drawerOpen}
+            onClose={() => setDrawerOpen(false)}
+            width={260}
+            styles={{ body: { padding: 0 }, header: { borderBottom: '1px solid #f0f0f0' } }}
+          >
+            {navMenu}
+          </Drawer>
+        </>
+      )}
 
       {isHome ? (
         // 首页为深色全屏主题，脱离内容容器约束直接铺满。
