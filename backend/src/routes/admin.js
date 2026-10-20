@@ -48,11 +48,13 @@ router.get('/users', async (req, res) => {
 });
 
 // PUT /api/admin/users/:id
+// 仅允许修改其他用户的角色与状态；禁止修改自己，避免管理员误禁自己导致无法登录后台
 router.put('/users/:id', async (req, res) => {
   try {
     const { role, status } = req.body;
     const userId = Number(req.params.id);
     if (!userId || isNaN(userId)) return res.status(400).json({ error: '无效的用户ID' });
+    if (userId === req.user.userId) return res.status(400).json({ error: '不能修改自己的账号，如需变更请联系其他管理员' });
     const VALID_ROLES = ['user', 'admin'];
     const VALID_STATUSES = ['active', 'disabled'];
     if (role !== undefined && !VALID_ROLES.includes(role)) return res.status(400).json({ error: '无效的角色值' });
@@ -74,21 +76,12 @@ router.put('/users/:id', async (req, res) => {
   }
 });
 
-// DELETE /api/admin/users/:id
+// DELETE /api/admin/users/:id 已停用
+// 用户删除一律通过「禁用」实现（PUT /users/:id 设置 status=disabled）：
+// 禁用后用户无法登录，效果等同于删除，但练习记录、错题本等数据保留且可逆。
+// 彻底移除删除接口，避免误删导致数据不可恢复。
 router.delete('/users/:id', async (req, res) => {
-  try {
-    const userId = Number(req.params.id);
-    if (!userId || isNaN(userId)) return res.status(400).json({ error: '无效的用户ID' });
-    if (userId === req.user.userId) return res.status(400).json({ error: '不能删除自己的账号' });
-    await withConnection(async (conn) => {
-      await conn.query('DELETE FROM practice_answer WHERE session_id IN (SELECT id FROM practice_session WHERE user_id = ?)', [req.params.id]);
-      await conn.query('DELETE FROM practice_session WHERE user_id = ?', [req.params.id]);
-      await conn.query('DELETE FROM user WHERE id = ?', [req.params.id]);
-    });
-    return res.json({ success: true });
-  } catch (err) {
-    return res.status(500).json({ error: String(err.message || err) });
-  }
+  return res.status(403).json({ error: '已停用删除用户功能，请改用「禁用」' });
 });
 
 module.exports = router;

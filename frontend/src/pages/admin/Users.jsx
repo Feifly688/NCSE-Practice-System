@@ -1,8 +1,9 @@
-﻿import React, { useState, useEffect } from 'react';
-import { Typography, Button, Select, message, Space, Tag, Popconfirm, Modal, Form } from 'antd';
-import { DeleteOutlined, EditOutlined, UserOutlined } from '@ant-design/icons';
+import React, { useState, useEffect } from 'react';
+import { Typography, Button, Select, message, Space, Tag, Modal, Form } from 'antd';
+import { EditOutlined, UserOutlined } from '@ant-design/icons';
 import api from '../../services/api';
 import Pagination from '../../components/Pagination';
+import { useAuth } from '../../contexts/AuthContext';
 
 const { Title, Text } = Typography;
 
@@ -12,6 +13,7 @@ const ROLE_OPTIONS = [
 ];
 
 export default function Users() {
+  const { user: currentUser } = useAuth();
   const [users, setUsers] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -36,18 +38,14 @@ export default function Users() {
       await api.put('/admin/users/' + id, data);
       message.success('更新成功');
       loadUsers();
-    } catch (err) { message.error('更新失败'); }
-  }
-
-  async function handleDelete(id) {
-    try {
-      await api.delete('/admin/users/' + id);
-      message.success('删除成功');
-      loadUsers();
-    } catch (err) { message.error(err.response?.data?.error || '删除失败'); }
+    } catch (err) { message.error(err.response?.data?.error || '更新失败'); }
   }
 
   function openEdit(user) {
+    if (user.id === currentUser?.id) {
+      message.warning('不能修改自己的账号');
+      return;
+    }
     setEditUser(user);
     editForm.setFieldsValue({ role: user.role, status: user.status });
   }
@@ -94,17 +92,18 @@ export default function Users() {
                 <td style={{ padding: '10px 16px', textAlign: 'center' }}>{u.avg_score || '-'}</td>
                 <td style={{ padding: '10px 16px' }}>{new Date(u.created_at).toLocaleDateString('zh-CN')}</td>
                 <td style={{ padding: '10px 16px', textAlign: 'center' }}>
-                  <Space size="small">
-                    <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(u)} />
-                    {u.status === 'active' ? (
-                      <Button size="small" onClick={() => handleUpdate(u.id, { status: 'disabled' })}>禁用</Button>
-                    ) : (
-                      <Button size="small" type="primary" onClick={() => handleUpdate(u.id, { status: 'active' })}>启用</Button>
-                    )}
-                    <Popconfirm title="确定删除？该用户的练习记录也会被清除。" onConfirm={() => handleDelete(u.id)}>
-                      <Button size="small" danger icon={<DeleteOutlined />} />
-                    </Popconfirm>
-                  </Space>
+                  {u.id === currentUser?.id ? (
+                    <Text type="secondary" style={{ fontSize: 12 }}>当前账号</Text>
+                  ) : (
+                    <Space size="small">
+                      <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(u)} />
+                      {u.status === 'active' ? (
+                        <Button size="small" onClick={() => handleUpdate(u.id, { status: 'disabled' })}>禁用</Button>
+                      ) : (
+                        <Button size="small" type="primary" onClick={() => handleUpdate(u.id, { status: 'active' })}>启用</Button>
+                      )}
+                    </Space>
+                  )}
                 </td>
               </tr>
             ))}
@@ -118,6 +117,11 @@ export default function Users() {
         <Modal title="编辑用户（仅限修改角色和状态）" open={true} onCancel={() => setEditUser(null)} onOk={handleEditSave} width={400}>
           <div style={{ marginBottom: 16, padding: 12, background: '#f5f5f5', borderRadius: 8 }}>
             <Text type="secondary">用户：{editUser.nickname}（{editUser.email}）</Text>
+          </div>
+          <div style={{ marginBottom: 16, padding: 12, background: '#fffbe6', border: '1px solid #ffe58f', borderRadius: 8 }}>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              用户不支持删除，禁用后该用户将无法登录，其练习记录会保留，可随时重新启用。
+            </Text>
           </div>
           <Form form={editForm} layout="vertical">
             <Form.Item name="role" label="角色">

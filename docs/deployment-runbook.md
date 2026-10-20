@@ -146,7 +146,20 @@ fetch('https://api.feincse.us.ci/api/health').then(r => r.json()).then(console.l
 
 ---
 
-## 五、运维命令
+## 五、用户管理规则
+
+- 管理员**不能修改自己**的角色和状态（后端 400 + 前端隐藏按钮）
+- 用户**不支持删除**，`DELETE /api/admin/users/:id` 已停用（返回 403），一律用「禁用」代替
+- 禁用后用户无法登录，练习记录、错题本等数据保留，可随时重新启用
+- 万一账号被锁死（如直接在数据库改错状态），用下面的命令自愈：
+
+```bash
+mysql -u ncse -p'密码' ncse-practice-system -e "UPDATE user SET status='active', role='admin' WHERE email='你的邮箱';"
+```
+
+---
+
+## 六、运维命令
 
 ### 看状态
 ```bash
@@ -207,7 +220,7 @@ node scripts/seed_articles.js
 
 ---
 
-## 六、故障速查
+## 七、故障速查
 
 | 症状 | 查这里 |
 |---|---|
@@ -218,10 +231,11 @@ node scripts/seed_articles.js
 | 后台很慢 | `SHOW INDEX FROM question` 确认有 `idx_question_source_article` |
 | AI 功能不可用 | `.env` 的 `API_KEY` / `BASE_URL` / `MODEL` |
 | 中文乱码 | 导入导出都带 `--default-character-set=utf8mb4` |
+| 登录报「账号已被禁用」 | `UPDATE user SET status='active' WHERE email='邮箱'`，见第五节 |
 
 ---
 
-## 七、防火墙
+## 八、防火墙
 ```bash
 sudo ufw default deny incoming
 sudo ufw allow 22/tcp
