@@ -1,4 +1,4 @@
-require('dotenv').config();
+require('dotenv').config({ path: require('path').resolve(__dirname, '../../.env') });
 const fs = require('fs');
 const path = require('path');
 const mysql = require('mysql2/promise');
@@ -18,6 +18,16 @@ function env(k, fallback) {
 
   // Connect to MySQL server (no DB)
   const rootConn = await mysql.createConnection(connCfg);
+
+  // 安全检查：DROP DATABASE 会清空所有数据，生产环境必须显式确认
+  if (process.env.NODE_ENV === 'production') {
+    if (process.env.ALLOW_DB_DROP !== 'true') {
+      console.error('DB_INIT_ABORT: NODE_ENV=production 会删除整个数据库，已中止。');
+      console.error('如确需重建，请设置 ALLOW_DB_DROP=true；日常建表请改用 db/schema.sql 导入。');
+      await rootConn.end();
+      process.exit(1);
+    }
+  }
 
   // Recreate database to avoid legacy encoding issues in dev setup
   await rootConn.query('DROP DATABASE IF EXISTS `' + database + '`');

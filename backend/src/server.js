@@ -15,10 +15,22 @@ const app = express();
 const port = process.env.APP_PORT || 4000;
 const isProd = process.env.NODE_ENV === 'production';
 
-// CORS：开发环境允许 localhost:5173，生产环境由 nginx 代理所以允许所有
-if (!isProd) {
-  app.use(cors({ origin: ['http://localhost:5173', 'http://127.0.0.1:5173'], credentials: true }));
+// CORS：开发环境允许 localhost:5173；生产环境由 CORS_ORIGIN 指定（前后端不同域时必填）
+const allowedOrigins = (process.env.CORS_ORIGIN || '')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
+
+if (isProd && allowedOrigins.length === 0) {
+  console.warn('WARNING: NODE_ENV=production but CORS_ORIGIN is not set, cross-origin requests will be blocked');
 }
+
+app.use(
+  cors({
+    origin: isProd ? allowedOrigins : ['http://localhost:5173', 'http://127.0.0.1:5173'],
+    credentials: true
+  })
+);
 
 app.use(express.json({ limit: '2mb' }));
 
@@ -50,23 +62,33 @@ app.get('/api/health', async (_req, res) => {
 });
 
 // 生产环境：托管前端静态文件
+// 前端部署在 Cloudflare Pages 时可留空 FRONTEND_DIST，跳过静态托管（后端只提供 /api）
 if (isProd) {
-  const frontendDist = path.join(__dirname, '../frontend/dist');
+  const frontendDist = process.env.FRONTEND_DIST || path.resolve(__dirname, '../../frontend/dist');
   console.log('[STATIC] Serving frontend from:', frontendDist);
   const fs = require('fs');
   console.log('[STATIC] index.html exists:', fs.existsSync(path.join(frontendDist, 'index.html')));
 
-  app.use(express.static(frontendDist));
-  // SPA fallback：所有非 /api 的请求都返回 index.html
-  app.get('*', (req, res) => {
-    const indexPath = path.join(frontendDist, 'index.html');
-    res.sendFile(indexPath, (err) => {
-      if (err) {
-        console.error('[STATIC] sendFile error:', err.message);
-        res.status(500).json({ error: 'Failed to serve frontend' });
-      }
+  if (fs.existsSync(path.join(frontendDist, 'index.html'))) {
+    app.use(express.static(frontendDist));
+    // SPA fallback：所有非 /api 的请求都返回 index.html
+    app.get('*', (req, res) => {
+      const indexPath = path.join(frontendDist, 'index.html');
+      res.sendFile(indexPath, (err) => {
+        if (err) {
+          console.error('[STATIC] sendFile error:', err.message);
+          res.status(500).json({ error: 'Failed to serve frontend' });
+        }
+      });
     });
-  });
+  } else {
+    // 前端由 Cloudflare Pages 托管时，未匹配 /api 的请求直接返回 404，避免误导
+    console.warn('[STATIC] frontend dist not found, static hosting disabled (API-only mode)');
+    app.use('*', (req, _res, next) => {
+      if (req.path.startsWith('/api')) return next();
+      return next();
+    });
+  }
 }
 
 // 全局错误处理中间件

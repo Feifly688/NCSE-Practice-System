@@ -21,6 +21,8 @@ error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BACKEND_DIR="$PROJECT_DIR/backend"
 FRONTEND_DIR="$PROJECT_DIR/frontend"
+# .env 必须放在仓库根目录：backend/src/server.js 与 scripts/*.js 都从根目录读取
+ENV_FILE="$PROJECT_DIR/.env"
 
 info "项目路径: $PROJECT_DIR"
 
@@ -43,25 +45,25 @@ NODE_VER=$(node -v | cut -d'v' -f2 | cut -d'.' -f1)
 info "Node.js: $(node -v), npm: $(npm -v)"
 
 # ============ 2. 配置 .env ============
-if [ ! -f "$BACKEND_DIR/.env" ]; then
+if [ ! -f "$ENV_FILE" ]; then
   warn ".env 文件不存在，从模板创建..."
-  cp "$PROJECT_DIR/deploy/env.example" "$BACKEND_DIR/.env"
-  warn "请编辑 $BACKEND_DIR/.env 填入你的实际配置（数据库密码、JWT密钥等）"
+  cp "$PROJECT_DIR/deploy/env.example" "$ENV_FILE"
+  warn "请编辑 $ENV_FILE 填入你的实际配置（数据库密码、JWT密钥、CORS_ORIGIN 等）"
   warn "编辑完成后重新运行此脚本"
   exit 0
 fi
 
-info "使用现有 .env 配置"
+info "使用现有 .env 配置: $ENV_FILE"
 
 # ============ 3. 创建数据库 ============
 info "检查数据库..."
 
 # 从 .env 读取数据库配置
-DB_HOST=$(grep MYSQL_HOST "$BACKEND_DIR/.env" | cut -d'=' -f2 | tr -d ' ')
-DB_PORT=$(grep MYSQL_PORT "$BACKEND_DIR/.env" | cut -d'=' -f2 | tr -d ' ')
-DB_USER=$(grep MYSQL_USER "$BACKEND_DIR/.env" | cut -d'=' -f2 | tr -d ' ')
-DB_PASS=$(grep MYSQL_PASSWORD "$BACKEND_DIR/.env" | cut -d'=' -f2 | tr -d ' ')
-DB_NAME=$(grep MYSQL_DATABASE "$BACKEND_DIR/.env" | cut -d'=' -f2 | tr -d ' ')
+DB_HOST=$(grep -E '^MYSQL_HOST=' "$ENV_FILE" | head -1 | cut -d'=' -f2 | tr -d ' ')
+DB_PORT=$(grep -E '^MYSQL_PORT=' "$ENV_FILE" | head -1 | cut -d'=' -f2 | tr -d ' ')
+DB_USER=$(grep -E '^MYSQL_USER=' "$ENV_FILE" | head -1 | cut -d'=' -f2 | tr -d ' ')
+DB_PASS=$(grep -E '^MYSQL_PASSWORD=' "$ENV_FILE" | head -1 | cut -d'=' -f2 | tr -d ' ')
+DB_NAME=$(grep -E '^MYSQL_DATABASE=' "$ENV_FILE" | head -1 | cut -d'=' -f2 | tr -d ' ')
 
 DB_PORT=${DB_PORT:-3306}
 
@@ -83,6 +85,17 @@ if [ -n "$DB_PASS" ]; then
 else
   mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" "$DB_NAME" < "$BACKEND_DIR/db/schema.sql" 2>/dev/null || true
 fi
+
+# 应用 migrations（幂等，已存在的表结构会报错，可忽略）
+for migration in "$BACKEND_DIR"/db/migrations/*.sql; do
+  [ -f "$migration" ] || continue
+  info "应用迁移: $(basename "$migration")"
+  if [ -n "$DB_PASS" ]; then
+    mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" < "$migration" 2>/dev/null || warn "迁移 $(basename "$migration") 跳过（可能已应用）"
+  else
+    mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" "$DB_NAME" < "$migration" 2>/dev/null || true
+  fi
+done
 
 # ============ 4. 安装依赖 ============
 info "安装后端依赖..."
@@ -164,8 +177,9 @@ echo "    查看后端日志: pm2 logs ncse-backend"
 echo "    重启后端:     pm2 restart ncse-backend"
 echo "    停止后端:     pm2 stop ncse-backend"
 echo ""
-echo "  ⚠️  请务必修改 backend/.env 中的:"
+echo "  ⚠️  请务必修改仓库根目录 .env 中的:"
 echo "    - JWT_SECRET (改为随机强密钥)"
 echo "    - MYSQL_PASSWORD (改为强密码)"
+echo "    - CORS_ORIGIN (填前端域名，前后端不同域时必填)"
 echo "    - 默认管理员密码"
 echo ""
