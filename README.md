@@ -197,7 +197,7 @@ sudo nginx -t && sudo systemctl reload nginx
 - 静态资源（js/css/图片）缓存 7 天
 - 前端监听端口 8082（与已有服务不冲突）
 
-### 方式三：前端 Cloudflare Pages + 后端独立服务器
+### 方式二：前端 Cloudflare Pages + 后端独立服务器
 
 前端已在 Cloudflare Pages 部署，后端单独放云服务器时适用。
 
@@ -238,41 +238,9 @@ crontab -e
 ls -lh ~/backups/
 ```
 
-当前生产环境（Cloudflare Pages + 云服务器 + PM2 + MySQL + Cloudflare Tunnel）的完整架构、
-易错点和逐层自测流程见 [`docs/deployment-runbook.md`](docs/deployment-runbook.md)。
+当前生产环境（Cloudflare Pages + 云服务器 + PM2 + MySQL + Cloudflare Tunnel）的
+架构说明、易错点、自测流程与运维命令见 [`docs/deployment-runbook.md`](docs/deployment-runbook.md)。
 
 ## 相比初始版本的更新
 
-### Bug 修复
-- 修复考试模式下仍可暂停计时的问题
-- 修复提交失败后计时器停止工作的 bug
-- 修复首页显示 404 的路由冲突问题
-- 修复 Dashboard 统计加载失败无提示的问题
-- 修复用户注册时间显示为 "-" 的问题
-- 修复管理员昵称乱码问题
-- 修复题目类型显示为英文的问题
-- 修复批量删除因外键约束失败的问题
-
-### 新增功能
-- 题目搜索（关键词搜索题干/解析）
-- 成绩排行榜（Top 50 用户排名）
-- 错题导出（生成可打印 HTML）
-- 错题本改进：答对自动移出 / 手动移出 / 重做错题不计时
-- AI 个性化解析（基于 MIMO 大模型）
-- 个人信息独立页面（编辑昵称/邮箱、修改密码）
-- 题目批量删除
-- 404 页面、ErrorBoundary 错误边界
-- Token 过期自动验证
-
-### 安全加固
-- 管理员接口增加角色/状态白名单校验
-- 昵称长度限制（50字符）、邮箱长度限制（100字符）
-- 排行榜不再暴露用户邮箱
-- AI 解析接口添加频率限制（每用户 5次/分钟）
-- 已禁用用户的 Token 自动失效
-
-### 代码优化
-- 提取共享工具函数（parseOptions、cleanOption、formatTime）
-- 提取共享数据库连接模块（backend/src/db.js）
-- 移除冗余的 console 语句
-- 前端表格统一使用 Ant Design Table 组件
+在初始版本基础上修复了计时器、路由冲突、统计加载、注册时间显示、昵称乱码、题目类型显示、批量删除外键约束等问题；新增题目搜索、排行榜、错题导出与错题本改进、AI 解析、个人资料页、批量删除、404 页面与错误边界、Token 过期自动验证；并做了管理接口角色白名单校验、昵称与邮箱长度限制、排行榜脱敏、AI 接口频率限制、禁用用户 Token 失效等安全加固，以及共享工具函数与数据库连接模块的抽取。
