@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Typography, Card, Form, Input, Button, Space, message, Descriptions } from 'antd';
-import { UserOutlined, MailOutlined, LockOutlined, SaveOutlined } from '@ant-design/icons';
+import { Typography, Card, Form, Input, Button, Space, message, Descriptions, Modal } from 'antd';
+import { UserOutlined, MailOutlined, LockOutlined, SaveOutlined, EditOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
@@ -12,23 +12,24 @@ export default function Profile() {
   const { user, setUser, logout } = useAuth();
   const [profileForm] = Form.useForm();
   const [passwordForm] = Form.useForm();
+  const [usernameForm] = Form.useForm();
   const [profileLoading, setProfileLoading] = useState(false);
   const [passwordLoading, setPasswordLoading] = useState(false);
+  const [usernameModalOpen, setUsernameModalOpen] = useState(false);
+  const [usernameLoading, setUsernameLoading] = useState(false);
 
   useEffect(() => {
     if (user) {
-      profileForm.setFieldsValue({ nickname: user.nickname, username: user.username, email: user.email });
+      profileForm.setFieldsValue({ nickname: user.nickname, email: user.email });
+      usernameForm.setFieldsValue({ username: user.username });
     }
   }, [user]);
 
+  // 昵称和邮箱：直接保存，无需确认
   async function handleProfileSave() {
     try {
       setProfileLoading(true);
       const values = await profileForm.validateFields();
-      if (!values.username && !values.email) {
-        message.error('用户名和邮箱至少保留一项');
-        return;
-      }
       await api.put('/auth/profile', values);
       const updated = { ...user, ...values };
       setUser(updated);
@@ -39,6 +40,25 @@ export default function Profile() {
       message.error(err.response?.data?.error || '更新失败');
     } finally {
       setProfileLoading(false);
+    }
+  }
+
+  // 用户名：单独接口，需二次确认
+  async function handleUsernameSave() {
+    try {
+      const values = await usernameForm.validateFields();
+      setUsernameLoading(true);
+      const { data } = await api.put('/auth/username', values);
+      const updated = { ...user, username: data.username };
+      setUser(updated);
+      localStorage.setItem('user', JSON.stringify(updated));
+      message.success('用户名已修改，下次请使用新用户名登录');
+      setUsernameModalOpen(false);
+    } catch (err) {
+      if (err.errorFields) return;
+      message.error(err.response?.data?.error || '修改失败');
+    } finally {
+      setUsernameLoading(false);
     }
   }
 
@@ -63,7 +83,15 @@ export default function Profile() {
     <div style={{ maxWidth: 600, margin: '0 auto' }}>
       <Title level={3}>个人信息</Title>
 
-      <Card title="账号信息" style={{ marginBottom: 24 }}>
+      <Card
+        title="账号信息"
+        style={{ marginBottom: 24 }}
+        extra={
+          <Button size="small" icon={<EditOutlined />} onClick={() => { usernameForm.setFieldsValue({ username: user?.username }); setUsernameModalOpen(true); }}>
+            修改用户名
+          </Button>
+        }
+      >
         <Descriptions column={1}>
           <Descriptions.Item label="用户名">{user?.username || '-'}</Descriptions.Item>
           <Descriptions.Item label="邮箱">{user?.email || '-'}</Descriptions.Item>
@@ -72,21 +100,10 @@ export default function Profile() {
         </Descriptions>
       </Card>
 
-      <Card title="修改资料" style={{ marginBottom: 24 }}>
+      <Card title="修改资料" style={{ marginBottom: 24 }} extra={<span style={{ fontSize: 12, color: '#999' }}>昵称和邮箱保存后立即生效</span>}>
         <Form form={profileForm} layout="vertical">
           <Form.Item name="nickname" label="昵称" rules={[{ required: true, message: '请输入昵称' }]}>
             <Input prefix={<UserOutlined />} placeholder="请输入昵称" />
-          </Form.Item>
-          <Form.Item
-            name="username"
-            label="用户名"
-            rules={[
-              { min: 2, max: 64, message: '用户名长度需为2-64个字符' },
-              { pattern: /^[a-zA-Z0-9_\u4e00-\u9fa5-]+$/, message: '只能包含字母、数字、下划线、连字符和中文' }
-            ]}
-            extra="用户名和邮箱至少保留一项，均可用于登录"
-          >
-            <Input prefix={<UserOutlined />} placeholder="请输入用户名" />
           </Form.Item>
           <Form.Item name="email" label="邮箱" rules={[{ type: 'email', message: '请输入有效邮箱' }, { max: 100, message: '邮箱不能超过100个字符' }]}>
             <Input prefix={<MailOutlined />} placeholder="请输入邮箱" />
@@ -98,6 +115,36 @@ export default function Profile() {
           </Form.Item>
         </Form>
       </Card>
+
+      <Modal
+        title="修改用户名"
+        open={usernameModalOpen}
+        onOk={handleUsernameSave}
+        onCancel={() => setUsernameModalOpen(false)}
+        confirmLoading={usernameLoading}
+        okText="确认修改"
+        cancelText="取消"
+      >
+        <div style={{ marginBottom: 16, padding: 12, background: '#fffbe6', border: '1px solid #ffe58f', borderRadius: 8 }}>
+          <Typography.Paragraph type="secondary" style={{ margin: 0, fontSize: 12 }}>
+            用户名是你的登录账号，修改后需使用新用户名登录。<br />
+            用户名全网唯一，不可与他人重复。
+          </Typography.Paragraph>
+        </div>
+        <Form form={usernameForm} layout="vertical">
+          <Form.Item
+            name="username"
+            label="新用户名"
+            rules={[
+              { required: true, message: '请输入新用户名' },
+              { min: 2, max: 64, message: '用户名长度需为2-64个字符' },
+              { pattern: /^[a-zA-Z0-9_\u4e00-\u9fa5-]+$/, message: '只能包含字母、数字、下划线、连字符和中文' }
+            ]}
+          >
+            <Input prefix={<UserOutlined />} placeholder="请输入新用户名" />
+          </Form.Item>
+        </Form>
+      </Modal>
 
       <Card title="修改密码">
         <Form form={passwordForm} layout="vertical">

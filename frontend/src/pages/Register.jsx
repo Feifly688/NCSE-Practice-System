@@ -11,10 +11,6 @@ export default function Register() {
   const [form] = Form.useForm();
 
   async function onFinish(values) {
-    if (!values.username && !values.email) {
-      message.error('用户名和邮箱至少填写一项');
-      return;
-    }
     try {
       await register(values);
       message.success('注册成功');
@@ -38,16 +34,17 @@ export default function Register() {
               <Input prefix={<UserOutlined />} placeholder="昵称" style={{ borderRadius: 8 }} />
             </Form.Item>
             <Form.Item name="username" rules={[
+              { required: true, message: '请输入用户名' },
               { min: 2, max: 64, message: '用户名长度需为2-64个字符' },
               { pattern: /^[a-zA-Z0-9_\u4e00-\u9fa5-]+$/, message: '只能包含字母、数字、下划线、连字符和中文' }
             ]} style={{ marginBottom: 20 }}>
-              <Input prefix={<UserOutlined />} placeholder="用户名（选填，可与邮箱任选其一登录）" style={{ borderRadius: 8 }} />
+              <Input prefix={<UserOutlined />} placeholder="用户名（登录账号，不可重复）" style={{ borderRadius: 8 }} />
             </Form.Item>
             <Form.Item name="email" rules={[
               { type: 'email', message: '邮箱格式不正确' },
               { max: 100, message: '邮箱不能超过100个字符' }
             ]} style={{ marginBottom: 20 }}>
-              <Input prefix={<MailOutlined />} placeholder="邮箱（选填，可与用户名任选其一登录）" style={{ borderRadius: 8 }} />
+              <Input prefix={<MailOutlined />} placeholder="邮箱（选填，用于找回账号）" style={{ borderRadius: 8 }} />
             </Form.Item>
             <Form.Item
               name="password"
