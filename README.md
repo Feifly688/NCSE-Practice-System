@@ -133,50 +133,7 @@ npm run dev            # http://localhost:5173
 
 ## 部署流程
 
-### 方式一：Docker Compose（推荐）
-
-适用于 Linux 服务器，一键启动所有服务：
-
-```bash
-# 1. 克隆项目
-git clone <项目地址> && cd NCSE-Practice-System
-
-# 2. 配置环境变量（放在仓库根目录）
-cp deploy/env.example .env
-# 编辑 .env，填入数据库密码、JWT_SECRET 等
-
-# 3. 启动全部服务
-docker compose up -d
-```
-
-> 注意：仓库里的 `docker-compose.yml` 预设了 1Panel 的 `1panel-network` 外部网络与 MySQL 容器名，
-> 在非 1Panel 环境需要修改后才能使用。
-
-服务说明：
-- **backend** — Node.js 后端，监听 `127.0.0.1:4000`
-- **frontend-builder** — 构建前端静态文件到命名卷 `frontend_dist`，构建后退出
-- **MySQL** — 需外部运行（生产环境建议使用托管数据库或独立 MySQL 容器）
-
-访问地址：`http://<服务器IP>:8082`
-
-#### Docker 部署常用命令
-
-```bash
-# 查看容器状态
-docker ps
-
-# 重启后端
-docker compose restart backend
-
-# 查看后端日志
-docker logs ncse-backend --tail 50
-
-# 更新代码后重新构建
-docker compose down
-docker compose up -d --build
-```
-
-### 方式二：裸机部署（PM2 + Nginx）
+### 方式一：裸机部署（PM2 + Nginx）
 
 适用于已安装 Node.js 18+ 和 MySQL 8.0 的服务器。
 
@@ -281,7 +238,8 @@ crontab -e
 ls -lh ~/backups/
 ```
 
-详细运维指南见 [`docs/server-guide.md`](docs/server-guide.md)。
+当前生产环境（Cloudflare Pages + 云服务器 + PM2 + MySQL + Cloudflare Tunnel）的完整架构、
+易错点和逐层自测流程见 [`docs/deployment-runbook.md`](docs/deployment-runbook.md)。
 
 ## 相比初始版本的更新
 
