@@ -17,7 +17,7 @@ export default function Profile() {
 
   useEffect(() => {
     if (user) {
-      profileForm.setFieldsValue({ nickname: user.nickname, email: user.email });
+      profileForm.setFieldsValue({ nickname: user.nickname, username: user.username, email: user.email });
     }
   }, [user]);
 
@@ -25,6 +25,10 @@ export default function Profile() {
     try {
       setProfileLoading(true);
       const values = await profileForm.validateFields();
+      if (!values.username && !values.email) {
+        message.error('用户名和邮箱至少保留一项');
+        return;
+      }
       await api.put('/auth/profile', values);
       const updated = { ...user, ...values };
       setUser(updated);
@@ -61,7 +65,8 @@ export default function Profile() {
 
       <Card title="账号信息" style={{ marginBottom: 24 }}>
         <Descriptions column={1}>
-          <Descriptions.Item label="邮箱">{user?.email}</Descriptions.Item>
+          <Descriptions.Item label="用户名">{user?.username || '-'}</Descriptions.Item>
+          <Descriptions.Item label="邮箱">{user?.email || '-'}</Descriptions.Item>
           <Descriptions.Item label="角色">{user?.role === 'admin' ? '管理员' : '普通用户'}</Descriptions.Item>
           <Descriptions.Item label="注册时间">{user?.created_at ? new Date(user.created_at).toLocaleString('zh-CN') : '-'}</Descriptions.Item>
         </Descriptions>
@@ -72,7 +77,18 @@ export default function Profile() {
           <Form.Item name="nickname" label="昵称" rules={[{ required: true, message: '请输入昵称' }]}>
             <Input prefix={<UserOutlined />} placeholder="请输入昵称" />
           </Form.Item>
-          <Form.Item name="email" label="邮箱" rules={[{ required: true, type: 'email', message: '请输入有效邮箱' }]}>
+          <Form.Item
+            name="username"
+            label="用户名"
+            rules={[
+              { min: 2, max: 64, message: '用户名长度需为2-64个字符' },
+              { pattern: /^[a-zA-Z0-9_\u4e00-\u9fa5-]+$/, message: '只能包含字母、数字、下划线、连字符和中文' }
+            ]}
+            extra="用户名和邮箱至少保留一项，均可用于登录"
+          >
+            <Input prefix={<UserOutlined />} placeholder="请输入用户名" />
+          </Form.Item>
+          <Form.Item name="email" label="邮箱" rules={[{ type: 'email', message: '请输入有效邮箱' }, { max: 100, message: '邮箱不能超过100个字符' }]}>
             <Input prefix={<MailOutlined />} placeholder="请输入邮箱" />
           </Form.Item>
           <Form.Item>

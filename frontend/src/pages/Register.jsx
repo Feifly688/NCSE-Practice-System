@@ -11,8 +11,12 @@ export default function Register() {
   const [form] = Form.useForm();
 
   async function onFinish(values) {
+    if (!values.username && !values.email) {
+      message.error('用户名和邮箱至少填写一项');
+      return;
+    }
     try {
-      await register(values.email, values.password, values.nickname);
+      await register(values);
       message.success('注册成功');
       navigate('/dashboard');
     } catch (err) {
@@ -33,10 +37,23 @@ export default function Register() {
             <Form.Item name="nickname" rules={[{ required: true, message: '请输入昵称' }]} style={{ marginBottom: 20 }}>
               <Input prefix={<UserOutlined />} placeholder="昵称" style={{ borderRadius: 8 }} />
             </Form.Item>
-            <Form.Item name="email" rules={[{ required: true, message: '请输入邮箱' }, { type: 'email', message: '邮箱格式不正确' }]} style={{ marginBottom: 20 }}>
-              <Input prefix={<MailOutlined />} placeholder="邮箱" style={{ borderRadius: 8 }} />
+            <Form.Item name="username" rules={[
+              { min: 2, max: 64, message: '用户名长度需为2-64个字符' },
+              { pattern: /^[a-zA-Z0-9_\u4e00-\u9fa5-]+$/, message: '只能包含字母、数字、下划线、连字符和中文' }
+            ]} style={{ marginBottom: 20 }}>
+              <Input prefix={<UserOutlined />} placeholder="用户名（选填，可与邮箱任选其一登录）" style={{ borderRadius: 8 }} />
             </Form.Item>
-            <Form.Item name="password" rules={[{ required: true, message: '请输入密码' }, { min: 6, message: '密码至少6位' }]} style={{ marginBottom: 24 }}>
+            <Form.Item name="email" rules={[
+              { type: 'email', message: '邮箱格式不正确' },
+              { max: 100, message: '邮箱不能超过100个字符' }
+            ]} style={{ marginBottom: 20 }}>
+              <Input prefix={<MailOutlined />} placeholder="邮箱（选填，可与用户名任选其一登录）" style={{ borderRadius: 8 }} />
+            </Form.Item>
+            <Form.Item
+              name="password"
+              rules={[{ required: true, message: '请输入密码' }, { min: 6, message: '密码至少6位' }]}
+              style={{ marginBottom: 24 }}
+            >
               <Input.Password prefix={<LockOutlined />} placeholder="密码（至少6位）" style={{ borderRadius: 8 }} />
             </Form.Item>
             <Form.Item style={{ marginBottom: 16 }}>

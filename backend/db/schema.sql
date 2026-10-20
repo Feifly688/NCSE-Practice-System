@@ -1,7 +1,8 @@
 -- Users
 CREATE TABLE IF NOT EXISTS `user` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  `email` VARCHAR(255) NOT NULL,
+  `username` VARCHAR(64) NULL COMMENT '用户名，登录名，可与邮箱任选其一',
+  `email` VARCHAR(255) NULL,
   `nickname` VARCHAR(64) NOT NULL,
   `password_hash` VARCHAR(255) NOT NULL,
   `role` ENUM('user','admin') NOT NULL DEFAULT 'user',
@@ -9,6 +10,7 @@ CREATE TABLE IF NOT EXISTS `user` (
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_user_username` (`username`),
   UNIQUE KEY `uq_user_email` (`email`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

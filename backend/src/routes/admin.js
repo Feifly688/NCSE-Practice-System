@@ -32,7 +32,7 @@ router.get('/users', async (req, res) => {
     const data = await withConnection(async (conn) => {
       const [countRows] = await conn.query('SELECT COUNT(*) AS total FROM user');
       const [rows] = await conn.query(
-        `SELECT u.id, u.email, u.nickname, u.role, u.status, u.created_at,
+        `SELECT u.id, u.username, u.email, u.nickname, u.role, u.status, u.created_at,
          (SELECT COUNT(*) FROM practice_session ps WHERE ps.user_id = u.id) as practice_count,
          (SELECT ROUND(AVG(ps.score), 1) FROM practice_session ps WHERE ps.user_id = u.id) as avg_score
          FROM user u ORDER BY u.id DESC LIMIT ? OFFSET ?`,

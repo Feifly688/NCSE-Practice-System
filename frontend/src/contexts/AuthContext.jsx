@@ -31,10 +31,10 @@ export function AuthProvider({ children }) {
     }
   }, []);
 
-  async function login(email, password) {
+  async function login(account, password) {
     setLoading(true);
     try {
-      const { data } = await api.post('/auth/login', { email, password });
+      const { data } = await api.post('/auth/login', { account, password });
       localStorage.setItem('token', data.token);
       localStorage.setItem('user', JSON.stringify(data.user));
       setUser(data.user);
@@ -42,10 +42,10 @@ export function AuthProvider({ children }) {
     } finally { setLoading(false); }
   }
 
-  async function register(email, password, nickname) {
+  async function register(values) {
     setLoading(true);
     try {
-      const { data } = await api.post('/auth/register', { email, password, nickname });
+      const { data } = await api.post('/auth/register', values);
       localStorage.setItem('token', data.token);
       localStorage.setItem('user', JSON.stringify(data.user));
       setUser(data.user);

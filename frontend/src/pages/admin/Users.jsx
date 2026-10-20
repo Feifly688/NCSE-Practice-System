@@ -67,6 +67,7 @@ export default function Users() {
             <tr style={{ background: '#fafafa' }}>
               <th style={{ padding: '12px 16px', textAlign: 'left' }}>ID</th>
               <th style={{ padding: '12px 16px', textAlign: 'left' }}>昵称</th>
+              <th style={{ padding: '12px 16px', textAlign: 'left' }}>用户名</th>
               <th style={{ padding: '12px 16px', textAlign: 'left' }}>邮箱</th>
               <th style={{ padding: '12px 16px', textAlign: 'left' }}>角色</th>
               <th style={{ padding: '12px 16px', textAlign: 'left' }}>状态</th>
@@ -78,14 +79,15 @@ export default function Users() {
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={9} style={{ padding: 40, textAlign: 'center' }}>加载中...</td></tr>
+              <tr><td colSpan={10} style={{ padding: 40, textAlign: 'center' }}>加载中...</td></tr>
             ) : users.length === 0 ? (
-              <tr><td colSpan={9} style={{ padding: 40, textAlign: 'center' }}>暂无数据</td></tr>
+              <tr><td colSpan={10} style={{ padding: 40, textAlign: 'center' }}>暂无数据</td></tr>
             ) : users.map((u, idx) => (
               <tr key={u.id} style={{ background: idx % 2 === 0 ? '#fff' : '#fafafa' }}>
                 <td style={{ padding: '10px 16px' }}>{u.id}</td>
                 <td style={{ padding: '10px 16px' }}><UserOutlined style={{ marginRight: 4 }} />{u.nickname}</td>
-                <td style={{ padding: '10px 16px' }}>{u.email}</td>
+                <td style={{ padding: '10px 16px' }}>{u.username || '-'}</td>
+                <td style={{ padding: '10px 16px' }}>{u.email || '-'}</td>
                 <td style={{ padding: '10px 16px' }}><Tag color={u.role === 'admin' ? 'red' : 'blue'}>{u.role === 'admin' ? '管理员' : '用户'}</Tag></td>
                 <td style={{ padding: '10px 16px' }}><Tag color={u.status === 'active' ? 'green' : 'red'}>{u.status === 'active' ? '正常' : '禁用'}</Tag></td>
                 <td style={{ padding: '10px 16px', textAlign: 'center' }}>{u.practice_count || 0}</td>

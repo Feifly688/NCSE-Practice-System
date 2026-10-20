@@ -70,8 +70,16 @@ npm run dev            # http://localhost:5173
 
 ```
 ├── backend/              Express 后端
-│   ├── db/               数据库 schema
-│   ├── scripts/          初始化脚本
+│   ├── db/
+│   │   ├── schema.sql    表结构
+│   │   └── migrations/   增量迁移
+│   ├── scripts/          运维脚本
+│   │   ├── seed_admin.js      创建初始管理员
+│   │   ├── seed_questions.js  导入示例题目
+│   │   ├── seed_articles.js   导入示例文章
+│   │   ├── hash_password.js   生成 bcrypt 哈希并改密码
+│   │   ├── db_ping.js         测试数据库连接
+│   │   └── refetch-times.js   重新抓取文章发布时间
 │   └── src/
 │       ├── db.js         共享数据库连接
 │       ├── middleware/    JWT 认证中间件
@@ -85,6 +93,9 @@ npm run dev            # http://localhost:5173
 │       ├── pages/        页面组件
 │       ├── services/     axios 封装
 │       └── utils.js      公共工具函数
+├── deploy/               部署脚本与配置
+├── docs/
+│   └── deployment-runbook.md   部署架构与运维命令
 └── .env.example          环境变量模板
 ```
 
@@ -118,10 +129,27 @@ npm run dev            # http://localhost:5173
 | `API_KEY` | AI 解析/生题的 API Key（留空禁用 AI 功能） | 否 |
 | `BASE_URL` | AI API 地址，默认 `https://open.bigmodel.cn/api/paas/v4` | 否 |
 | `MODEL` | AI 模型名，如 `glm-4-flash` | 否 |
+| `ADMIN_USERNAME` | 初始管理员用户名，与 `ADMIN_EMAIL` 至少留一个 | 否 |
+| `ADMIN_EMAIL` | 初始管理员邮箱，默认 `admin@example.com` | 否 |
+| `ADMIN_NICKNAME` | 初始管理员昵称，默认 `管理员` | 否 |
+| `ADMIN_PASSWORD` | 初始管理员密码，默认 `Admin@12345` | 否 |
 
 > 生成随机 JWT 密钥：`openssl rand -hex 32`
 >
 > AI 相关变量名是 `API_KEY` / `BASE_URL` / `MODEL`，旧文档里的 `MIMO_API_KEY` / `MIMO_BASE_URL` 已废弃，代码不识别。
+
+### 账号与登录规则
+
+- **用户名（`username`）和邮箱（`email`）至少填一个**，两者都能作为登录名
+- 登录时输入其中一个 + 密码即可
+- 用户名规则：2-64 字符，仅限字母、数字、下划线、连字符、中文；不可重复
+- 邮箱同样不可重复；留空表示该用户只能用用户名登录
+- 数据库密码是 bcrypt 哈希，**不可逆**。改密码用：
+
+```bash
+cd backend
+node scripts/hash_password.js '新密码' --apply 用户名或邮箱
+```
 
 ### 前端配置 (`frontend/.env`)
 

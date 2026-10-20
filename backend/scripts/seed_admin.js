@@ -3,6 +3,7 @@ const bcrypt = require('bcryptjs');
 const mysql = require('mysql2/promise');
 
 (async () => {
+  const username = process.env.ADMIN_USERNAME || null;
   const email = process.env.ADMIN_EMAIL || 'admin@example.com';
   const nickname = process.env.ADMIN_NICKNAME || '管理员';
   const password = process.env.ADMIN_PASSWORD || 'Admin@12345';
@@ -16,16 +17,16 @@ const mysql = require('mysql2/promise');
     charset: 'utf8mb4'
   });
 
-  const [rows] = await conn.query('SELECT id FROM `user` WHERE email = ?', [email]);
+  const [rows] = await conn.query('SELECT id FROM `user` WHERE email = ? OR (username IS NOT NULL AND username = ?)', [email, username]);
   if (rows.length > 0) {
-    console.log('ADMIN_EXISTS', { email });
+    console.log('ADMIN_EXISTS', { username, email });
   } else {
     const hash = await bcrypt.hash(password, 10);
     await conn.query(
-      'INSERT INTO `user` (email, nickname, password_hash, role, status) VALUES (?,?,?,?,?)',
-      [email, nickname, hash, 'admin', 'active']
+      'INSERT INTO `user` (username, email, nickname, password_hash, role, status) VALUES (?,?,?,?,?,?)',
+      [username, email, nickname, hash, 'admin', 'active']
     );
-    console.log('ADMIN_CREATED', { email });
+    console.log('ADMIN_CREATED', { username, email });
   }
 
   await conn.end();

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Form, Input, Button, Typography, message, Space } from 'antd';
-import { MailOutlined, LockOutlined } from '@ant-design/icons';
+import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { GlowCard } from '../components/ui/spotlight-card';
@@ -12,7 +12,7 @@ export default function Login() {
 
   async function onFinish(values) {
     try {
-      await login(values.email, values.password);
+      await login(values.account, values.password);
       message.success('登录成功');
       navigate('/dashboard');
     } catch (err) {
@@ -30,8 +30,8 @@ export default function Login() {
             <Typography.Text type="secondary">欢迎回来，请登录你的账号</Typography.Text>
           </div>
           <Form form={form} layout="vertical" onFinish={onFinish} autoComplete="off" size="large">
-            <Form.Item name="email" rules={[{ required: true, message: '请输入邮箱' }, { type: 'email', message: '邮箱格式不正确' }]} style={{ marginBottom: 20 }}>
-              <Input prefix={<MailOutlined />} placeholder="邮箱" style={{ borderRadius: 8 }} />
+            <Form.Item name="account" rules={[{ required: true, message: '请输入用户名或邮箱' }]} style={{ marginBottom: 20 }}>
+              <Input prefix={<UserOutlined />} placeholder="用户名或邮箱" style={{ borderRadius: 8 }} />
             </Form.Item>
             <Form.Item name="password" rules={[{ required: true, message: '请输入密码' }]} style={{ marginBottom: 24 }}>
               <Input.Password prefix={<LockOutlined />} placeholder="密码" style={{ borderRadius: 8 }} />

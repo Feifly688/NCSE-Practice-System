@@ -146,15 +146,50 @@ fetch('https://api.feincse.us.ci/api/health').then(r => r.json()).then(console.l
 
 ---
 
-## 五、用户管理规则
+## 五、用户与密码管理
 
+### 账号规则
+- `username`（用户名）和 `email`（邮箱）**至少填一个**，两者都能作为登录名
+- 登录时输入其中一个 + 密码即可，后端用 `WHERE username = ? OR email = ?` 匹配
+- 用户名规则：2-64 字符，仅字母、数字、下划线、连字符、中文
+- 用户名和邮箱都设了唯一索引，不可重复
+
+### 通过 SQL 改密码
+
+`user.password_hash` 存的是 bcrypt 哈希，**不可逆，不能直接写明文**。用脚本生成哈希：
+
+```bash
+cd /root/ncse/backend
+
+# 1. 只生成哈希（不写库）
+node scripts/hash_password.js '新密码'
+
+# 2. 生成并直接写入指定用户（用户名或邮箱均可）
+node scripts/hash_password.js '新密码' --apply admin@example.com
+```
+
+脚本会输出 `PASSWORD_UPDATED` 和该用户信息。
+
+手动 SQL 方式（把 `<哈希>` 换成上面生成的）：
+
+```bash
+mysql -u ncse -p'密码' ncse-practice-system -e "UPDATE user SET password_hash = '<哈希>' WHERE email = '你的邮箱';"
+```
+
+### 账号被锁死自愈
+```bash
+mysql -u ncse -p'密码' ncse-practice-system -e "UPDATE user SET status='active', role='admin' WHERE email='你的邮箱';"
+```
+
+### 用户管理规则
 - 管理员**不能修改自己**的角色和状态（后端 400 + 前端隐藏按钮）
 - 用户**不支持删除**，`DELETE /api/admin/users/:id` 已停用（返回 403），一律用「禁用」代替
 - 禁用后用户无法登录，练习记录、错题本等数据保留，可随时重新启用
-- 万一账号被锁死（如直接在数据库改错状态），用下面的命令自愈：
 
+### 升级已有数据库（加 username 字段）
+新部署的库已含该字段；在字段加入前创建的库需执行：
 ```bash
-mysql -u ncse -p'密码' ncse-practice-system -e "UPDATE user SET status='active', role='admin' WHERE email='你的邮箱';"
+mysql -u ncse -p'密码' ncse-practice-system < /root/ncse/backend/db/migrations/add_username_login.sql
 ```
 
 ---
@@ -220,7 +255,7 @@ node scripts/seed_articles.js
 
 ---
 
-## 七、故障速查
+## 八、故障速查
 
 | 症状 | 查这里 |
 |---|---|
@@ -235,7 +270,7 @@ node scripts/seed_articles.js
 
 ---
 
-## 八、防火墙
+## 九、防火墙
 ```bash
 sudo ufw default deny incoming
 sudo ufw allow 22/tcp
