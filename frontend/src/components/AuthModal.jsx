@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Modal, Tabs, Form, Input, Button, Typography, message, Space } from 'antd';
 import { UserOutlined, LockOutlined, MailOutlined } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
 const { Text } = Typography;
@@ -10,11 +10,14 @@ const { Text } = Typography;
 const PANEL_BG = 'rgba(18, 18, 26, 0.85)';
 
 /**
- * 登录 / 注册弹窗。由 AuthContext 的 openAuth(mode) 触发，
- * 不再需要独立的登录、注册页面。
+ * 登录 / 注册弹窗，仅用于非首页入口（如顶部导航的登录按钮）。
+ *
+ * 首页已改为 hero 区内嵌卡片（HomeAuthCard），因此这里在 `/`
+ * 路由下直接不渲染，避免遮罩盖住首页背景。
  */
 export default function AuthModal() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { authModal, closeAuth, login, register, loading } = useAuth();
   const [tab, setTab] = useState('login');
   const [loginForm] = Form.useForm();
@@ -25,7 +28,7 @@ export default function AuthModal() {
     if (authModal) setTab(authModal);
   }, [authModal]);
 
-  const open = authModal !== null;
+  const open = authModal !== null && location.pathname !== '/';
 
   function handleClose() {
     closeAuth();
@@ -148,7 +151,7 @@ export default function AuthModal() {
 
   return (
     <Modal
-      className="auth-modal"
+      className="auth-dark"
       open={open}
       onCancel={handleClose}
       footer={null}

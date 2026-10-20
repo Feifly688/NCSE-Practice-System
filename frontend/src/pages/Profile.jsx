@@ -10,7 +10,7 @@ const { Title } = Typography;
 
 export default function Profile() {
   const navigate = useNavigate();
-  const { user, setUser, logout, openAuth } = useAuth();
+  const { user, setUser, logout } = useAuth();
   const { isMobile } = useResponsive();
   const [profileForm] = Form.useForm();
   const [passwordForm] = Form.useForm();
@@ -72,9 +72,8 @@ export default function Profile() {
       message.success('密码已修改，请重新登录');
       passwordForm.resetFields();
       logout();
-      // 回首页并弹出登录框（认证已改为弹窗形式）
+      // 回首页即可，未登录时首页会直接展示登录卡片
       navigate('/');
-      openAuth('login');
     } catch (err) {
       if (err.errorFields) return;
       message.error(err.response?.data?.error || '修改失败');

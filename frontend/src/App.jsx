@@ -1,7 +1,7 @@
 import React, { lazy, Suspense, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
 import { ConfigProvider, Spin } from 'antd';
-import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { AuthProvider } from './contexts/AuthContext';
 import MainLayout from './layouts/MainLayout';
 import AdminLayout from './layouts/AdminLayout';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -43,16 +43,15 @@ function PageFallback() {
 }
 
 /**
- * 登录 / 注册已改为首页弹窗，不再有独立页面。
+ * 登录 / 注册已改为首页内嵌卡片，不再有独立页面。
  * 保留这两个路径做兼容：旧的 401 跳转、ProtectedRoute 重定向
- * 以及外部书签都会落到这里，自动返回首页并弹出对应标签页。
+ * 以及外部书签都会落到这里，直接返回首页 —— 未登录时首页
+ * 本身就会展示登录卡片，无需再额外唤起弹窗。
  */
-function AuthRedirect({ mode }) {
-  const { openAuth } = useAuth();
+function AuthRedirect() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    openAuth(mode);
     navigate('/', { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -66,14 +65,15 @@ export default function App() {
     <ConfigProvider theme={theme}>
       <BrowserRouter>
         <AuthProvider>
-          {/* 全局登录/注册弹窗，由 AuthContext 的 openAuth 控制 */}
+          {/* 弹窗仅服务于非首页入口（如顶部导航的登录按钮）；
+              首页改用内嵌卡片，不再叠加遮罩 */}
           <AuthModal />
           <Suspense fallback={<PageFallback />}>
             <Routes>
               <Route element={<MainLayout />}>
                 <Route path="/" element={<Home />} />
-                <Route path="/login" element={<AuthRedirect mode="login" />} />
-                <Route path="/register" element={<AuthRedirect mode="register" />} />
+                <Route path="/login" element={<AuthRedirect />} />
+                <Route path="/register" element={<AuthRedirect />} />
                 <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
                 <Route path="/practice" element={<ProtectedRoute><Practice /></ProtectedRoute>} />
                 <Route path="/history" element={<ProtectedRoute><History /></ProtectedRoute>} />

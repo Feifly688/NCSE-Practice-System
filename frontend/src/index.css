@@ -119,36 +119,134 @@
   }
 }
 
-/* 登录弹窗保持与首页一致的深色视觉，避免默认控件的浅色背景割裂页面。 */
-.auth-modal .ant-modal-close {
+/* ───────── 深色认证表单（首页内嵌卡片与弹窗共用） ───────── */
+.auth-dark .ant-modal-close {
   color: rgba(255, 255, 255, 0.65);
 }
 
-.auth-modal .ant-tabs-tab {
+.auth-dark .ant-tabs-tab {
   color: rgba(255, 255, 255, 0.52);
 }
 
-.auth-modal .ant-tabs-tab.ant-tabs-tab-active .ant-tabs-tab-btn {
+.auth-dark .ant-tabs-tab.ant-tabs-tab-active .ant-tabs-tab-btn {
   color: #93c5fd;
 }
 
-.auth-modal .ant-input,
-.auth-modal .ant-input-affix-wrapper {
+.auth-dark .ant-tabs-ink-bar {
+  background: #60a5fa;
+}
+
+.auth-dark .ant-input,
+.auth-dark .ant-input-affix-wrapper {
   color: #fff;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.07);
   border-color: rgba(255, 255, 255, 0.14);
 }
 
-.auth-modal .ant-input::placeholder {
+.auth-dark .ant-input::placeholder {
   color: rgba(255, 255, 255, 0.36);
 }
 
-.auth-modal .ant-input-affix-wrapper:hover,
-.auth-modal .ant-input-affix-wrapper-focused {
+.auth-dark .ant-input-affix-wrapper:hover,
+.auth-dark .ant-input-affix-wrapper-focused {
   border-color: #60a5fa;
   box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.14);
 }
 
-.auth-modal .ant-input-password-icon {
+.auth-dark .ant-input-password-icon {
   color: rgba(255, 255, 255, 0.52);
+}
+
+.auth-dark .ant-form-item-explain-error {
+  font-size: 12px;
+}
+
+/* ───────── 首页内嵌登录卡片：弹出动画 ───────── */
+@keyframes auth-card-pop {
+  0% {
+    opacity: 0;
+    transform: translateY(18px) scale(0.92);
+  }
+  62% {
+    opacity: 1;
+    transform: translateY(0) scale(1.015);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.auth-card {
+  animation: auth-card-pop 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+  will-change: transform, opacity;
+}
+
+/* 卡片展开的柔和外发光，贴合首页深色科技风 */
+.auth-card {
+  position: relative;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(18, 18, 26, 0.82);
+  backdrop-filter: blur(22px) saturate(140%);
+  -webkit-backdrop-filter: blur(22px) saturate(140%);
+  box-shadow:
+    0 24px 70px -20px rgba(0, 0, 0, 0.9),
+    0 0 0 1px rgba(255, 255, 255, 0.04) inset,
+    0 0 60px -30px rgba(96, 165, 250, 0.7);
+}
+
+/* ───────── 首页亮点轮播 ───────── */
+.home-carousel .slick-dots li button {
+  background: rgba(255, 255, 255, 0.28) !important;
+  border-radius: 999px;
+}
+
+.home-carousel .slick-dots li.slick-active button {
+  background: #60a5fa !important;
+  width: 22px;
+}
+
+.home-carousel .slick-dots {
+  bottom: -26px;
+}
+
+.home-carousel .slick-prev,
+.home-carousel .slick-next {
+  z-index: 3;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  background: rgba(10, 10, 15, 0.62) !important;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(6px);
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+
+.home-carousel:hover .slick-prev,
+.home-carousel:hover .slick-next {
+  opacity: 1;
+}
+
+.home-carousel .slick-prev {
+  left: 14px;
+}
+
+.home-carousel .slick-next {
+  right: 14px;
+}
+
+@media (max-width: 767px) {
+  .home-carousel .slick-prev,
+  .home-carousel .slick-next {
+    display: none !important;
+  }
+}
+
+/* 尊重系统的「减少动态效果」设置 */
+@media (prefers-reduced-motion: reduce) {
+  .auth-card {
+    animation: none;
+  }
 }
