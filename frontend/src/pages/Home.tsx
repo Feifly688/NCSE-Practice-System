@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { Card, Row, Col, Button, Space, Skeleton } from 'antd';
 import {
   EditOutlined, TrophyOutlined, UserOutlined, BookOutlined,
@@ -7,9 +7,12 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
-import { CardStack, CardStackItem } from '../components/ui/card-stack';
 import { SpiralAnimation } from '../components/ui/spiral-animation';
 import { GlowCard } from '../components/ui/spotlight-card';
+import type { CardStackItem } from '../components/ui/card-stack';
+
+// CardStack 依赖 framer-motion（约 100KB+），位于首屏之下，按需加载
+const CardStack = lazy(() => import('../components/ui/card-stack').then(m => ({ default: m.CardStack })));
 
 const CARD_IMAGES = [
   'https://images.unsplash.com/photo-1504711434969-e33886168d8c?w=640&h=420&fit=crop',
@@ -176,7 +179,9 @@ export default function Home() {
         <div style={{ marginBottom: 50 }}>
           <h2 style={{ textAlign: 'center', fontSize: 26, fontWeight: 700, color: '#fff', marginBottom: 6 }}>平台亮点</h2>
           <p style={{ textAlign: 'center', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginBottom: 28, marginTop: 0 }}>滑动卡片浏览，点击切换</p>
-          <CardStack items={stackItems} initialIndex={2} autoAdvance intervalMs={3000} pauseOnHover showDots loop />
+          <Suspense fallback={<div style={{ height: 380 }} />}>
+            <CardStack items={stackItems} initialIndex={2} autoAdvance intervalMs={3000} pauseOnHover showDots loop />
+          </Suspense>
         </div>
 
         {/* ─── Trend ─── */}
