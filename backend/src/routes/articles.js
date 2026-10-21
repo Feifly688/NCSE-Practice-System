@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const axios = require('axios');
 const cheerio = require('cheerio');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
+const { asyncHandler } = require('../middleware/asyncHandler');
 const { withConnection } = require('../db');
 const { runConcurrent } = require('../helpers');
 
@@ -279,172 +280,156 @@ function getSourceId(sourceName) {
 }
 
 // POST /api/articles/preview
-router.post('/preview', async (req, res) => {
-  try {
-    const { sources, totalCount } = req.body;
-    if (!sources || !Array.isArray(sources) || sources.length === 0) return res.status(400).json({ error: '请选择至少一个来源' });
-    const countPerSource = Math.ceil((totalCount || 10) / sources.length);
-    const result = await withConnection(async (conn) => {
-      const used = new Set();
-      const out = [];
-      const tasks = sources.map(sourceId => async () => {
-        const fetched = await fetchArticlesFromSource(sourceId, countPerSource * 2);
-        const filtered = [];
-        for (const a of fetched) {
-          if (out.length >= (totalCount || 10)) break;
-          const fp = makeFingerprint(a.source, a.title);
-          if (used.has(fp)) continue;
-          const [existing] = await conn.query('SELECT id FROM article WHERE fingerprint = ?', [fp]);
-          if (existing.length === 0) {
-            filtered.push({ ...a, text: '点击"确认添加"后将自动抓取文章内容...', fingerprint: fp });
-            used.add(fp);
-          }
-        }
-        return filtered;
-      });
-      const results = await runConcurrent(tasks, 3);
-      for (const items of results) {
-        out.push(...items);
+router.post('/preview', asyncHandler(async (req, res) => {
+  const { sources, totalCount } = req.body;
+  if (!sources || !Array.isArray(sources) || sources.length === 0) return res.status(400).json({ error: '请选择至少一个来源' });
+  const countPerSource = Math.ceil((totalCount || 10) / sources.length);
+  const result = await withConnection(async (conn) => {
+    const used = new Set();
+    const out = [];
+    const tasks = sources.map(sourceId => async () => {
+      const fetched = await fetchArticlesFromSource(sourceId, countPerSource * 2);
+      const filtered = [];
+      for (const a of fetched) {
         if (out.length >= (totalCount || 10)) break;
+        const fp = makeFingerprint(a.source, a.title);
+        if (used.has(fp)) continue;
+        const [existing] = await conn.query('SELECT id FROM article WHERE fingerprint = ?', [fp]);
+        if (existing.length === 0) {
+          filtered.push({ ...a, text: '点击"确认添加"后将自动抓取文章内容...', fingerprint: fp });
+          used.add(fp);
+        }
       }
-      return out.slice(0, totalCount || 10);
+      return filtered;
     });
-    return res.json({ candidates: result, total: result.length });
-  } catch (err) { return res.status(500).json({ error: String(err.message || err) }); }
-});
+    const results = await runConcurrent(tasks, 3);
+    for (const items of results) {
+      out.push(...items);
+      if (out.length >= (totalCount || 10)) break;
+    }
+    return out.slice(0, totalCount || 10);
+  });
+  return res.json({ candidates: result, total: result.length });
+}));
 
 // POST /api/articles/confirm
-router.post('/confirm', async (req, res) => {
-  try {
-    const { articles, category = 'both' } = req.body;
-    if (!articles || !Array.isArray(articles) || articles.length === 0) return res.status(400).json({ error: '没有要添加的文章' });
-    const result = await withConnection(async (conn) => {
-      let inserted = 0, skipped = 0;
-      const tasks = articles.map(a => async () => {
-        const fp = makeFingerprint(a.source, a.title);
-        const [existing] = await conn.query('SELECT id FROM article WHERE fingerprint = ?', [fp]);
-        if (existing.length > 0) return 'duplicate';
-        const { content, publishTime } = await fetchArticleContent(a.url, getSourceId(a.source));
-        if (!content || content.length < 200) return 'empty';
-        const safePublishTime = publishTime || null;
-        // AI 自动分类：根据文章内容判断适合出什么题型
-        const autoCategory = classifyArticleContent(content);
-        // 如果自动分类结果为 'both'（不确定），则使用前端选择的默认分类
-        const finalCategory = autoCategory === 'both' ? category : autoCategory;
-        await conn.query('INSERT INTO article (source, title, url, publish_time, author, clean_text, fingerprint, category) VALUES (?,?,?,?,?,?,?,?)', [a.source, a.title, a.url || '', safePublishTime, a.author || a.source, content, fp, finalCategory]);
-        return 'inserted';
-      });
-      const statuses = await runConcurrent(tasks, 3);
-      for (const s of statuses) { if (s === 'inserted') inserted++; else if (s === 'empty') skipped++; }
-      return { inserted, skipped };
+router.post('/confirm', asyncHandler(async (req, res) => {
+  const { articles, category = 'both' } = req.body;
+  if (!articles || !Array.isArray(articles) || articles.length === 0) return res.status(400).json({ error: '没有要添加的文章' });
+  const result = await withConnection(async (conn) => {
+    let inserted = 0, skipped = 0;
+    const tasks = articles.map(a => async () => {
+      const fp = makeFingerprint(a.source, a.title);
+      const [existing] = await conn.query('SELECT id FROM article WHERE fingerprint = ?', [fp]);
+      if (existing.length > 0) return 'duplicate';
+      const { content, publishTime } = await fetchArticleContent(a.url, getSourceId(a.source));
+      if (!content || content.length < 200) return 'empty';
+      const safePublishTime = publishTime || null;
+      // AI 自动分类：根据文章内容判断适合出什么题型
+      const autoCategory = classifyArticleContent(content);
+      // 如果自动分类结果为 'both'（不确定），则使用前端选择的默认分类
+      const finalCategory = autoCategory === 'both' ? category : autoCategory;
+      await conn.query('INSERT INTO article (source, title, url, publish_time, author, clean_text, fingerprint, category) VALUES (?,?,?,?,?,?,?,?)', [a.source, a.title, a.url || '', safePublishTime, a.author || a.source, content, fp, finalCategory]);
+      return 'inserted';
     });
-    return res.json(result);
-  } catch (err) { return res.status(500).json({ error: String(err.message || err) }); }
-});
+    const statuses = await runConcurrent(tasks, 3);
+    for (const s of statuses) { if (s === 'inserted') inserted++; else if (s === 'empty') skipped++; }
+    return { inserted, skipped };
+  });
+  return res.json(result);
+}));
 
 // PUT /api/articles/:id/category - 修改文章分类
-router.put('/:id/category', async (req, res) => {
-  try {
-    const id = Number(req.params.id);
-    const { category } = req.body;
-    if (!id || isNaN(id)) return res.status(400).json({ error: '无效的ID' });
-    if (!['verbal', 'politics', 'both'].includes(category)) {
-      return res.status(400).json({ error: '无效的分类，可选值：verbal, politics, both' });
-    }
-    const affected = await withConnection(async (conn) => {
-      const [r] = await conn.query('UPDATE article SET category = ? WHERE id = ?', [category, id]);
-      return r.affectedRows;
-    });
-    if (affected === 0) return res.status(404).json({ error: '文章不存在' });
-    return res.json({ success: true });
-  } catch (err) { return res.status(500).json({ error: String(err.message || err) }); }
-});
+router.put('/:id/category', asyncHandler(async (req, res) => {
+  const id = Number(req.params.id);
+  const { category } = req.body;
+  if (!id || isNaN(id)) return res.status(400).json({ error: '无效的ID' });
+  if (!['verbal', 'politics', 'both'].includes(category)) {
+    return res.status(400).json({ error: '无效的分类，可选值：verbal, politics, both' });
+  }
+  const affected = await withConnection(async (conn) => {
+    const [r] = await conn.query('UPDATE article SET category = ? WHERE id = ?', [category, id]);
+    return r.affectedRows;
+  });
+  if (affected === 0) return res.status(404).json({ error: '文章不存在' });
+  return res.json({ success: true });
+}));
 
-// PUT /api/articles/batch-category - 批量修改文章分类
-router.put('/batch/category', async (req, res) => {
-  try {
-    const { ids, category } = req.body;
-    if (!ids || !Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: '请选择文章' });
-    if (!['verbal', 'politics', 'both'].includes(category)) {
-      return res.status(400).json({ error: '无效的分类' });
-    }
-    const affected = await withConnection(async (conn) => {
-      const [r] = await conn.query('UPDATE article SET category = ? WHERE id IN (?)', [category, ids]);
-      return r.affectedRows;
-    });
-    return res.json({ success: true, affected });
-  } catch (err) { return res.status(500).json({ error: String(err.message || err) }); }
-});
+// PUT /api/articles/batch/category - 批量修改文章分类
+router.put('/batch/category', asyncHandler(async (req, res) => {
+  const { ids, category } = req.body;
+  if (!ids || !Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: '请选择文章' });
+  if (!['verbal', 'politics', 'both'].includes(category)) {
+    return res.status(400).json({ error: '无效的分类' });
+  }
+  const affected = await withConnection(async (conn) => {
+    const [r] = await conn.query('UPDATE article SET category = ? WHERE id IN (?)', [category, ids]);
+    return r.affectedRows;
+  });
+  return res.json({ success: true, affected });
+}));
 
 // DELETE /api/articles/:id
-router.delete('/:id', async (req, res) => {
-  try {
-    const id = Number(req.params.id);
-    if (!id || isNaN(id)) return res.status(400).json({ error: '无效的ID' });
-    const affected = await withConnection(async (conn) => {
-      const [r] = await conn.query('DELETE FROM article WHERE id = ?', [id]);
-      return r.affectedRows;
-    });
-    if (affected === 0) return res.status(404).json({ error: '文章不存在' });
-    return res.json({ success: true });
-  } catch (err) { return res.status(500).json({ error: String(err.message || err) }); }
-});
+router.delete('/:id', asyncHandler(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!id || isNaN(id)) return res.status(400).json({ error: '无效的ID' });
+  const affected = await withConnection(async (conn) => {
+    const [r] = await conn.query('DELETE FROM article WHERE id = ?', [id]);
+    return r.affectedRows;
+  });
+  if (affected === 0) return res.status(404).json({ error: '文章不存在' });
+  return res.json({ success: true });
+}));
 
 // GET /api/articles/sources
-router.get('/sources', async (req, res) => {
-  try {
-    const rows = await withConnection(async (conn) => {
-      const [r] = await conn.query('SELECT DISTINCT source, COUNT(*) AS count FROM article GROUP BY source ORDER BY count DESC');
-      return r;
-    });
-    return res.json({ sources: rows, available: SOURCES });
-  } catch (err) { return res.status(500).json({ error: String(err.message || err) }); }
-});
+router.get('/sources', asyncHandler(async (req, res) => {
+  const rows = await withConnection(async (conn) => {
+    const [r] = await conn.query('SELECT DISTINCT source, COUNT(*) AS count FROM article GROUP BY source ORDER BY count DESC');
+    return r;
+  });
+  return res.json({ sources: rows, available: SOURCES });
+}));
 
 // GET /api/articles
-router.get('/', async (req, res) => {
-  try {
-    const page = Math.max(Number(req.query.page) || 1, 1);
-    const pageSize = Math.min(Number(req.query.pageSize) || 20, 100);
-    const offset = (page - 1) * pageSize;
-    const source = req.query.source || null;
-    const category = req.query.category || null;
-    const filterGenerated = req.query.filterGenerated === 'true';
-    const ALLOWED = ['id', 'source', 'title', 'publish_time', 'created_at', 'author', 'category'];
-    const sortField = ALLOWED.includes(req.query.sortField) ? req.query.sortField : 'created_at';
-    const sortOrder = req.query.sortOrder === 'asc' ? 'ASC' : 'DESC';
+router.get('/', asyncHandler(async (req, res) => {
+  const page = Math.max(Number(req.query.page) || 1, 1);
+  const pageSize = Math.min(Number(req.query.pageSize) || 20, 100);
+  const offset = (page - 1) * pageSize;
+  const source = req.query.source || null;
+  const category = req.query.category || null;
+  const filterGenerated = req.query.filterGenerated === 'true';
+  const ALLOWED = ['id', 'source', 'title', 'publish_time', 'created_at', 'author', 'category'];
+  const sortField = ALLOWED.includes(req.query.sortField) ? req.query.sortField : 'created_at';
+  const sortOrder = req.query.sortOrder === 'asc' ? 'ASC' : 'DESC';
 
-    const data = await withConnection(async (conn) => {
-      let base = `FROM article a LEFT JOIN (SELECT source_article_id, COUNT(*) as question_count FROM question GROUP BY source_article_id) q ON a.id = q.source_article_id`;
-      let where = '';
-      const params = [];
-      if (source) { where = ' WHERE a.source = ?'; params.push(source); }
-      if (category) {
-        // 筛选分类时，同时匹配指定分类和 'both'（通用）文章
-        where += where ? ' AND (a.category = ? OR a.category = ?)' : ' WHERE (a.category = ? OR a.category = ?)';
-        params.push(category, 'both');
-      }
-      if (filterGenerated) { where += where ? ' AND q.question_count > 0' : ' WHERE q.question_count > 0'; }
-      const [countRows] = await conn.query(`SELECT COUNT(*) AS total ${base}${where}`, params);
-      const [rows] = await conn.query(`SELECT a.id, a.source, a.title, a.url, a.publish_time, a.author, a.fingerprint, a.category, a.created_at, COALESCE(q.question_count, 0) as question_count ${base}${where} ORDER BY a.${sortField} ${sortOrder} LIMIT ? OFFSET ?`, [...params, pageSize, offset]);
-      return { articles: rows, total: countRows[0].total };
-    });
-    return res.json({ ...data, page, pageSize });
-  } catch (err) { return res.status(500).json({ error: String(err.message || err) }); }
-});
+  const data = await withConnection(async (conn) => {
+    let base = `FROM article a LEFT JOIN (SELECT source_article_id, COUNT(*) as question_count FROM question GROUP BY source_article_id) q ON a.id = q.source_article_id`;
+    let where = '';
+    const params = [];
+    if (source) { where = ' WHERE a.source = ?'; params.push(source); }
+    if (category) {
+      // 筛选分类时，同时匹配指定分类和 'both'（通用）文章
+      where += where ? ' AND (a.category = ? OR a.category = ?)' : ' WHERE (a.category = ? OR a.category = ?)';
+      params.push(category, 'both');
+    }
+    if (filterGenerated) { where += where ? ' AND q.question_count > 0' : ' WHERE q.question_count > 0'; }
+    const [countRows] = await conn.query(`SELECT COUNT(*) AS total ${base}${where}`, params);
+    const [rows] = await conn.query(`SELECT a.id, a.source, a.title, a.url, a.publish_time, a.author, a.fingerprint, a.category, a.created_at, COALESCE(q.question_count, 0) as question_count ${base}${where} ORDER BY a.${sortField} ${sortOrder} LIMIT ? OFFSET ?`, [...params, pageSize, offset]);
+    return { articles: rows, total: countRows[0].total };
+  });
+  return res.json({ ...data, page, pageSize });
+}));
 
 // GET /api/articles/:id
-router.get('/:id', async (req, res) => {
-  try {
-    const id = Number(req.params.id);
-    if (!id || isNaN(id)) return res.status(400).json({ error: '无效的ID' });
-    const article = await withConnection(async (conn) => {
-      const [rows] = await conn.query('SELECT * FROM article WHERE id = ?', [id]);
-      return rows[0] || null;
-    });
-    if (!article) return res.status(404).json({ error: 'not found' });
-    return res.json({ article });
-  } catch (err) { return res.status(500).json({ error: String(err.message || err) }); }
-});
+router.get('/:id', asyncHandler(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!id || isNaN(id)) return res.status(400).json({ error: '无效的ID' });
+  const article = await withConnection(async (conn) => {
+    const [rows] = await conn.query('SELECT * FROM article WHERE id = ?', [id]);
+    return rows[0] || null;
+  });
+  if (!article) return res.status(404).json({ error: 'not found' });
+  return res.json({ article });
+}));
 
 module.exports = router;

@@ -1,6 +1,7 @@
 ﻿const express = require('express');
 const axios = require('axios');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
+const { asyncHandler } = require('../middleware/asyncHandler');
 const { withConnection } = require('../db');
 const { runConcurrent } = require('../helpers');
 
@@ -211,86 +212,77 @@ async function generateQuestionsWithAI(articleText, articleTitle, count, subject
 }
 
 // POST /api/generate/preview
-router.post('/preview', async (req, res) => {
-  try {
-    const { articleIds, questionsPerArticle = 2, subject = 'verbal_comprehension' } = req.body;
-    if (!articleIds || !Array.isArray(articleIds) || articleIds.length === 0) {
-      return res.status(400).json({ error: '请选择至少一篇文章' });
-    }
-
-    const articles = await withConnection(async (conn) => {
-      const [rows] = await conn.query('SELECT id, source, title, clean_text FROM article WHERE id IN (?)', [articleIds]);
-      return rows;
-    });
-
-    if (articles.length === 0) return res.status(404).json({ error: '未找到选中的文章' });
-
-    const allQuestions = [];
-
-    // 逐篇处理，避免超时
-    for (const article of articles) {
-      try {
-        console.log('Generating questions for:', article.title, 'subject:', subject);
-        const text = article.clean_text.substring(0, 1500);
-        const questions = await generateQuestionsWithAI(text, article.title, questionsPerArticle, subject);
-
-        for (const q of questions) {
-          const errors = validateQuestion(q, text);
-          if (errors.length > 0) {
-            console.log('Skipping invalid question:', errors.join(', '));
-            continue;
-          }
-          allQuestions.push({
-            ...q,
-            source_article_id: article.id,
-            source_article_title: article.title,
-            source: article.source
-          });
-        }
-      } catch (err) {
-        console.error('Failed for article ' + article.id + ':', err.message);
-      }
-    }
-
-    return res.json({ questions: allQuestions, total: allQuestions.length, articlesProcessed: articles.length });
-  } catch (err) {
-    console.error('Preview error:', err);
-    return res.status(500).json({ error: String(err.message || err) });
+router.post('/preview', asyncHandler(async (req, res) => {
+  const { articleIds, questionsPerArticle = 2, subject = 'verbal_comprehension' } = req.body;
+  if (!articleIds || !Array.isArray(articleIds) || articleIds.length === 0) {
+    return res.status(400).json({ error: '请选择至少一篇文章' });
   }
-});
+
+  const articles = await withConnection(async (conn) => {
+    const [rows] = await conn.query('SELECT id, source, title, clean_text FROM article WHERE id IN (?)', [articleIds]);
+    return rows;
+  });
+
+  if (articles.length === 0) return res.status(404).json({ error: '未找到选中的文章' });
+
+  const allQuestions = [];
+
+  // 逐篇处理，避免超时
+  for (const article of articles) {
+    try {
+      console.log('Generating questions for:', article.title, 'subject:', subject);
+      const text = article.clean_text.substring(0, 1500);
+      const questions = await generateQuestionsWithAI(text, article.title, questionsPerArticle, subject);
+
+      for (const q of questions) {
+        const errors = validateQuestion(q, text);
+        if (errors.length > 0) {
+          console.log('Skipping invalid question:', errors.join(', '));
+          continue;
+        }
+        allQuestions.push({
+          ...q,
+          source_article_id: article.id,
+          source_article_title: article.title,
+          source: article.source
+        });
+      }
+    } catch (err) {
+      console.error('Failed for article ' + article.id + ':', err.message);
+    }
+  }
+
+  return res.json({ questions: allQuestions, total: allQuestions.length, articlesProcessed: articles.length });
+}, (err) => console.error('Preview error:', err)));
 
 // POST /api/generate/confirm
-router.post('/confirm', async (req, res) => {
-  try {
-    const { questions, subject = 'verbal_comprehension' } = req.body;
-    if (!questions || !Array.isArray(questions) || questions.length === 0) {
-      return res.status(400).json({ error: '没有要保存的题目' });
-    }
-
-    const inserted = await withConnection(async (conn) => {
-      const [subjects] = await conn.query("SELECT id FROM subject WHERE slug = ?", [subject]);
-      const subjectId = subjects[0]?.id || 1;
-      let count = 0;
-      for (const q of questions) {
-        try {
-          if (!q.passage || q.passage.length < 30) continue;
-          await conn.query(
-            'INSERT INTO question (subject_id, qtype, difficulty, passage, stem, options_json, answer, explanation, source_article_id, source_exam, status) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
-            [subjectId, q.qtype || '单选题', q.difficulty || 3, q.passage, q.stem, JSON.stringify(q.options), q.answer, q.explanation, q.source_article_id || null, q.source || 'AI生成', 'pending_review']
-          );
-          count++;
-        } catch (err) { console.error('Insert error:', err.message); }
-      }
-      return count;
-    });
-    return res.json({ inserted });
-  } catch (err) {
-    console.error('Confirm error:', err);
-    return res.status(500).json({ error: String(err.message || err) });
+router.post('/confirm', asyncHandler(async (req, res) => {
+  const { questions, subject = 'verbal_comprehension' } = req.body;
+  if (!questions || !Array.isArray(questions) || questions.length === 0) {
+    return res.status(400).json({ error: '没有要保存的题目' });
   }
-});
+
+  const inserted = await withConnection(async (conn) => {
+    const [subjects] = await conn.query("SELECT id FROM subject WHERE slug = ?", [subject]);
+    const subjectId = subjects[0]?.id || 1;
+    let count = 0;
+    for (const q of questions) {
+      try {
+        if (!q.passage || q.passage.length < 30) continue;
+        await conn.query(
+          'INSERT INTO question (subject_id, qtype, difficulty, passage, stem, options_json, answer, explanation, source_article_id, source_exam, status) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+          [subjectId, q.qtype || '单选题', q.difficulty || 3, q.passage, q.stem, JSON.stringify(q.options), q.answer, q.explanation, q.source_article_id || null, q.source || 'AI生成', 'pending_review']
+        );
+        count++;
+      } catch (err) { console.error('Insert error:', err.message); }
+    }
+    return count;
+  });
+  return res.json({ inserted });
+}, (err) => console.error('Confirm error:', err)));
 
 // POST /api/generate/test
+// 注：此路由错误响应体为 { success, error, details }，与统一格式不同，保留显式 try-catch
 router.post('/test', async (req, res) => {
   try {
     const response = await axios.post(BASE_URL + '/chat/completions', {
