@@ -55,6 +55,13 @@ fi
 
 info "使用现有 .env 配置: $ENV_FILE"
 
+# 初始管理员不再使用公开默认凭据，部署前必须在 .env 中显式配置。
+ADMIN_USERNAME=$(grep -E '^ADMIN_USERNAME=' "$ENV_FILE" | head -1 | cut -d'=' -f2- | sed 's/\r$//')
+ADMIN_EMAIL=$(grep -E '^ADMIN_EMAIL=' "$ENV_FILE" | head -1 | cut -d'=' -f2- | sed 's/\r$//')
+ADMIN_PASSWORD=$(grep -E '^ADMIN_PASSWORD=' "$ENV_FILE" | head -1 | cut -d'=' -f2- | sed 's/\r$//')
+[ -n "$ADMIN_USERNAME$ADMIN_EMAIL" ] || error "请在 $ENV_FILE 配置 ADMIN_USERNAME 或 ADMIN_EMAIL"
+[ ${#ADMIN_PASSWORD} -ge 12 ] || error "请在 $ENV_FILE 配置至少 12 位的 ADMIN_PASSWORD"
+
 # ============ 3. 创建数据库 ============
 info "检查数据库..."
 
@@ -167,9 +174,7 @@ echo "=========================================="
 echo ""
 echo "  访问地址: http://$(hostname -I | awk '{print $1}')"
 echo ""
-echo "  默认管理员:"
-echo "    邮箱: admin@example.com"
-echo "    密码: Admin@12345"
+echo "  管理员账号已按 .env 中的配置创建或确认存在。"
 echo ""
 echo "  常用命令:"
 echo "    查看后端状态: pm2 status"
@@ -181,5 +186,5 @@ echo "  ⚠️  请务必修改仓库根目录 .env 中的:"
 echo "    - JWT_SECRET (改为随机强密钥)"
 echo "    - MYSQL_PASSWORD (改为强密码)"
 echo "    - CORS_ORIGIN (填前端域名，前后端不同域时必填)"
-echo "    - 默认管理员密码"
+echo "    - ADMIN_PASSWORD（至少 12 位随机强密码）"
 echo ""

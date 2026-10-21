@@ -23,11 +23,11 @@ cp deploy/env.example .env
 cd backend
 npm install
 npm run db:init      # 创建数据库和表
-npm run seed:admin   # 创建默认管理员
+npm run seed:admin   # 按 .env 配置创建管理员
 npm run seed:questions  # 导入示例题目（可选）
 ```
 
-默认管理员账号：`admin@example.com` / `Admin@12345`
+管理员账号必须在 `.env` 中显式配置 `ADMIN_USERNAME` 或 `ADMIN_EMAIL`，以及至少 12 位的 `ADMIN_PASSWORD`；项目不提供公开默认账号或密码。
 
 ### 3. 启动服务
 
@@ -129,10 +129,10 @@ npm run dev            # http://localhost:5173
 | `API_KEY` | AI 解析/生题的 API Key（留空禁用 AI 功能） | 否 |
 | `BASE_URL` | AI API 地址，默认 `https://open.bigmodel.cn/api/paas/v4` | 否 |
 | `MODEL` | AI 模型名，如 `glm-4-flash` | 否 |
-| `ADMIN_USERNAME` | 初始管理员用户名，与 `ADMIN_EMAIL` 至少留一个 | 否 |
-| `ADMIN_EMAIL` | 初始管理员邮箱，默认 `admin@example.com` | 否 |
+| `ADMIN_USERNAME` | 初始管理员用户名，与 `ADMIN_EMAIL` 至少留一个 | 条件 |
+| `ADMIN_EMAIL` | 初始管理员邮箱，与 `ADMIN_USERNAME` 至少留一个 | 条件 |
 | `ADMIN_NICKNAME` | 初始管理员昵称，默认 `管理员` | 否 |
-| `ADMIN_PASSWORD` | 初始管理员密码，默认 `Admin@12345` | 否 |
+| `ADMIN_PASSWORD` | 初始管理员密码，至少 12 位 | 是 |
 
 > 生成随机 JWT 密钥：`openssl rand -hex 32`
 >

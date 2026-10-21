@@ -4,9 +4,16 @@ const mysql = require('mysql2/promise');
 
 (async () => {
   const username = process.env.ADMIN_USERNAME || null;
-  const email = process.env.ADMIN_EMAIL || 'admin@example.com';
+  const email = process.env.ADMIN_EMAIL || null;
   const nickname = process.env.ADMIN_NICKNAME || '管理员';
-  const password = process.env.ADMIN_PASSWORD || 'Admin@12345';
+  const password = process.env.ADMIN_PASSWORD;
+
+  if (!username && !email) {
+    throw new Error('ADMIN_USERNAME 或 ADMIN_EMAIL 至少需要配置一个');
+  }
+  if (!password || password.length < 12) {
+    throw new Error('ADMIN_PASSWORD 必须配置，且长度不得少于 12 位');
+  }
 
   const conn = await mysql.createConnection({
     host: process.env.MYSQL_HOST,

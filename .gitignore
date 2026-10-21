@@ -6,4 +6,8 @@ dist/
 .DS_Store
 Thumbs.db
 .claude/
+.idea/
+.workbuddy/
+.understand-anything/
+CLAUDE.md
 AGENTS.md
