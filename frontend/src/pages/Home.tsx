@@ -11,12 +11,13 @@ import api from '../services/api';
 import { GlowCard } from '../components/ui/spotlight-card';
 import HomeAuthCard from '../components/HomeAuthCard';
 import HighlightCover, { type CoverKind } from '../components/HighlightCover';
-import TechText from '../components/TechText';
+import TechText from '../components/react-bits/TechText';
 import { useResponsive } from '../hooks/useResponsive';
+import GlowCursor from '../components/react-bits/GlowCursor';
 
 // 背景与轮播按需加载：ElectricLogo 依赖 WebGL（ogl），
 // 放到首屏之后再加载，避免拖慢首次渲染。
-const ElectricLogo = lazy(() => import('../components/ElectricLogo'));
+const ElectricLogo = lazy(() => import('../components/react-bits/ElectricLogo'));
 
 interface Highlight {
   id: number;
@@ -217,6 +218,13 @@ export default function Home() {
 
   return (
     <div style={{ position: 'relative', background: '#0a0a0f', overflowX: 'clip' }}>
+      {/* 光标流体光效（React Bits 官方 GlowCursor）：WebGL2 流体染料模拟，
+          全屏 fixed canvas（.glow-cursor-fixed，z-index 2 位于背景之上、
+          内容之下，pointer-events:none 不拦截交互）；鼠标轨迹向流体场注入
+          速度与染料，染料随流场漂移、点击时放射状迸发。
+          颜色：主色 #60A5FA（首页 accent 蓝），其余官方默认参数。 */}
+      <GlowCursor className="glow-cursor-fixed" color="#60A5FA" />
+
       {/* ─── 页面底纹：径向光晕 + 细网格 ─── */}
       <div
         style={{
@@ -243,56 +251,21 @@ export default function Home() {
       <div
         style={{
           position: 'relative',
-          zIndex: 2,
+          zIndex: 3,
           width: '100%',
           maxWidth: 1100,
           margin: '0 auto',
           padding: isMobile ? '32px 14px 40px' : '56px 20px 60px',
+          // 内容层不拦截指针事件：hero 等空白区域的 hover 穿透到
+          // 下层页面元素；各子元素（卡片/按钮/轮播）默认可命中
+          pointerEvents: 'none',
         }}
       >
         {/* ─── Hero ─── */}
-        <div style={{ position: 'relative', textAlign: 'center', padding: isMobile ? '8px 0 26px' : '10px 0 34px' }}>
-          {/* 背景 logo 徽章：ElectricLogo 电光描边，居中在标题后方。
-              允许指针事件，这样鼠标靠近时电流会聚拢、点击会迸出电弧。 */}
-          <div
-            aria-hidden="true"
-            style={{
-              position: 'absolute',
-              left: '50%',
-              top: isMobile ? -6 : -52,
-              transform: 'translateX(-50%)',
-              width: isMobile ? 280 : 380,
-              height: isMobile ? 280 : 380,
-              zIndex: 0,
-              // 不再叠加渐隐遮罩：遮罩会把电弧边缘糊掉
-              opacity: 0.95,
-            }}
-          >
-            <Suspense fallback={null}>
-              <ElectricLogo
-                src="/logo-outline.png"
-                color="#ffffff"
-                glowColor="#ffffff"
-                theme="dark"
-                scale={0.6}
-                // 源图是 1px 细线轮廓，配合细线 + 高亮 + 低光晕，
-                // 电弧沿轮廓走，不会糊成一圈宽带
-                intensity={7}
-                glow={0.3}
-                thickness={0.55}
-                strands={2}
-                bend={0.2}
-                crackle={0.7}
-                arcs={5}
-                flicker={0.55}
-                speed={2.6}
-                interactive
-                cursorIntensity={1.2}
-                cursorRadius={150}
-              />
-            </Suspense>
-          </div>
-
+        {/* pointerEvents:'none'：hero 整体不拦截指针事件，空白区域的
+            hover/点击穿透到下层页面元素；下方各交互子元素自行恢复。
+            （背景电光 logo 现位于"功能介绍"区块底层，见该区块注释） */}
+        <div style={{ position: 'relative', textAlign: 'center', padding: isMobile ? '8px 0 26px' : '10px 0 34px', pointerEvents: 'none' }}>
           <div style={{ position: 'relative', zIndex: 1, pointerEvents: 'none' }}>
             {/* 画布标题，供视觉呈现。单独恢复指针事件，保留其悬停虚线效果 */}
             <div style={{ width: '100%', height: isMobile ? 64 : 112, marginBottom: isMobile ? 2 : 6, pointerEvents: 'auto' }}>
@@ -324,6 +297,7 @@ export default function Home() {
               marginBottom: isMobile ? 22 : 30,
               letterSpacing: '0.12em',
               fontWeight: 300,
+              pointerEvents: 'auto',
             }}
           >
             基于权威素材的智能命题与练习平台
@@ -361,7 +335,7 @@ export default function Home() {
         </div>
 
         {/* ─── Stats ─── */}
-        <Row gutter={[isMobile ? 8 : 14, isMobile ? 8 : 14]} style={{ marginBottom: isMobile ? 32 : 50 }}>
+        <Row gutter={[isMobile ? 8 : 14, isMobile ? 8 : 14]} style={{ marginBottom: isMobile ? 32 : 50, pointerEvents: 'auto' }}>
           <Col xs={12} sm={8} md={4}><StatCard icon={<EditOutlined />} title="今日答题" value={stats?.todayAnswers ?? '-'} {...colorMap.todayAnswers} loading={loading} /></Col>
           <Col xs={12} sm={8} md={4}><StatCard icon={<TrophyOutlined />} title="今日正确率" value={stats?.todayCorrectRate ? `${stats.todayCorrectRate}%` : '-'} {...colorMap.todayCorrectRate} loading={loading} /></Col>
           <Col xs={12} sm={8} md={4}><StatCard icon={<UserOutlined />} title="注册用户" value={stats?.totalUsers ?? '-'} {...colorMap.totalUsers} loading={loading} /></Col>
@@ -371,7 +345,68 @@ export default function Home() {
         </Row>
 
         {/* ─── Feature Cards ─── */}
-        <div style={{ marginBottom: isMobile ? 34 : 52 }}>
+        <div style={{ position: 'relative', marginBottom: isMobile ? 34 : 52, pointerEvents: 'auto' }}>
+          {/* 背景电光 logo（React Bits 官方 ElectricLogo）：位于"功能介绍"
+              文本区域正下方、水平居中，作为本区块的底层背景
+              （z-index:-1，渲染在文字与卡片之下）。
+              定位：桌面容器顶 = 文字块下缘上方 125px（图形中心约在文字块
+              下方 100px），移动端为 75px；容器 680×570（移动 440×370），
+              宽高比与源图 211×177 一致。
+              参数以官方 usage example 为基础，按"静态干净、hover 带电"
+              的预期行为调整（shader 中 uStrands 是静态基数，heat*hover
+              充电时动态增至最多 6 条）：
+              ① strands 4 -> 1：静态仅 1 条主丝沿轮廓缓流，不再繁杂；
+              hover 充电时增至约 3.5 条，交互感知明显；
+              ② arcs 1 -> 0：关闭静态随机跳弧（静态画面保持干净）；
+              点击仍有 pulses 涟漪冲击（ripple 不依赖 arcs）；
+              ③ crackle 1.5 -> 0.3：大幅减少细碎抖动杂线；
+              ④ flicker 0.6 -> 0.2、glow 0.5 -> 0.28、intensity 1 -> 0.9：
+              进一步压低静态闪烁与光晕，hover 时三者随 heat 自动增强。
+              其余保持官方：intensity 1 / thickness 1.5 / bend 0.6 /
+              fill 0 / cursorIntensity 0.75 / cursorRadius 100 /
+              color #ecc7ff + glowColor #ad6dff。
+              src 用加粗版 logo-outline-bold.png（原图 1px 细线在官方
+              宽晕下会糊成雾团，加粗至 4-5px 后电弧沿轮廓稳定流动）。
+              scale 0.85 在官方 0.7 基础上放大（用户要求）。
+              !overflow-visible：大 scale 下电光光晕会超出容器，
+              覆盖官方 CSS 的 overflow:hidden，避免衰减途中被裁出硬边。 */}
+          <div
+            aria-hidden="true"
+            style={{
+              position: 'absolute',
+              left: '50%',
+              top: isMobile ? -75 : -125,
+              transform: 'translateX(-50%)',
+              width: isMobile ? 'min(92vw, 440px)' : 'min(78vw, 680px)',
+              height: isMobile ? 'min(77vw, 370px)' : 'min(66vw, 570px)',
+              zIndex: -1,
+              pointerEvents: 'auto',
+            }}
+          >
+            <Suspense fallback={null}>
+              <ElectricLogo
+                src="/logo-outline-bold.png"
+                color="#ecc7ff"
+                glowColor="#ad6dff"
+                theme="dark"
+                scale={0.85}
+                className="!overflow-visible"
+                intensity={0.9}
+                glow={0.28}
+                thickness={1.5}
+                strands={1}
+                bend={0.6}
+                crackle={0.3}
+                arcs={0}
+                flicker={0.2}
+                fill={0}
+                speed={2.5}
+                interactive
+                cursorIntensity={0.75}
+                cursorRadius={100}
+              />
+            </Suspense>
+          </div>
           <h2 style={{ textAlign: 'center', fontSize: isMobile ? 20 : 26, fontWeight: 700, color: '#fff', marginBottom: 6 }}>功能介绍</h2>
           <p style={{ textAlign: 'center', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginBottom: isMobile ? 18 : 28, marginTop: 0 }}>四大核心能力，助你高效备考</p>
           <div className="features-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(240px, 100%), 1fr))', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, overflow: 'hidden', background: 'rgba(255,255,255,0.02)' }}>
@@ -387,7 +422,7 @@ export default function Home() {
         </div>
 
         {/* ─── 平台亮点轮播 ─── */}
-        <div style={{ marginBottom: isMobile ? 34 : 52 }}>
+        <div style={{ marginBottom: isMobile ? 34 : 52, pointerEvents: 'auto' }}>
           <h2 style={{ textAlign: 'center', fontSize: isMobile ? 20 : 26, fontWeight: 700, color: '#fff', marginBottom: 6 }}>平台亮点</h2>
           <p style={{ textAlign: 'center', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginBottom: isMobile ? 18 : 26, marginTop: 0 }}>自动轮播，可左右拖动</p>
           <div className="home-carousel">

@@ -1,0 +1,11 @@
+/* ElectricLogo（React Bits 官方实现配套样式）
+ * 组件渲染结构：div.electric-logo > canvas
+ * 容器 relative 100% 尺寸，overflow:hidden 由官方定义；
+ * 若调用方需要光晕溢出容器（如大 scale 场景），传
+ * className="!overflow-visible" 覆盖（首页即此用法）。 */
+.electric-logo {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}

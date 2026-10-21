@@ -1,8 +1,21 @@
-'use client';
-
+/**
+ * ElectricLogo —— React Bits 官方实现（TypeScript + CSS 变体）。
+ *
+ * 原理：图片经 alpha（或背景色 keying）提取轮廓 → Felzenszwalb
+ * 距离变换（transformLine/transformGrid）构建 SDF 场 → 提取轮廓
+ * 边缘点 → shader 中多条 strand 沿距离场流动（wander 噪声蜿蜒 +
+ * crackle 抖动），glow 纹理提供窄/宽两级光晕，arcs 为轮廓间跳跃
+ * 的短电弧，pulses 为点击涟漪；hover 时电弧向光标聚拢充电。
+ *
+ * 依赖 ogl（Renderer/Program/Mesh/Triangle/Texture），需要 WebGL2
+ * （renderer.isWebgl2 检测，不支持时静默降级）。
+ * 布局样式见同目录 ElectricLogo.css。
+ */
 import { useEffect, useRef } from 'react';
 import type { CSSProperties } from 'react';
 import { Renderer, Program, Mesh, Triangle, Texture } from 'ogl';
+
+import './ElectricLogo.css';
 
 const BOLT = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64"><path d="M39 3 12 37h17l-4 24 27-34H35z" fill="#fff"/></svg>'
@@ -655,8 +668,8 @@ void main() {
 
 const ElectricLogo = ({
   src = BOLT,
-  color = '#ecc7ff',
-  glowColor = '#ad6dff',
+  color = '#ffffff',
+  glowColor = '#7c3aed',
   scale = 0.7,
   intensity = 1,
   glow = 1,
@@ -1079,9 +1092,7 @@ const ElectricLogo = ({
     };
   }, []);
 
-  return (
-    <div ref={containerRef} className={`relative w-full h-full overflow-hidden ${className}`.trim()} style={style} />
-  );
+  return <div ref={containerRef} className={`electric-logo ${className}`.trim()} style={style} />;
 };
 
 export default ElectricLogo;
