@@ -1,34 +1,38 @@
 /**
- * 真题（Exam Paper）管理。
+ * 真题（Exam Paper）管理 —— 入库流水线与整卷拆分。
  *
- * 业务目标：管理员可以新增真题，来源支持
- *   1) 联网爬取（crawl）：给定试卷页 URL，抓取正文文本；
- *   2) 手动上传 PDF（upload）：解析 PDF 文本。
+ * 流水线（联网爬取与 PDF 上传共用同一套）：
+ *   获取原文 → 文本提取/质量校验 → 保存整卷（exam_paper）→ 自动触发 AI 拆题
+ *   → 分批拆题（含重试与降级）→ 结果写入 exam_paper_question（整卷形态）
+ *   → 管理员确认后按模块去重入库 question（题库形态）
  *
- * 处理后存储为两种形态：
- *   a) 完整真题试卷 —— exam_paper 表保存整卷文本（raw_text）；
- *   b) 分模块去重题库 —— AI 拆分出的题目按模块归类后写入 question 表，
- *      以 fingerprint（题干指纹）去重，并记录 exam_paper_id 归属。
+ * 两种存储形态：
+ *   a) 完整真题试卷：exam_paper.raw_text + exam_paper_question（保持原卷顺序与分区）
+ *   b) 分模块去重题库：question 表（指纹 + 文本相似度 + 题型/选项/答案特征去重）
+ *
+ * 拆题不再同步阻塞 HTTP：入库后立刻返回，前端轮询 /:id/parse-status。
+ * 失败会写入 parse_status / parse_error，并提供重新拆题入口（/:id/reparse）。
  */
 const express = require('express');
-const crypto = require('crypto');
 const axios = require('axios');
 const cheerio = require('cheerio');
 const multer = require('multer');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 const { asyncHandler } = require('../middleware/asyncHandler');
 const { withConnection } = require('../db');
+const { extractPdfText } = require('../lib/pdfText');
+const { callChat } = require('../lib/aiClient');
+const {
+  splitIntoChunks, parseChunk, runPool, dedupeList, normalizeQuestion,
+} = require('../lib/paperParser');
+const { buildFingerprint, findDuplicate } = require('../lib/questionDedupe');
 
 const router = express.Router();
 
-const API_KEY = process.env.API_KEY;
-const BASE_URL = process.env.BASE_URL;
-const MODEL = process.env.MODEL;
-
-// PDF 上传：内存暂存，限制 20MB，仅接受 PDF
+// PDF 上传：内存暂存，限制 30MB，仅接受 PDF
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 20 * 1024 * 1024 },
+  limits: { fileSize: 30 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     const isPdf = /pdf$/i.test(file.mimetype || '') || /\.pdf$/i.test(file.originalname || '');
     cb(isPdf ? null : new Error('仅支持 PDF 文件'), isPdf);
@@ -37,13 +41,7 @@ const upload = multer({
 
 router.use(requireAuth, requireAdmin);
 
-/** 题干指纹：用于分模块入库时去重 */
-function questionFingerprint(q) {
-  const base = `${String(q.stem || '').trim()}|${(q.options || []).join('|')}|${String(q.answer || '').trim()}`;
-  return crypto.createHash('md5').update(base).digest('hex');
-}
-
-/** 模块 → 科目 slug 映射（拆分后归类到题库的模块） */
+/** 模块 → 科目 slug（拆分后归类到题库） */
 function moduleToSubject(moduleName) {
   const m = String(moduleName || '');
   if (m.includes('政治') || m.includes('常识')) return 'politics';
@@ -65,12 +63,12 @@ function isPublicUrl(urlStr) {
   }
 }
 
-/** 抓取试卷页正文（通用网页，非文章站点的白名单机制） */
+/** 抓取试卷页正文 */
 async function crawlText(url) {
   const { data } = await axios.get(url, {
     headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
-      'Accept': 'text/html,application/xhtml+xml,*/*',
+      Accept: 'text/html,application/xhtml+xml,*/*',
       'Accept-Language': 'zh-CN,zh;q=0.9',
     },
     timeout: 30000,
@@ -81,59 +79,139 @@ async function crawlText(url) {
   const paragraphs = $('p, div.article p, div.content p')
     .map((_, el) => $(el).text().trim())
     .get()
-    .filter(t => t.length > 5);
-  const text = paragraphs.length >= 3 ? paragraphs.join('\n') : $('body').text().replace(/\s{2,}/g, '\n').trim();
+    .filter((t) => t.length > 5);
+  const text = paragraphs.length >= 3
+    ? paragraphs.join('\n')
+    : $('body').text().replace(/\s{2,}/g, '\n').trim();
   return { title, text };
 }
 
-/** 调用 AI 将整卷文本拆分为结构化题目（分模块） */
-async function parsePaperToQuestions(rawText, paperTitle) {
-  if (!API_KEY || !BASE_URL) throw new Error('AI 服务未配置（API_KEY / BASE_URL）');
+// ── 拆题任务 ────────────────────────────────────────
+/**
+ * 执行整卷拆题（异步任务）：分批调用 AI → 写入 exam_paper_question → 更新状态。
+ * 不抛异常（内部捕获并记录到 parse_error）。
+ */
+async function runParseJob(paperId) {
+  const paper = await withConnection(async (conn) => {
+    const [rows] = await conn.query('SELECT id, title, raw_text FROM exam_paper WHERE id = ?', [paperId]);
+    return rows[0] || null;
+  }).catch((err) => {
+    console.error('[exam] 读取试卷失败:', err.message);
+    return null;
+  });
 
-  const systemPrompt = `你是公考真题数字化专家。请把给定的真题试卷文本拆分为结构化题目。
+  if (!paper) {
+    console.error('[exam] 拆题任务中止：试卷不存在 id=' + paperId);
+    return;
+  }
 
-## 要求
-1. 逐题提取，不要遗漏，也不要凭空编造原文没有的题目
-2. 每道题输出：module（模块名，如 言语理解与表达 / 常识判断 / 政治理论 / 判断推理 / 资料分析）、qtype（题型）、difficulty（1-5）、passage（材料段落，没有则留空字符串）、stem（题干）、options（4 个选项数组）、answer（A/B/C/D）、explanation（解析，60-150字）
-3. 模块归类要准确：政治理论/时政类归入"政治理论"，片段阅读类归入"言语理解与表达"
-4. 选项必须与原文一致，答案必须明确
-5. 无法识别为题目的内容（如考试说明、注意事项）不要输出
-
-## 输出格式
-{"questions":[{...}]}`;
-
-  const body = rawText.length > 16000 ? rawText.slice(0, 16000) : rawText;
-  const userPrompt = `试卷标题：${paperTitle}\n\n试卷正文：\n${body}\n\n请输出 JSON（questions 数组）。`;
-
-  let res;
-  try {
-    res = await axios.post(BASE_URL + '/chat/completions', {
-      model: MODEL,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      temperature: 0.3,
-    }, {
-      headers: { 'Authorization': 'Bearer ' + API_KEY, 'Content-Type': 'application/json' },
-      timeout: 1800000,
+  const rawText = String(paper.raw_text || '').trim();
+  if (rawText.length < 50) {
+    await updateParseState(paperId, {
+      parse_status: 'failed',
+      parse_error: '整卷文本为空或过短，无法拆题',
+      parsed_count: 0,
     });
-  } catch (err) {
-    console.error('Exam parse AI error:', err.message);
-    throw new Error('AI 拆分失败: ' + err.message);
+    return;
   }
 
-  let content = res.data.choices[0].message.content.trim();
-  content = content.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
-  let parsed;
-  try {
-    parsed = JSON.parse(content);
-  } catch {
-    const m = content.match(/\{[\s\S]*\}/);
-    if (!m) throw new Error('AI 返回内容不是合法 JSON');
-    parsed = JSON.parse(m[0]);
+  await updateParseState(paperId, { parse_status: 'parsing', parse_error: null });
+  console.log(`[exam] 开始拆题 paper=${paperId} 文本长度=${rawText.length}`);
+
+  const chunks = splitIntoChunks(rawText);
+  console.log(`[exam] paper=${paperId} 切分为 ${chunks.length} 个片段`);
+
+  const started = Date.now();
+  const results = await runPool(
+    chunks.map((c) => async () => parseChunk(c, { paperTitle: paper.title })),
+    2
+  );
+
+  const questions = [];
+  const errors = [];
+  let salvagedChunks = 0;
+  results.forEach((r, i) => {
+    if (r && Array.isArray(r.questions)) questions.push(...r.questions);
+    if (r && r.error) {
+      errors.push(`第${i + 1}片：${r.error}`);
+      console.error(`[exam] paper=${paperId} 第 ${i + 1} 片拆题问题: ${r.error}`);
+    }
+    if (r && (r.degraded === 'salvaged' || r.degraded === 'split-retry')) salvagedChunks++;
+  });
+
+  const deduped = dedupeList(questions).map((q, i) => ({
+    ...q,
+    seq: i + 1,
+    section: q.module || '未分区',
+  }));
+
+  // 写入整卷题目（先清后写，保证重拆结果干净）
+  await withConnection(async (conn) => {
+    await conn.query('DELETE FROM exam_paper_question WHERE exam_paper_id = ?', [paperId]);
+    for (const q of deduped) {
+      await conn.query(
+        `INSERT INTO exam_paper_question
+         (exam_paper_id, seq, section, qtype, difficulty, passage, stem, options_json, answer, explanation, fingerprint)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+        [
+          paperId, q.seq, q.section, q.qtype, q.difficulty,
+          q.passage || null, q.stem, JSON.stringify(q.options), q.answer, q.explanation || null,
+          q.fingerprint || buildFingerprint(q),
+        ]
+      );
+    }
+  }).catch((err) => {
+    console.error('[exam] 写入整卷题目失败:', err.message);
+    errors.push('写入整卷题目失败：' + err.message);
+  });
+
+  const cost = ((Date.now() - started) / 1000).toFixed(1);
+  // 只有「有报错」的片段才算失败；封面/注意事项等本身无题目的片段属正常
+  const failedChunks = results.filter((r) => r && r.error && r.degraded === 'failed').length;
+
+  let parseStatus = 'success';
+  if (deduped.length === 0) parseStatus = 'failed';
+  else if (failedChunks > 0 || salvagedChunks > 0) parseStatus = 'partial';
+
+  let parseError = null;
+  if (errors.length > 0) {
+    parseError = `共 ${chunks.length} 片，${failedChunks} 片失败、${salvagedChunks} 片降级；首条原因：${errors[0]}`;
   }
-  return (parsed.questions || []).filter(q => q && q.stem && Array.isArray(q.options) && q.options.length === 4);
+
+  await updateParseState(paperId, {
+    parse_status: parseStatus,
+    parse_error: parseError ? parseError.slice(0, 500) : null,
+    parsed_count: deduped.length,
+  });
+
+  console.log(
+    `[exam] 拆题完成 paper=${paperId} 题目=${deduped.length} 状态=${parseStatus} 耗时=${cost}s`
+  );
+}
+
+async function updateParseState(paperId, fields) {
+  const keys = Object.keys(fields);
+  if (keys.length === 0) return;
+  const setSql = keys.map((k) => `\`${k}\` = ?`).join(', ');
+  const values = keys.map((k) => fields[k]);
+  await withConnection(async (conn) => {
+    await conn.query(`UPDATE exam_paper SET ${setSql}, last_parse_at = NOW() WHERE id = ?`, [...values, paperId]);
+  }).catch((err) => console.error('[exam] 更新拆题状态失败:', err.message));
+}
+
+/** 保存试卷并异步触发拆题（上传与爬取共用） */
+async function ingestPaper({ title, year, source, sourceUrl, fileName, origin, text, userId }) {
+  const id = await withConnection(async (conn) => {
+    const [r] = await conn.query(
+      `INSERT INTO exam_paper (title, year, source, source_url, file_name, origin, raw_text, parse_status, creator_user_id)
+       VALUES (?,?,?,?,?,?,?,'pending',?)`,
+      [title, year || null, source || null, sourceUrl || null, fileName || null, origin, text, userId]
+    );
+    return r.insertId;
+  });
+  // 异步触发，不阻塞响应
+  runParseJob(id).catch((err) => console.error('[exam] 拆题任务异常:', err.message));
+  return id;
 }
 
 // ── 1. 上传 PDF 真题 ──────────────────────────────────
@@ -142,29 +220,39 @@ router.post('/upload', upload.single('file'), asyncHandler(async (req, res) => {
   const title = String(req.body.title || req.file.originalname || '').replace(/\.pdf$/i, '').trim();
   if (!title) return res.status(400).json({ error: '请填写试卷标题' });
 
-  let text = '';
-  try {
-    // pdf-parse 需动态引入：加载时会尝试读取测试文件，失败不影响解析
-    const pdfParse = require('pdf-parse');
-    const data = await pdfParse(req.file.buffer);
-    text = (data.text || '').replace(/\r/g, '').trim();
-  } catch (err) {
-    console.error('PDF parse error:', err.message);
-    return res.status(400).json({ error: 'PDF 解析失败：' + err.message });
+  const extracted = await extractPdfText(req.file.buffer);
+  if (!extracted.ok) {
+    // 文本提取失败：给出明确可读原因（扫描件 / 损坏 / OCR 依赖缺失等）
+    return res.status(400).json({
+      error: extracted.error || '未能从 PDF 提取到有效文本',
+      detail: {
+        pages: extracted.pages ?? null,
+        method: extracted.method || null,
+        quality: extracted.quality || null,
+      },
+    });
   }
-  if (!text || text.length < 50) return res.status(400).json({ error: '未能从 PDF 提取到有效文本（可能是扫描件）' });
 
-  const year = Number(req.body.year) || null;
-  const id = await withConnection(async (conn) => {
-    const [r] = await conn.query(
-      `INSERT INTO exam_paper (title, year, source, file_name, origin, raw_text, creator_user_id)
-       VALUES (?,?,?,?,'upload',?,?)`,
-      [title, year, '手动上传', req.file.originalname, text, req.user.userId]
-    );
-    return r.insertId;
+  const id = await ingestPaper({
+    title,
+    year: Number(req.body.year) || null,
+    source: '手动上传',
+    fileName: req.file.originalname,
+    origin: 'upload',
+    text: extracted.text,
+    userId: req.user.userId,
   });
 
-  return res.json({ id, title, textLength: text.length, status: 'pending_review' });
+  return res.json({
+    id,
+    title,
+    textLength: extracted.text.length,
+    pages: extracted.pages,
+    method: extracted.method,
+    warning: extracted.warning || null,
+    parse_status: 'pending',
+    message: '已保存整卷并开始 AI 拆题',
+  });
 }));
 
 // ── 2. 联网爬取真题 ───────────────────────────────────
@@ -181,38 +269,114 @@ router.post('/crawl', asyncHandler(async (req, res) => {
   if (!crawled.text || crawled.text.length < 50) return res.status(400).json({ error: '抓取内容为空' });
 
   const paperTitle = String(title || crawled.title || '').trim() || '未命名真题';
-  const id = await withConnection(async (conn) => {
-    const [r] = await conn.query(
-      `INSERT INTO exam_paper (title, year, source, source_url, origin, raw_text, creator_user_id)
-       VALUES (?,?,?,?,'crawl',?,?)`,
-      [paperTitle, Number(year) || null, new URL(url).hostname, url, crawled.text, req.user.userId]
-    );
-    return r.insertId;
+  const id = await ingestPaper({
+    title: paperTitle,
+    year: Number(year) || null,
+    source: new URL(url).hostname,
+    sourceUrl: url,
+    origin: 'crawl',
+    text: crawled.text,
+    userId: req.user.userId,
   });
 
-  return res.json({ id, title: paperTitle, textLength: crawled.text.length, status: 'pending_review' });
+  return res.json({
+    id,
+    title: paperTitle,
+    textLength: crawled.text.length,
+    parse_status: 'pending',
+    message: '已保存整卷并开始 AI 拆题',
+  });
 }));
 
-// ── 3. AI 拆分整卷为题目（预览，不入库）────────────────
-router.post('/:id/parse', asyncHandler(async (req, res) => {
+// ── 3. 拆题状态（前端轮询）──────────────────────────
+router.get('/:id/parse-status', asyncHandler(async (req, res) => {
   const paper = await withConnection(async (conn) => {
-    const [rows] = await conn.query('SELECT * FROM exam_paper WHERE id = ?', [req.params.id]);
+    const [rows] = await conn.query(
+      `SELECT id, title, parse_status, parse_error, parsed_count, last_parse_at, status, question_count
+       FROM exam_paper WHERE id = ?`,
+      [req.params.id]
+    );
     return rows[0] || null;
   });
   if (!paper) return res.status(404).json({ error: '试卷不存在' });
 
-  const questions = await parsePaperToQuestions(paper.raw_text || '', paper.title);
-  // 附加模块归类与指纹，供前端预览与后续去重
-  const withMeta = questions.map(q => ({
-    ...q,
-    subject_slug: moduleToSubject(q.module),
-    fingerprint: questionFingerprint(q),
-  }));
+  const [sections] = await withConnection((conn) => conn.query(
+    `SELECT section AS name, COUNT(*) AS count FROM exam_paper_question
+     WHERE exam_paper_id = ? GROUP BY section ORDER BY MIN(seq)`,
+    [paper.id]
+  ));
 
-  return res.json({ paperId: paper.id, title: paper.title, questions: withMeta, total: withMeta.length });
+  return res.json({
+    paperId: paper.id,
+    parse_status: paper.parse_status,
+    parse_error: paper.parse_error,
+    parsed_count: paper.parsed_count,
+    last_parse_at: paper.last_parse_at,
+    question_count: paper.question_count,
+    status: paper.status,
+    sections,
+  });
 }));
 
-// ── 4. 确认入库：分模块 + 去重 ─────────────────────────
+// ── 4. 触发 / 重新拆题 ────────────────────────────────
+router.post('/:id/parse', asyncHandler(async (req, res) => {
+  const paper = await withConnection(async (conn) => {
+    const [rows] = await conn.query('SELECT id, parse_status FROM exam_paper WHERE id = ?', [req.params.id]);
+    return rows[0] || null;
+  });
+  if (!paper) return res.status(404).json({ error: '试卷不存在' });
+  if (paper.parse_status === 'parsing') return res.json({ started: false, message: '正在拆题中，请稍候' });
+
+  runParseJob(paper.id).catch((err) => console.error('[exam] 拆题任务异常:', err.message));
+  return res.json({ started: true, parse_status: 'parsing' });
+}));
+
+router.post('/:id/reparse', asyncHandler(async (req, res) => {
+  const affected = await withConnection(async (conn) => {
+    const [r] = await conn.query(
+      "UPDATE exam_paper SET parse_status = 'pending', parse_error = NULL WHERE id = ?",
+      [req.params.id]
+    );
+    return r.affectedRows;
+  });
+  if (affected === 0) return res.status(404).json({ error: '试卷不存在' });
+
+  runParseJob(req.params.id).catch((err) => console.error('[exam] 拆题任务异常:', err.message));
+  return res.json({ started: true, parse_status: 'parsing' });
+}));
+
+// ── 5. 整卷题目（拆分结果预览）─────────────────────────
+router.get('/:id/questions', asyncHandler(async (req, res) => {
+  // 注意：withConnection 透传 conn.query 的返回值，需解构出结果行数组
+  const [rows] = await withConnection((conn) => conn.query(
+    `SELECT id, seq, section, qtype, difficulty, passage, stem, options_json, answer, explanation, fingerprint
+     FROM exam_paper_question WHERE exam_paper_id = ? ORDER BY seq`,
+    [req.params.id]
+  ));
+  const questions = rows.map((r) => ({
+    ...r,
+    options: safeJson(r.options_json, []),
+  }));
+  return res.json({ paperId: Number(req.params.id), questions, total: questions.length });
+}));
+
+/**
+ * 解析选项字段。
+ * 注意：mysql2 会把 JSON 列直接解析为数组，TEXT 列则是字符串，
+ * 因此两种形态都要兼容，避免 JSON.parse(数组) 抛错导致选项丢失。
+ */
+function safeJson(v, fallback) {
+  if (Array.isArray(v)) return v;
+  if (v && typeof v === 'object') return v;
+  try {
+    const p = JSON.parse(v);
+    return p ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+// ── 6. 确认入库：分模块 + 双重去重（指纹 + 相似度/特征）──
 router.post('/:id/confirm', asyncHandler(async (req, res) => {
   const list = req.body.questions;
   if (!Array.isArray(list) || list.length === 0) return res.status(400).json({ error: '没有要入库的题目' });
@@ -222,18 +386,45 @@ router.post('/:id/confirm', asyncHandler(async (req, res) => {
     const paper = paperRows[0];
     if (!paper) throw Object.assign(new Error('试卷不存在'), { status: 404 });
 
+    // 候选题目（用于相似度判重）：取题库中较新的题目，避免全表比对过重
+    const [candidateRows] = await conn.query(
+      `SELECT id, qtype, stem, options_json, answer, fingerprint FROM question
+       ORDER BY id DESC LIMIT 5000`
+    );
+    const candidates = candidateRows.map((r) => ({
+      id: r.id,
+      qtype: r.qtype,
+      stem: r.stem,
+      options: safeJson(r.options_json, []),
+      answer: r.answer,
+      fingerprint: r.fingerprint,
+    }));
+
     let inserted = 0;
     let duplicated = 0;
     const byModule = {};
+    const duplicateDetails = [];
 
-    for (const q of list) {
-      if (!q.stem || !Array.isArray(q.options) || q.options.length !== 4) continue;
-      const fp = q.fingerprint || questionFingerprint(q);
-      // 去重：同一指纹（题干+选项+答案）只入库一次
-      const [exists] = await conn.query('SELECT id FROM question WHERE fingerprint = ?', [fp]);
-      if (exists.length > 0) { duplicated++; continue; }
+    for (const raw of list) {
+      const q = normalizeQuestion(raw);
+      if (!q) continue;
+      const fp = buildFingerprint(q);
 
-      const slug = q.subject_slug || moduleToSubject(q.module);
+      const [exact] = await conn.query('SELECT id FROM question WHERE fingerprint = ?', [fp]);
+      if (exact.length > 0) {
+        duplicated++;
+        duplicateDetails.push({ stem: q.stem.slice(0, 40), reason: 'exact', score: 1 });
+        continue;
+      }
+
+      const dup = findDuplicate(q, candidates, { threshold: 0.9 });
+      if (dup) {
+        duplicated++;
+        duplicateDetails.push({ stem: q.stem.slice(0, 40), reason: dup.reason, score: Number(dup.score.toFixed(2)) });
+        continue;
+      }
+
+      const slug = raw.subject_slug || moduleToSubject(q.module);
       const [subjects] = await conn.query('SELECT id FROM subject WHERE slug = ?', [slug]);
       const subjectId = subjects[0]?.id || 1;
 
@@ -243,10 +434,10 @@ router.post('/:id/confirm', asyncHandler(async (req, res) => {
          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'pending_review')`,
         [
           subjectId,
-          q.qtype || '单选题',
-          Number(q.difficulty) || 3,
+          q.qtype,
+          q.difficulty,
           q.passage || null,
-          String(q.stem).slice(0, 1024),
+          q.stem.slice(0, 1024),
           JSON.stringify(q.options),
           q.answer,
           q.explanation || '',
@@ -257,20 +448,26 @@ router.post('/:id/confirm', asyncHandler(async (req, res) => {
         ]
       );
       inserted++;
+
+      // 新入库题目加入候选集，避免同批内互相重复
+      candidates.push({ id: null, qtype: q.qtype, stem: q.stem, options: q.options, answer: q.answer, fingerprint: fp });
+
       const modName = q.module || '未分类';
       byModule[modName] = (byModule[modName] || 0) + 1;
     }
 
-    await conn.query('UPDATE exam_paper SET question_count = question_count + ?, status = ? WHERE id = ?',
-      [inserted, 'parsed', paper.id]);
+    await conn.query(
+      `UPDATE exam_paper SET question_count = question_count + ?, status = 'parsed' WHERE id = ?`,
+      [inserted, paper.id]
+    );
 
-    return { inserted, duplicated, byModule };
+    return { inserted, duplicated, byModule, duplicateDetails: duplicateDetails.slice(0, 20) };
   });
 
   return res.json(result);
 }));
 
-// ── 5. 列表 / 详情 / 删除 ─────────────────────────────
+// ── 7. 列表 / 详情 / 删除 ─────────────────────────────
 router.get('/', asyncHandler(async (req, res) => {
   const page = Math.max(Number(req.query.page) || 1, 1);
   const pageSize = Math.min(Number(req.query.pageSize) || 20, 100);
@@ -279,7 +476,8 @@ router.get('/', asyncHandler(async (req, res) => {
   const data = await withConnection(async (conn) => {
     const [countRows] = await conn.query('SELECT COUNT(*) AS total FROM exam_paper');
     const [rows] = await conn.query(
-      `SELECT id, title, year, source, source_url, file_name, origin, question_count, status, created_at
+      `SELECT id, title, year, source, source_url, file_name, origin, question_count,
+              status, parse_status, parse_error, parsed_count, last_parse_at, created_at
        FROM exam_paper ORDER BY id DESC LIMIT ? OFFSET ?`,
       [pageSize, offset]
     );
@@ -300,16 +498,21 @@ router.get('/:id', asyncHandler(async (req, res) => {
        WHERE q.exam_paper_id = ? ORDER BY q.id`,
       [paper.id]
     );
-    return { paper, questions: qs };
+    const [epq] = await conn.query(
+      `SELECT seq, section, qtype, stem FROM exam_paper_question WHERE exam_paper_id = ? ORDER BY seq`,
+      [paper.id]
+    );
+    return { paper, questions: qs, paperQuestions: epq };
   });
   if (!data) return res.status(404).json({ error: '试卷不存在' });
   return res.json(data);
 }));
 
-// 删除试卷：题目保留（仅解除归属），避免误删已入库题库
+// 删除试卷：整卷题目随外键级联删除；已入库的 question 保留（仅解除归属）
 router.delete('/:id', asyncHandler(async (req, res) => {
   const affected = await withConnection(async (conn) => {
     await conn.query('UPDATE question SET exam_paper_id = NULL WHERE exam_paper_id = ?', [req.params.id]);
+    await conn.query('DELETE FROM exam_paper_question WHERE exam_paper_id = ?', [req.params.id]);
     const [r] = await conn.query('DELETE FROM exam_paper WHERE id = ?', [req.params.id]);
     return r.affectedRows;
   });
