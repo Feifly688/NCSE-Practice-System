@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Layout, Menu, Button, Space, Typography, Dropdown, Drawer } from 'antd';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { HomeOutlined, EditOutlined, HistoryOutlined, DashboardOutlined, SettingOutlined, LogoutOutlined, LoginOutlined, UserAddOutlined, UserOutlined, BookOutlined, StarFilled, TrophyOutlined, MenuOutlined } from '@ant-design/icons';
+import { HomeOutlined, EditOutlined, HistoryOutlined, DashboardOutlined, SettingOutlined, LogoutOutlined, LoginOutlined, UserAddOutlined, UserOutlined, BookOutlined, StarFilled, TrophyOutlined, MenuOutlined, FileTextOutlined } from '@ant-design/icons';
 import { useAuth } from '../contexts/AuthContext';
 import { useResponsive } from '../hooks/useResponsive';
 
@@ -35,6 +35,7 @@ export default function MainLayout() {
       { key: '/wrong-book', icon: <BookOutlined />, label: '错题本' },
       { key: '/favorites', icon: <StarFilled />, label: '收藏' },
       { key: '/leaderboard', icon: <TrophyOutlined />, label: '排行榜' },
+      { key: '/exam-papers', icon: <FileTextOutlined />, label: '整卷真题' },
     );
   }
   if (isAdmin) {

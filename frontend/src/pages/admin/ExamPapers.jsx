@@ -1,25 +1,35 @@
-﻿import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect, useRef } from 'react';
 import {
   Typography, Card, Button, Table, Tag, Modal, Form, Input, InputNumber,
-  Upload, message, Space, Tabs, Empty, Spin, Descriptions, Alert, Divider,
+  Upload, message, Space, Tabs, Empty, Spin, Alert, Divider, Progress,
 } from 'antd';
 import {
   PlusOutlined, UploadOutlined, LinkOutlined, DeleteOutlined,
   EyeOutlined, ThunderboltOutlined, CheckCircleOutlined, InboxOutlined,
+  RedoOutlined, FileSearchOutlined,
 } from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 
 const { Title, Text, Paragraph } = Typography;
 
 const ORIGIN_TAG = { crawl: { color: 'cyan', text: '爬取' }, upload: { color: 'purple', text: 'PDF上传' } };
 const STATUS_TAG = {
-  pending_review: { color: 'default', text: '待拆分' },
-  parsed: { color: 'green', text: '已拆分' },
+  pending_review: { color: 'default', text: '待审核' },
+  parsed: { color: 'green', text: '已入库' },
   approved: { color: 'blue', text: '已通过' },
   disabled: { color: 'red', text: '已停用' },
 };
+const PARSE_TAG = {
+  pending: { color: 'default', text: '待拆分' },
+  parsing: { color: 'processing', text: '拆分中' },
+  success: { color: 'success', text: '拆分完成' },
+  partial: { color: 'warning', text: '部分成功' },
+  failed: { color: 'error', text: '拆分失败' },
+};
 
 export default function ExamPapers() {
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [papers, setPapers] = useState([]);
   const [total, setTotal] = useState(0);
@@ -36,17 +46,19 @@ export default function ExamPapers() {
   // 拆分与入库
   const [parseOpen, setParseOpen] = useState(false);
   const [currentPaper, setCurrentPaper] = useState(null);
-  const [parsing, setParsing] = useState(false);
+  const [parseState, setParseState] = useState(null); // 轮询中的状态
   const [parsedQuestions, setParsedQuestions] = useState([]);
   const [selected, setSelected] = useState([]);
   const [saving, setSaving] = useState(false);
   const [saveResult, setSaveResult] = useState(null);
+  const pollRef = useRef(null);
 
   // 详情
   const [detailOpen, setDetailOpen] = useState(false);
   const [detail, setDetail] = useState(null);
 
   useEffect(() => { loadPapers(); }, [page]);
+  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
 
   async function loadPapers() {
     setLoading(true);
@@ -81,14 +93,20 @@ export default function ExamPapers() {
     try {
       const r = await api.post('/admin/exam-papers/upload', fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
-        timeout: 120000,
+        timeout: 180000,
       });
-      message.success(`上传成功，提取文本 ${r.data.textLength} 字，可进行 AI 拆分`);
+      const w = r.data.warning ? `（${r.data.warning}）` : '';
+      message.success(`上传成功：提取 ${r.data.textLength} 字${r.data.method === 'ocr-vision' ? '（OCR）' : ''}，已开始 AI 拆题${w}`);
       setAddOpen(false);
       setPage(1);
       loadPapers();
     } catch (err) {
-      message.error(err.response?.data?.error || '上传失败');
+      const d = err.response?.data;
+      message.error({
+        content: d?.error || '上传失败',
+        duration: 6,
+      });
+      if (d?.detail) console.warn('上传失败详情:', d.detail);
     } finally {
       setSubmitting(false);
     }
@@ -99,38 +117,80 @@ export default function ExamPapers() {
     if (!values) return;
     setSubmitting(true);
     try {
-      const r = await api.post('/admin/exam-papers/crawl', values, { timeout: 60000 });
-      message.success(`抓取成功，提取文本 ${r.data.textLength} 字，可进行 AI 拆分`);
+      const r = await api.post('/admin/exam-papers/crawl', values, { timeout: 120000 });
+      message.success(`抓取成功：提取 ${r.data.textLength} 字，已开始 AI 拆题`);
       setAddOpen(false);
       setPage(1);
       loadPapers();
     } catch (err) {
-      message.error(err.response?.data?.error || '抓取失败');
+      message.error({ content: err.response?.data?.error || '抓取失败', duration: 5 });
     } finally {
       setSubmitting(false);
     }
   }
 
+  /** 打开拆题弹窗：若尚未拆分则自动触发，并轮询状态 */
   async function openParse(record) {
     setCurrentPaper(record);
     setParsedQuestions([]);
     setSelected([]);
     setSaveResult(null);
+    setParseState({ parse_status: 'loading' });
     setParseOpen(true);
+
+    try {
+      const s = await api.get(`/admin/exam-papers/${record.id}/parse-status`);
+      setParseState(s.data);
+      if (['pending', 'failed', 'partial'].includes(s.data.parse_status)) {
+        await api.post(`/admin/exam-papers/${record.id}/parse`);
+        startPolling(record.id);
+      } else if (s.data.parse_status === 'parsing') {
+        startPolling(record.id);
+      } else if (s.data.parse_status === 'success') {
+        await loadParsedQuestions(record.id);
+      }
+    } catch (err) {
+      message.error('获取拆题状态失败');
+      setParseState({ parse_status: 'failed', parse_error: '获取状态失败' });
+    }
   }
 
-  async function runParse() {
-    if (!currentPaper) return;
-    setParsing(true);
+  function startPolling(paperId) {
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(async () => {
+      try {
+        const s = await api.get(`/admin/exam-papers/${paperId}/parse-status`);
+        setParseState(s.data);
+        if (['success', 'partial', 'failed'].includes(s.data.parse_status)) {
+          clearInterval(pollRef.current);
+          pollRef.current = null;
+          if (s.data.parse_status !== 'failed') await loadParsedQuestions(paperId);
+          else message.error('拆题失败，可查看原因后重试');
+          loadPapers();
+        }
+      } catch { /* 轮询失败保持等待 */ }
+    }, 3000);
+  }
+
+  async function loadParsedQuestions(paperId) {
     try {
-      const r = await api.post(`/admin/exam-papers/${currentPaper.id}/parse`);
+      const r = await api.get(`/admin/exam-papers/${paperId}/questions`);
       setParsedQuestions(r.data.questions || []);
       setSelected((r.data.questions || []).map((_, i) => i));
-      if ((r.data.questions || []).length === 0) message.info('未从该试卷中拆分出题目');
+    } catch { message.error('加载拆分结果失败'); }
+  }
+
+  async function reparse() {
+    if (!currentPaper) return;
+    setParsedQuestions([]);
+    setSaveResult(null);
+    try {
+      await api.post(`/admin/exam-papers/${currentPaper.id}/reparse`);
+      setParseState({ parse_status: 'parsing' });
+      message.info('已重新触发拆题');
+      startPolling(currentPaper.id);
     } catch (err) {
-      message.error(err.response?.data?.error || 'AI 拆分失败');
-    } finally {
-      setParsing(false);
+      message.error(err.response?.data?.error || '重新拆题失败');
     }
   }
 
@@ -138,7 +198,7 @@ export default function ExamPapers() {
     if (selected.length === 0) { message.warning('请选择要入库的题目'); return; }
     setSaving(true);
     try {
-      const toSave = selected.map(i => parsedQuestions[i]);
+      const toSave = selected.map((i) => parsedQuestions[i]);
       const r = await api.post(`/admin/exam-papers/${currentPaper.id}/confirm`, { questions: toSave });
       setSaveResult(r.data);
       message.success('入库完成');
@@ -155,46 +215,62 @@ export default function ExamPapers() {
       const r = await api.get(`/admin/exam-papers/${id}`);
       setDetail(r.data);
       setDetailOpen(true);
-    } catch (err) { message.error('加载详情失败'); }
+    } catch { message.error('加载详情失败'); }
   }
 
   function removePaper(record) {
     Modal.confirm({
       title: '确认删除试卷',
-      content: `删除「${record.title}」？已入库的题目会保留（仅解除归属）。`,
+      content: `删除「${record.title}」？整卷题目会一并删除，已入库到题库的题目保留（仅解除归属）。`,
       okText: '删除', okType: 'danger', cancelText: '取消',
       async onOk() {
         try {
           await api.delete(`/admin/exam-papers/${record.id}`);
           message.success('已删除');
           loadPapers();
-        } catch (err) { message.error('删除失败'); }
+        } catch { message.error('删除失败'); }
       },
     });
   }
 
   const columns = [
     { title: '试卷', dataIndex: 'title', ellipsis: true },
-    { title: '年份', dataIndex: 'year', width: 80, render: v => v || '-' },
+    { title: '年份', dataIndex: 'year', width: 80, render: (v) => v || '-' },
     {
       title: '来源', dataIndex: 'origin', width: 110,
-      render: (v, r) => <Tag color={ORIGIN_TAG[v]?.color}>{ORIGIN_TAG[v]?.text || v}</Tag>,
+      render: (v) => <Tag color={ORIGIN_TAG[v]?.color}>{ORIGIN_TAG[v]?.text || v}</Tag>,
     },
-    { title: '来源站点/文件', dataIndex: 'source', width: 160, ellipsis: true, render: (v, r) => v || r.file_name || '-' },
+    { title: '来源站点/文件', dataIndex: 'source', width: 140, ellipsis: true, render: (v, r) => v || r.file_name || '-' },
     {
-      title: '已拆题', dataIndex: 'question_count', width: 90,
-      render: v => v > 0 ? <Tag color="green">{v} 题</Tag> : <Tag>未拆分</Tag>,
+      title: '拆题', dataIndex: 'parse_status', width: 110,
+      render: (v, r) => (
+        <Space direction="vertical" size={2}>
+          <Tag color={PARSE_TAG[v]?.color}>{PARSE_TAG[v]?.text || v}</Tag>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {r.parsed_count > 0 ? `${r.parsed_count} 题` : '—'}
+          </Text>
+        </Space>
+      ),
     },
     {
-      title: '状态', dataIndex: 'status', width: 90,
-      render: v => <Tag color={STATUS_TAG[v]?.color}>{STATUS_TAG[v]?.text || v}</Tag>,
+      title: '已入库', dataIndex: 'question_count', width: 90,
+      render: (v) => (v > 0 ? <Tag color="green">{v} 题</Tag> : <Tag>未入库</Tag>),
     },
-    { title: '创建时间', dataIndex: 'created_at', width: 170, render: v => v ? new Date(v).toLocaleString('zh-CN') : '-' },
+    { title: '创建时间', dataIndex: 'created_at', width: 160, render: (v) => (v ? new Date(v).toLocaleString('zh-CN') : '-') },
     {
-      title: '操作', width: 240,
+      title: '操作', width: 300,
       render: (_, record) => (
-        <Space size="small">
-          <Button size="small" icon={<ThunderboltOutlined />} onClick={() => openParse(record)}>AI 拆分</Button>
+        <Space size="small" wrap>
+          <Button size="small" icon={<ThunderboltOutlined />} onClick={() => openParse(record)}>
+            {record.parse_status === 'failed' ? '重新拆题' : 'AI 拆分'}
+          </Button>
+          <Button
+            size="small" icon={<FileSearchOutlined />}
+            disabled={!record.parsed_count}
+            onClick={() => navigate(`/exam-papers/${record.id}`)}
+          >
+            整卷作答
+          </Button>
           <Button size="small" icon={<EyeOutlined />} onClick={() => openDetail(record.id)}>详情</Button>
           <Button size="small" danger icon={<DeleteOutlined />} onClick={() => removePaper(record)}>删除</Button>
         </Space>
@@ -204,18 +280,22 @@ export default function ExamPapers() {
 
   const questionColumns = [
     {
-      title: '选择', width: 50,
+      title: '选择', width: 46,
       render: (_, __, i) => (
-        <input type="checkbox" checked={selected.includes(i)}
-          onChange={e => setSelected(prev => e.target.checked ? [...prev, i] : prev.filter(x => x !== i))} />
+        <input
+          type="checkbox" checked={selected.includes(i)}
+          onChange={(e) => setSelected((prev) => (e.target.checked ? [...prev, i] : prev.filter((x) => x !== i)))}
+        />
       ),
     },
-    { title: '模块', dataIndex: 'module', width: 150, render: v => <Tag color="blue">{v || '未分类'}</Tag> },
-    { title: '题型', dataIndex: 'qtype', width: 110, render: v => <Tag color="purple">{v}</Tag> },
-    { title: '难度', dataIndex: 'difficulty', width: 80, render: v => <Tag color={v <= 2 ? 'green' : v <= 4 ? 'orange' : 'red'}>{v}</Tag> },
+    { title: '题号', dataIndex: 'seq', width: 60 },
+    { title: '模块', dataIndex: 'section', width: 130, render: (v) => <Tag color="blue">{v || '未分类'}</Tag> },
+    { title: '题型', dataIndex: 'qtype', width: 100, render: (v) => <Tag color="purple">{v}</Tag> },
     { title: '题干', dataIndex: 'stem', ellipsis: true },
     { title: '答案', dataIndex: 'answer', width: 60 },
   ];
+
+  const parsing = parseState && ['parsing', 'loading'].includes(parseState.parse_status);
 
   return (
     <div>
@@ -225,24 +305,29 @@ export default function ExamPapers() {
       </div>
 
       <Alert
-        type="info"
-        showIcon
-        style={{ marginBottom: 16 }}
-        message="真题以两种形态保存"
-        description="①完整真题试卷：保存整卷原文（PDF 提取或网页爬取）；②分模块去重题库：AI 拆分后按模块归类写入题库，题干指纹相同的题目自动去重跳过。"
-
+        type="info" showIcon style={{ marginBottom: 16 }}
+        message="入库流水线与两种存储形态"
+        description={
+          <span>
+            PDF 上传与联网爬取共用同一流水线：文本提取 → 自动 AI 分批拆题 → ①<strong>完整真题试卷</strong>
+            （整卷原文 + 按原卷顺序的整卷题目，可在线阅览作答）；②<strong>分模块去重题库</strong>
+            （确认后按模块入库，指纹 + 文本相似度 + 题型/选项/答案特征去重）。
+            扫描件需服务器 OCR 环境，否则会给出明确报错。
+          </span>
+        }
       />
 
-      <Card bodyStyle={{ padding: 0 }}>
+      <Card styles={{ body: { padding: 0 } }}>
         <Table
           columns={columns}
           dataSource={papers}
           rowKey="id"
           loading={loading}
           size="small"
+          scroll={{ x: 1100 }}
           pagination={{
             current: page, total, pageSize: 20,
-            showTotal: t => `共 ${t} 套试卷`,
+            showTotal: (t) => `共 ${t} 套试卷`,
             onChange: setPage,
           }}
         />
@@ -275,10 +360,12 @@ export default function ExamPapers() {
                     >
                       <p className="ant-upload-drag-icon"><InboxOutlined /></p>
                       <p className="ant-upload-text">点击或拖拽上传 PDF 试卷</p>
-                      <p className="ant-upload-hint">仅支持文本型 PDF（扫描件无法提取文字）</p>
+                      <p className="ant-upload-hint">支持文本型 PDF；扫描件/图片型需服务器安装 poppler-utils 走 OCR</p>
                     </Upload.Dragger>
                   </Form.Item>
-                  <Button type="primary" block loading={submitting} onClick={submitUpload}>上传并保存试卷</Button>
+                  <Button type="primary" block loading={submitting} onClick={submitUpload}>
+                    上传并自动拆题
+                  </Button>
                 </Form>
               ),
             },
@@ -298,7 +385,9 @@ export default function ExamPapers() {
                   </Form.Item>
                   <Alert type="warning" showIcon style={{ marginBottom: 12 }}
                     message="仅支持公网可访问页面，内网地址会被拒绝（SSRF 防护）" />
-                  <Button type="primary" block loading={submitting} onClick={submitCrawl}>抓取并保存试卷</Button>
+                  <Button type="primary" block loading={submitting} onClick={submitCrawl}>
+                    抓取并自动拆题
+                  </Button>
                 </Form>
               ),
             },
@@ -310,37 +399,70 @@ export default function ExamPapers() {
       <Modal
         title={`AI 拆分：${currentPaper?.title || ''}`}
         open={parseOpen}
-        onCancel={() => setParseOpen(false)}
-        width={900}
+        onCancel={() => { if (pollRef.current) clearInterval(pollRef.current); setParseOpen(false); }}
+        width={960}
         footer={[
-          <Button key="close" onClick={() => setParseOpen(false)}>关闭</Button>,
-          <Button key="parse" type="primary" icon={<ThunderboltOutlined />} loading={parsing} onClick={runParse}>
-            开始拆分
+          <Button key="close" onClick={() => { if (pollRef.current) clearInterval(pollRef.current); setParseOpen(false); }}>
+            关闭
+          </Button>,
+          <Button key="reparse" icon={<RedoOutlined />} disabled={parsing} onClick={reparse}>
+            重新拆题
           </Button>,
           <Button
             key="save" type="primary" icon={<CheckCircleOutlined />} loading={saving}
-            disabled={selected.length === 0}
+            disabled={selected.length === 0 || parsing}
             onClick={confirmSave}
           >
             确认入库 ({selected.length})
           </Button>,
         ]}
       >
+        {/* 拆题中 */}
         {parsing && (
-          <div style={{ textAlign: 'center', padding: '32px 0' }}>
+          <div style={{ textAlign: 'center', padding: '40px 0' }}>
             <Spin size="large" />
-            <Paragraph type="secondary" style={{ marginTop: 12 }}>AI 正在拆分整卷并归类模块，请稍候…</Paragraph>
+            <Paragraph type="secondary" style={{ marginTop: 16 }}>
+              AI 正在按片段分批拆题（自动重试与降级），请稍候…
+            </Paragraph>
+            <Progress
+              percent={parseState?.parsed_count ? 99 : 60}
+              status="active" showInfo={false} style={{ maxWidth: 320, margin: '0 auto' }}
+            />
           </div>
         )}
 
-        {!parsing && parsedQuestions.length === 0 && (
-          <Empty description="点击「开始拆分」，AI 会从整卷文本中提取题目" />
+        {/* 失败或部分失败 */}
+        {!parsing && parseState && ['failed', 'partial'].includes(parseState.parse_status) && (
+          <Alert
+            type={parseState.parse_status === 'failed' ? 'error' : 'warning'}
+            showIcon
+            style={{ marginBottom: 12 }}
+            message={parseState.parse_status === 'failed' ? '拆题失败' : `拆题部分成功（${parseState.parsed_count || 0} 题）`}
+            description={
+              <div>
+                <div>{parseState.parse_error || '（无详细信息）'}</div>
+                <div style={{ marginTop: 6 }}>
+                  可点击「重新拆题」重试；若持续失败，请检查 PDF 文本质量（是否为扫描件）或 AI 服务配额。
+                </div>
+              </div>
+            }
+          />
         )}
 
+        {/* 结果列表 */}
         {!parsing && parsedQuestions.length > 0 && (
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-              <Text>共拆分出 {parsedQuestions.length} 道题</Text>
+              <Space>
+                <Text>共拆分出 {parsedQuestions.length} 道题</Text>
+                {parseState?.sections?.length > 0 && (
+                  <Space size={4} wrap>
+                    {parseState.sections.map((s) => (
+                      <Tag key={s.name} color="blue">{s.name}：{s.count}</Tag>
+                    ))}
+                  </Space>
+                )}
+              </Space>
               <Space>
                 <Button size="small" onClick={() => setSelected(parsedQuestions.map((_, i) => i))}>全选</Button>
                 <Button size="small" onClick={() => setSelected([])}>取消</Button>
@@ -348,68 +470,102 @@ export default function ExamPapers() {
             </div>
             <Table
               columns={questionColumns}
-              dataSource={parsedQuestions.map((q, i) => ({ ...q, key: i }))}
+              dataSource={parsedQuestions.map((q, i) => ({ ...q, key: q.id || i }))}
               size="small"
               pagination={{ pageSize: 8 }}
-              scroll={{ y: 320 }}
+              scroll={{ y: 320, x: 720 }}
             />
             {saveResult && (
               <Alert
-                style={{ marginTop: 12 }}
-                type="success"
-                showIcon
+                style={{ marginTop: 12 }} type="success" showIcon
                 message={`入库 ${saveResult.inserted} 题${saveResult.duplicated > 0 ? `，去重跳过 ${saveResult.duplicated} 题` : ''}`}
                 description={
-                  Object.keys(saveResult.byModule || {}).length > 0 && (
-                    <Space size={[6, 4]} wrap>
-                      {Object.entries(saveResult.byModule).map(([m, c]) => (
-                        <Tag key={m} color="blue">{m}：{c} 题</Tag>
-                      ))}
-                    </Space>
-                  )
+                  <div>
+                    {Object.keys(saveResult.byModule || {}).length > 0 && (
+                      <Space size={[6, 4]} wrap style={{ marginBottom: 6 }}>
+                        {Object.entries(saveResult.byModule).map(([m, c]) => (
+                          <Tag key={m} color="blue">{m}：{c} 题</Tag>
+                        ))}
+                      </Space>
+                    )}
+                    {saveResult.duplicateDetails?.length > 0 && (
+                      <div style={{ fontSize: 12, color: '#8c8c8c' }}>
+                        判重示例：
+                        {saveResult.duplicateDetails.slice(0, 3).map((d, i) => (
+                          <div key={i}>· {d.stem}…（{d.reason === 'exact' ? '完全一致' : `相似度 ${d.score}`}）</div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 }
               />
             )}
           </div>
         )}
+
+        {!parsing && parsedQuestions.length === 0 && parseState?.parse_status === 'success' && (
+          <Empty description="未从该试卷中拆分出题目，请检查整卷文本" />
+        )}
       </Modal>
 
       {/* 详情 */}
-      <Modal title="试卷详情" open={detailOpen} onCancel={() => setDetailOpen(false)} footer={null} width={720}>
+      <Modal title="试卷详情" open={detailOpen} onCancel={() => setDetailOpen(false)} footer={null} width={760}>
         {detail && (
           <div>
-            <Descriptions bordered size="small" column={2} style={{ marginBottom: 16 }}>
-              <Descriptions.Item label="标题">{detail.paper.title}</Descriptions.Item>
-              <Descriptions.Item label="年份">{detail.paper.year || '-'}</Descriptions.Item>
-              <Descriptions.Item label="获取方式">{ORIGIN_TAG[detail.paper.origin]?.text || detail.paper.origin}</Descriptions.Item>
-              <Descriptions.Item label="来源">{detail.paper.source || detail.paper.file_name || '-'}</Descriptions.Item>
-              <Descriptions.Item label="已入库题目">{detail.paper.question_count} 题</Descriptions.Item>
-              <Descriptions.Item label="状态">{STATUS_TAG[detail.paper.status]?.text || detail.paper.status}</Descriptions.Item>
-            </Descriptions>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+              <Tag>{detail.paper.title}</Tag>
+              {detail.paper.year && <Tag>{detail.paper.year}</Tag>}
+              <Tag color={ORIGIN_TAG[detail.paper.origin]?.color}>{ORIGIN_TAG[detail.paper.origin]?.text}</Tag>
+              <Tag color={PARSE_TAG[detail.paper.parse_status]?.color}>
+                拆题：{PARSE_TAG[detail.paper.parse_status]?.text}
+              </Tag>
+              <Tag color="green">整卷题目 {detail.paper.parsed_count ?? 0} 题</Tag>
+              <Tag color="blue">题库已入库 {detail.paper.question_count} 题</Tag>
+            </div>
+
+            {detail.paper.parse_error && (
+              <Alert type="warning" showIcon style={{ marginBottom: 12 }} message="拆题记录" description={detail.paper.parse_error} />
+            )}
 
             <Divider style={{ margin: '12px 0' }} />
-
             <Text strong>整卷文本（完整真题试卷形态）</Text>
             <div style={{
-              marginTop: 8, maxHeight: 240, overflow: 'auto', padding: 12,
+              marginTop: 8, maxHeight: 220, overflow: 'auto', padding: 12,
               background: '#fafafa', borderRadius: 8, whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.7,
             }}>
               {(detail.paper.raw_text || '').slice(0, 3000) || '（无文本）'}
             </div>
 
             <Divider style={{ margin: '12px 0' }} />
+            <Text strong>整卷题目（按原卷顺序，供在线阅览作答）</Text>
+            <div style={{ marginTop: 8, maxHeight: 200, overflow: 'auto' }}>
+              {detail.paperQuestions?.length === 0 ? (
+                <Empty description="尚未拆出题目" />
+              ) : (
+                <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                  {detail.paperQuestions.map((q) => (
+                    <div key={q.seq} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <Tag>{q.seq}</Tag>
+                      <Tag color="blue">{q.section}</Tag>
+                      <Tag color="purple">{q.qtype}</Tag>
+                      <Text ellipsis style={{ flex: 1, minWidth: 160 }}>{q.stem}</Text>
+                    </div>
+                  ))}
+                </Space>
+              )}
+            </div>
 
+            <Divider style={{ margin: '12px 0' }} />
             <Text strong>已入库题目（分模块去重题库）</Text>
             <div style={{ marginTop: 8 }}>
               {detail.questions.length === 0 ? (
                 <Empty description="尚未入库题目" />
               ) : (
-                <Space direction="vertical" size={6} style={{ width: '100%' }}>
-                  {detail.questions.map(q => (
+                <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                  {detail.questions.map((q) => (
                     <div key={q.id} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                       <Tag>{q.subject_name || '未分类'}</Tag>
                       <Tag color="purple">{q.qtype}</Tag>
-                      <Tag color={q.difficulty <= 2 ? 'green' : q.difficulty <= 4 ? 'orange' : 'red'}>难度 {q.difficulty}</Tag>
                       <Text ellipsis style={{ flex: 1, minWidth: 160 }}>{q.stem}</Text>
                       <Text type="secondary">答案 {q.answer}</Text>
                     </div>

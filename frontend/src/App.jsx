@@ -26,6 +26,8 @@ const Users = lazy(() => import('./pages/admin/Users'));
 const Generate = lazy(() => import('./pages/admin/Generate'));
 const Articles = lazy(() => import('./pages/admin/Articles'));
 const ExamPapers = lazy(() => import('./pages/admin/ExamPapers'));
+const ExamPaperList = lazy(() => import('./pages/ExamPaperList'));
+const ExamPaperTake = lazy(() => import('./pages/ExamPaperTake'));
 
 const theme = {
   token: {
@@ -84,6 +86,9 @@ export default function App() {
                 <Route path="/wrong-book" element={<ProtectedRoute><WrongBook /></ProtectedRoute>} />
                 <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
                 <Route path="/leaderboard" element={<ProtectedRoute><Leaderboard /></ProtectedRoute>} />
+                {/* 整卷真题：列表与在线阅览/答题 */}
+                <Route path="/exam-papers" element={<ProtectedRoute><ExamPaperList /></ProtectedRoute>} />
+                <Route path="/exam-papers/:id" element={<ProtectedRoute><ExamPaperTake /></ProtectedRoute>} />
                 <Route path="*" element={<NotFound />} />
               </Route>
               <Route path="/admin" element={<AdminRoute><AdminLayout /></AdminRoute>}>
