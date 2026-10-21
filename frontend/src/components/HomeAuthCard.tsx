@@ -139,8 +139,12 @@ export default function HomeAuthCard() {
             type="submit"
             disabled={loading}
             radius={9}
-            thickness={1.5}
-            glow={0.6}
+            thickness={2.5}
+            duration={4}
+            glow={1}
+            sparkle
+            stars={2}
+            trailLength={0.5}
             color="#93c5fd"
             trailColor="#60A5FA"
             backgroundColor="rgba(96, 165, 250, 0.14)"
@@ -212,8 +216,12 @@ export default function HomeAuthCard() {
             type="submit"
             disabled={loading}
             radius={9}
-            thickness={1.5}
-            glow={0.6}
+            thickness={2.5}
+            duration={4}
+            glow={1}
+            sparkle
+            stars={2}
+            trailLength={0.5}
             color="#93c5fd"
             trailColor="#60A5FA"
             backgroundColor="rgba(96, 165, 250, 0.14)"

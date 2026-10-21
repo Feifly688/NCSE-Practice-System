@@ -315,14 +315,17 @@ export default function Home() {
                 as="button"
                 onClick={() => navigate('/practice')}
                 radius={24}
-                thickness={1.5}
+                thickness={2.5}
                 duration={4}
-                glow={0.7}
-                color="#60A5FA"
+                glow={1}
+                sparkle
+                stars={2}
+                trailLength={0.45}
+                color="#3B82F6"
                 trailColor="#60A5FA"
                 backgroundColor="#ffffff"
                 textColor="#0a0a0f"
-                borderColor="rgba(96, 165, 250, 0.45)"
+                borderColor="rgba(59, 130, 246, 0.55)"
                 style={{ height: 48, padding: '0 38px', fontSize: 15, fontWeight: 600, border: 'none' }}
               >
                 <ArrowRightOutlined />
