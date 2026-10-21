@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { Form, Input, Button, Typography, message } from 'antd';
+import { Form, Input, Typography, message } from 'antd';
 import { UserOutlined, LockOutlined, MailOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useResponsive } from '../hooks/useResponsive';
+import StarBorder from './react-bits/StarBorder';
 
 const { Text } = Typography;
 
@@ -131,16 +132,24 @@ export default function HomeAuthCard() {
               style={{ borderRadius: 9 }}
             />
           </Form.Item>
-          <Button
-            type="primary"
-            htmlType="submit"
-            loading={loading}
-            block
-            size="large"
-            style={{ borderRadius: 9, height: 42, fontWeight: 600 }}
+          {/* React Bits StarBorder 提交按钮：星星沿边框环跑 + 点击光脉冲。
+              antd Button 无 loading 内置，用 disabled + 文案表达提交中状态。 */}
+          <StarBorder
+            as="button"
+            type="submit"
+            disabled={loading}
+            radius={9}
+            thickness={1.5}
+            glow={0.6}
+            color="#93c5fd"
+            trailColor="#60A5FA"
+            backgroundColor="rgba(96, 165, 250, 0.14)"
+            textColor="#ffffff"
+            borderColor="rgba(96, 165, 250, 0.35)"
+            style={{ width: '100%', height: 42, fontWeight: 600, fontSize: 15 }}
           >
-            登录
-          </Button>
+            {loading ? '登录中…' : '登录'}
+          </StarBorder>
         </Form>
       ) : (
         <Form form={registerForm} layout="vertical" onFinish={handleRegister} autoComplete="off" size="large" requiredMark={false}>
@@ -198,16 +207,22 @@ export default function HomeAuthCard() {
               style={{ borderRadius: 9 }}
             />
           </Form.Item>
-          <Button
-            type="primary"
-            htmlType="submit"
-            loading={loading}
-            block
-            size="large"
-            style={{ borderRadius: 9, height: 42, fontWeight: 600 }}
+          <StarBorder
+            as="button"
+            type="submit"
+            disabled={loading}
+            radius={9}
+            thickness={1.5}
+            glow={0.6}
+            color="#93c5fd"
+            trailColor="#60A5FA"
+            backgroundColor="rgba(96, 165, 250, 0.14)"
+            textColor="#ffffff"
+            borderColor="rgba(96, 165, 250, 0.35)"
+            style={{ width: '100%', height: 42, fontWeight: 600, fontSize: 15 }}
           >
-            创建账号
-          </Button>
+            {loading ? '创建中…' : '创建账号'}
+          </StarBorder>
         </Form>
       )}
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, lazy, Suspense } from 'react';
-import { Row, Col, Button, Skeleton, Carousel } from 'antd';
+import { Row, Col, Skeleton, Carousel } from 'antd';
 import {
   EditOutlined, TrophyOutlined, UserOutlined, BookOutlined,
   EyeOutlined, FireOutlined, ReadOutlined, SafetyOutlined, HistoryOutlined,
@@ -14,6 +14,7 @@ import HighlightCover, { type CoverKind } from '../components/HighlightCover';
 import TechText from '../components/react-bits/TechText';
 import { useResponsive } from '../hooks/useResponsive';
 import GlowCursor from '../components/react-bits/GlowCursor';
+import StarBorder from '../components/react-bits/StarBorder';
 
 // 背景与轮播按需加载：ElectricLogo 依赖 WebGL（ogl），
 // 放到首屏之后再加载，避免拖慢首次渲染。
@@ -308,23 +309,25 @@ export default function Home() {
               这样鼠标移入时电弧才会响应。 */}
           {isAuthenticated ? (
             <div style={{ pointerEvents: 'auto', display: 'inline-block' }}>
-              <Button
-                size="large"
+              {/* React Bits StarBorder：星星沿边框环跑 + 点击光脉冲。
+                  保留原白底黑字主 CTA 观感，星边用首页 accent 蓝。 */}
+              <StarBorder
+                as="button"
                 onClick={() => navigate('/practice')}
-                icon={<ArrowRightOutlined />}
-                style={{
-                  height: 48,
-                  padding: '0 38px',
-                  fontSize: 15,
-                  borderRadius: 24,
-                  background: '#fff',
-                  color: '#0a0a0f',
-                  border: 'none',
-                  fontWeight: 600,
-                }}
+                radius={24}
+                thickness={1.5}
+                duration={4}
+                glow={0.7}
+                color="#60A5FA"
+                trailColor="#60A5FA"
+                backgroundColor="#ffffff"
+                textColor="#0a0a0f"
+                borderColor="rgba(96, 165, 250, 0.45)"
+                style={{ height: 48, padding: '0 38px', fontSize: 15, fontWeight: 600, border: 'none' }}
               >
+                <ArrowRightOutlined />
                 开始练习
-              </Button>
+              </StarBorder>
             </div>
           ) : (
             <div style={{ pointerEvents: 'auto' }}>
