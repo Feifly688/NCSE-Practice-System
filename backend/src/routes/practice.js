@@ -3,6 +3,7 @@ const axios = require('axios');
 const { requireAuth } = require('../middleware/auth');
 const { asyncHandler } = require('../middleware/asyncHandler');
 const { withConnection } = require('../db');
+const { localDateTimeStr } = require('../lib/time');
 
 const router = express.Router();
 
@@ -30,10 +31,10 @@ router.post('/start', requireAuth, asyncHandler(async (req, res) => {
     const [subjects] = await conn.query('SELECT id FROM subject WHERE id = ?', [subject_id]);
     if (subjects.length === 0) throw Object.assign(new Error('科目不存在'), { status: 400 });
 
-    const [result] = await conn.query(
-      'INSERT INTO practice_session (user_id, subject_id, mode, status, total, duration_sec, started_at, meta_json) VALUES (?,?,?,?,?,?,NOW(),?)',
-      [req.user.userId, subject_id, 'random', 'in_progress', questions.length, 0, JSON.stringify({ questions })]
-    );
+      const [result] = await conn.query(
+        'INSERT INTO practice_session (user_id, subject_id, mode, status, total, duration_sec, started_at, meta_json) VALUES (?,?,?,?,?,?,?,?)',
+        [req.user.userId, subject_id, 'random', 'in_progress', questions.length, 0, localDateTimeStr(), JSON.stringify({ questions })]
+      );
     return result.insertId;
   });
 
@@ -112,8 +113,8 @@ router.post('/submit', requireAuth, asyncHandler(async (req, res) => {
     meta.elapsed_sec = elapsed_sec || 0;
 
     await conn.query(
-      'UPDATE practice_session SET status = ?, correct = ?, score = ?, duration_sec = ?, finished_at = NOW(), meta_json = ? WHERE id = ?',
-      ['completed', correct, score, elapsed_sec || 0, JSON.stringify(meta), session_id]
+      'UPDATE practice_session SET status = ?, correct = ?, score = ?, duration_sec = ?, finished_at = ?, meta_json = ? WHERE id = ?',
+      ['completed', correct, score, elapsed_sec || 0, localDateTimeStr(), JSON.stringify(meta), session_id]
     );
 
     return { session_id, total, correct, score: Number(score), duration_sec: elapsed_sec || 0 };

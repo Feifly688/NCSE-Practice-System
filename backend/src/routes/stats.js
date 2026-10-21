@@ -1,31 +1,37 @@
 const express = require('express');
 const { asyncHandler } = require('../middleware/asyncHandler');
 const { withConnection } = require('../db');
+const { localDateStr, shiftDateStr } = require('../lib/time');
 
 const router = express.Router();
 
 // GET /api/stats/public - 公开统计数据（无需登录）
 router.get('/public', asyncHandler(async (req, res) => {
+  // 以 Node 本地时区（Asia/Shanghai）为事实源计算日期边界，
+  // 避免 MySQL 服务端 UTC 时区导致凌晨记录被算到前一天
+  const today = localDateStr();
+
   const data = await withConnection(async (conn) => {
     // 今日答题数（通过 session 关联获取日期）
     const [todayAnswers] = await conn.query(`
       SELECT COUNT(*) as count
       FROM practice_answer a
       JOIN practice_session s ON a.session_id = s.id
-      WHERE DATE(s.started_at) = CURDATE()
-    `);
+      WHERE DATE(s.started_at) = ?
+    `, [today]);
 
     // 今日正确率
     const [todayCorrectRate] = await conn.query(`
       SELECT ROUND(SUM(a.is_correct)/COUNT(*)*100, 1) as rate
       FROM practice_answer a
       JOIN practice_session s ON a.session_id = s.id
-      WHERE DATE(s.started_at) = CURDATE()
-    `);
+      WHERE DATE(s.started_at) = ?
+    `, [today]);
 
     // 今日完成的练习次数
     const [todaySessions] = await conn.query(
-      "SELECT COUNT(*) as count FROM practice_session WHERE DATE(started_at) = CURDATE() AND status = 'completed'"
+      "SELECT COUNT(*) as count FROM practice_session WHERE DATE(started_at) = ? AND status = 'completed'",
+      [today]
     );
 
     // 总用户数
@@ -56,26 +62,25 @@ router.get('/public', asyncHandler(async (req, res) => {
     const todayVisits = (todayVisitsDate && new Date(todayVisitsDate).toDateString() === new Date().toDateString())
       ? (todayVisitsRow[0]?.count || 0) : 0;
 
-    // 近7天答题趋势
+    // 近7天答题趋势（本地时区：今天 00:00 起前推 6 天）
     const [weekTrend] = await conn.query(`
       SELECT DATE(s.started_at) as date, COUNT(*) as count
       FROM practice_answer a
       JOIN practice_session s ON a.session_id = s.id
-      WHERE s.started_at >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)
+      WHERE s.started_at >= ?
       GROUP BY DATE(s.started_at)
       ORDER BY date ASC
-    `);
+    `, [shiftDateStr(-6) + ' 00:00:00']);
 
     // 填充缺失的日期（确保连续7天）
+    // 注意：必须用本地日期串比较，不能用 toISOString()（其会按 UTC 转换，
+    // 在东八区凌晨 0-8 点会把日期算到前一天）
     const trend = [];
     for (let i = 6; i >= 0; i--) {
       const date = new Date();
       date.setDate(date.getDate() - i);
-      const dateStr = date.toISOString().split('T')[0];
-      const found = weekTrend.find(t => {
-        const tDate = new Date(t.date).toISOString().split('T')[0];
-        return tDate === dateStr;
-      });
+      const dateStr = localDateStr(date);
+      const found = weekTrend.find(t => localDateStr(new Date(t.date)) === dateStr);
       trend.push({
         date: `${date.getMonth() + 1}/${date.getDate()}`,
         count: found ? found.count : 0
