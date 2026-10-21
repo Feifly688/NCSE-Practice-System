@@ -57,9 +57,18 @@ export default function MainLayout() {
   const navMenu = (
     <Menu
       mode={isMobile ? 'inline' : 'horizontal'}
+      // 桌面端 header 为深色底（#0a0a0f），菜单须用深色主题（浅色文字）；
+      // 移动端菜单在白色抽屉内，用浅色主题（深色文字）
+      theme={isMobile ? 'light' : 'dark'}
       selectedKeys={[location.pathname]}
       items={menuItems}
       onClick={({ key }) => navigate(key)}
+      // 显式指定文字/悬停/选中色；选中态用首页 accent 蓝（桌面深底用淡蓝，
+      // 移动端白底抽屉用深蓝保证可读性），避免默认 antd 蓝违和
+      itemColor={isMobile ? undefined : 'rgba(255, 255, 255, 0.75)'}
+      itemHoverColor={isMobile ? undefined : '#ffffff'}
+      itemSelectedColor={isMobile ? '#1d4ed8' : '#93c5fd'}
+      itemSelectedBg="rgba(96, 165, 250, 0.16)"
       style={{
         flex: isMobile ? undefined : 1,
         minWidth: 0,
