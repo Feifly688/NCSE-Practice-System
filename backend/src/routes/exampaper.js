@@ -123,8 +123,17 @@ async function runParseJob(paperId) {
 
   const started = Date.now();
   const results = await runPool(
-    chunks.map((c) => async () => parseChunk(c, { paperTitle: paper.title })),
-    2
+    chunks.map((c, i) => async () => {
+      const t0 = Date.now();
+      const r = await parseChunk(c, { paperTitle: paper.title });
+      console.log(
+        `[exam] paper=${paperId} 第 ${i + 1}/${chunks.length} 片（${c.section}）完成：` +
+        `${r.questions.length} 题 / ${((Date.now() - t0) / 1000).toFixed(1)}s / ` +
+        `降级=${r.degraded || '-'}${r.error ? ' / 错误=' + r.error.slice(0, 80) : ''}`
+      );
+      return r;
+    }),
+    3
   );
 
   const questions = [];
@@ -176,6 +185,9 @@ async function runParseJob(paperId) {
   let parseError = null;
   if (errors.length > 0) {
     parseError = `共 ${chunks.length} 片，${failedChunks} 片失败、${salvagedChunks} 片降级；首条原因：${errors[0]}`;
+  } else if (parseStatus === 'partial') {
+    // 无硬错误但有片段降级（输出截断后抢救/重试），给出可读说明而非留空
+    parseError = `共 ${chunks.length} 片，其中 ${salvagedChunks} 片输出被截断后已自动降级重试，已保留完整题目；可点「重新拆题」再跑一次以补全。`;
   }
 
   await updateParseState(paperId, {
