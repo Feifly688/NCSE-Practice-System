@@ -46,9 +46,12 @@ export default function Articles() {
   const [fetchLoading, setFetchLoading] = useState(false);
   const [confirmLoading, setConfirmLoading] = useState(false);
   const [newArticleCategory, setNewArticleCategory] = useState('both');
+  // 各来源抓取统计（后端返回），用于提示哪些来源没抓到文章
+  const [sourceStats, setSourceStats] = useState([]);
+  const [pageSize, setPageSize] = useState(15);
 
   useEffect(() => { loadSources(); }, []);
-  useEffect(() => { loadArticles(); }, [page, selectedSource, selectedCategory, sortField, sortOrder]);
+  useEffect(() => { loadArticles(); }, [page, pageSize, selectedSource, selectedCategory, sortField, sortOrder]);
 
   async function loadSources() {
     try { const r = await api.get('/articles/sources'); setSources(r.data.sources); } catch (_) {}
@@ -57,7 +60,7 @@ export default function Articles() {
   async function loadArticles() {
     setLoading(true);
     try {
-      const params = { page, pageSize: 15, sortField, sortOrder };
+      const params = { page, pageSize, sortField, sortOrder };
       if (selectedSource) params.source = selectedSource;
       if (selectedCategory) params.category = selectedCategory;
       const r = await api.get('/articles', { params });
@@ -113,7 +116,11 @@ export default function Articles() {
         try {
           await api.delete(`/articles/${id}`);
           message.success('删除成功');
-          loadArticles();
+          // 若删完当前页已无数据且不在第一页，回退一页，避免停留在空页
+          const remain = total - 1;
+          const lastPage = Math.max(1, Math.ceil(remain / pageSize));
+          if (page > lastPage) setPage(lastPage);
+          else loadArticles();
           loadSources();
         } catch (err) {
           message.error('删除失败');
@@ -135,8 +142,15 @@ export default function Articles() {
     try {
       const payload = { sources: enabledSources, totalCount };
       const r = await api.post('/articles/preview', payload);
+      // 记录各来源抓取情况，用于提示管理员哪些站点没抓到
+      setSourceStats(r.data.sourceStats || []);
       if (r.data.total === 0) {
-        message.info('没有可采集的新文章（所有文章可能已存在数据库中）');
+        const failed = (r.data.sourceStats || []).filter(s => s.fetched === 0).length;
+        message.info(
+          failed > 0
+            ? `没有可采集的新文章（${failed} 个来源未抓到内容，站点可能不可访问或文章已全部入库）`
+            : '没有可采集的新文章（文章可能已存在数据库中）'
+        );
         return;
       }
       setCandidateList(r.data.candidates);
@@ -152,10 +166,12 @@ export default function Articles() {
     try {
       const toInsert = selectedCandidates.map(i => candidateList[i]);
       const r = await api.post('/articles/confirm', { articles: toInsert, category: newArticleCategory });
-      const msg = r.data.skipped > 0
-        ? `成功添加 ${r.data.inserted} 篇，${r.data.skipped} 篇因内容为空被跳过`
-        : `成功添加 ${r.data.inserted} 篇文章`;
-      r.data.skipped > 0 ? message.warning(msg) : message.success(msg);
+      // 汇总插入/重复/空内容三类结果，避免管理员只看到成功数
+      const parts = [`成功添加 ${r.data.inserted} 篇`];
+      if (r.data.duplicated > 0) parts.push(`${r.data.duplicated} 篇重复已跳过`);
+      if (r.data.skipped > 0) parts.push(`${r.data.skipped} 篇因内容为空被跳过`);
+      const msg = parts.join('，');
+      (r.data.skipped > 0 || r.data.duplicated > 0) ? message.warning(msg) : message.success(msg);
       setFetchModalOpen(false);
       setPreviewStep(false);
       loadArticles();
@@ -250,7 +266,7 @@ export default function Articles() {
         searchable
         searchPlaceholder="搜索标题/来源/作者"
         searchFields={['title', 'source', 'author']}
-        pagination={{ current: page, total, pageSize: 15 }}
+        pagination={{ current: page, total, pageSize }}
         onPageChange={setPage}
         extraToolbar={
           <Space>
@@ -264,6 +280,17 @@ export default function Articles() {
             <Select allowClear placeholder="全部来源" style={{ width: 160 }} value={selectedSource}
               onChange={v => { setSelectedSource(v); setPage(1); }}
               options={sources.map(s => ({ label: `${s.source} (${s.count})`, value: s.source }))} />
+            {/* FlexTable 自带分页器不支持切换每页条数，这里在工具栏提供 */}
+            <Select
+              value={pageSize}
+              onChange={v => { setPageSize(v); setPage(1); }}
+              style={{ width: 110 }}
+              options={[
+                { label: '15 条/页', value: 15 },
+                { label: '30 条/页', value: 30 },
+                { label: '50 条/页', value: 50 },
+              ]}
+            />
             <Button type="primary" icon={<DownloadOutlined />} onClick={openFetchModal}>采集文章</Button>
           </Space>
         }
@@ -402,6 +429,23 @@ export default function Articles() {
               <Text>共 {candidateList.length} 篇候选文章</Text>
               <Checkbox checked={selectedCandidates.length === candidateList.length} onChange={e => selectAllCandidates(e.target.checked)}>全选</Checkbox>
             </div>
+            {/* 各来源抓取情况：帮助管理员判断哪个站点没抓到 */}
+            {sourceStats.length > 0 && (
+              <div style={{ marginBottom: 12, padding: '8px 12px', background: '#fafafa', borderRadius: 6 }}>
+                <Text type="secondary" style={{ fontSize: 12 }}>来源抓取情况：</Text>
+                <Space size={[6, 4]} wrap style={{ marginTop: 4 }}>
+                  {sourceStats.map(s => {
+                    const meta = AVAILABLE_SOURCES.find(a => a.id === s.sourceId);
+                    const ok = s.fetched > 0;
+                    return (
+                      <Tag key={s.sourceId} color={ok ? 'blue' : 'red'}>
+                        {meta?.name || s.sourceId} {s.fetched} 篇
+                      </Tag>
+                    );
+                  })}
+                </Space>
+              </div>
+            )}
             {candidateList.length === 0 ? (
               <Empty description="没有新文章可添加" />
             ) : (

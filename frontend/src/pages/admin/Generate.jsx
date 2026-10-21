@@ -26,14 +26,19 @@ export default function Generate() {
   const [genProgress, setGenProgress] = useState({ current: 0, total: 0 });
   const [cancelling, setCancelling] = useState(false);
   const cancelRef = useRef(false);
-  const pageSize = 10;
+  // 真服务端分页：pageSize 可切换（10/20/50），切页时重新请求后端
+  const [pageSize, setPageSize] = useState(20);
+  const [total, setTotal] = useState(0);
 
-  useEffect(() => { loadArticles(); }, [showGenerated, selectedSubject, selectedSource]);
+  useEffect(() => {
+    loadArticles(currentPage, pageSize);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPage, pageSize, showGenerated, selectedSubject, selectedSource]);
 
-  async function loadArticles() {
+  async function loadArticles(page = currentPage, size = pageSize) {
     setLoading(true);
     try {
-      const params = { pageSize: 200 };
+      const params = { page, pageSize: size };
       if (showGenerated) {
         params.filterGenerated = 'true';
       }
@@ -48,12 +53,29 @@ export default function Generate() {
         params.category = 'politics';
       }
       const r = await api.get('/articles', { params });
-      setArticles(r.data.articles);
+      setArticles(r.data.articles || []);
+      setTotal(r.data.total || 0);
     } catch (err) {
       message.error('加载文章失败');
     } finally {
       setLoading(false);
     }
+  }
+
+  // 筛选条件变化时回到第一页，避免停留在超出范围的页码
+  function changeSubject(next) {
+    setSelectedSubject(next);
+    setCurrentPage(1);
+  }
+
+  function changeSource(next) {
+    setSelectedSource(next ?? '');
+    setCurrentPage(1);
+  }
+
+  function changeShowGenerated(checked) {
+    setShowGenerated(checked);
+    setCurrentPage(1);
   }
 
   async function testConnection() {
@@ -198,7 +220,9 @@ export default function Generate() {
       setModalOpen(false);
       setPreviewStep(false);
       setSelectedArticles([]);
-      loadArticles();
+      // 保存后回到第一页重新加载，避免因条目变化停留在空页码
+      setCurrentPage(1);
+      loadArticles(1, pageSize);
     } catch (err) {
       message.error('保存失败: ' + (err.response?.data?.error || err.message));
     } finally {
@@ -315,7 +339,7 @@ export default function Generate() {
             <Text strong>板块：</Text>
             <Select
               value={selectedSubject}
-              onChange={setSelectedSubject}
+              onChange={changeSubject}
               style={{ width: 150 }}
               options={[
                 { label: '言语理解与表达', value: 'verbal_comprehension' },
@@ -325,7 +349,7 @@ export default function Generate() {
             <Text strong>来源：</Text>
             <Select
               value={selectedSource}
-              onChange={setSelectedSource}
+              onChange={changeSource}
               allowClear
               placeholder="全部来源"
               style={{ width: 160 }}
@@ -381,7 +405,7 @@ export default function Generate() {
                 return true;
               }).length} 篇 | 已选：{selectedArticles.length} 篇
             </Text>
-            <Checkbox checked={showGenerated} onChange={e => setShowGenerated(e.target.checked)}>
+            <Checkbox checked={showGenerated} onChange={e => changeShowGenerated(e.target.checked)}>
               显示已出题文章
             </Checkbox>
           </Space>
@@ -395,7 +419,7 @@ export default function Generate() {
                 return categoryMatch && a.question_count === 0;
               }).map(a => a.id);
               setSelectedArticles(ids);
-            }}>全选可出题</Button>
+            }}>全选本页可出题</Button>
             <Button size="small" onClick={() => setSelectedArticles([])}>取消全选</Button>
           </Space>
         </div>
@@ -407,9 +431,17 @@ export default function Generate() {
           loading={loading}
           size="small"
           pagination={{
-            pageSize,
             current: currentPage,
-            onChange: (page) => setCurrentPage(page)
+            pageSize,
+            total,
+            showSizeChanger: true,
+            pageSizeOptions: [10, 20, 50],
+            showTotal: (t) => `共 ${t} 篇`,
+            // 切页/改每页条数均重新请求后端对应页数据
+            onChange: (page, size) => {
+              setCurrentPage(page);
+              setPageSize(size);
+            },
           }}
           scroll={{ y: 400 }}
           rowClassName={record => record.question_count > 0 ? 'generated-row' : ''}

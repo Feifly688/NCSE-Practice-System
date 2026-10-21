@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
 import { GlowCard } from '../components/ui/spotlight-card';
+import { DonutChart, TrendLine, ModuleBars } from '../components/ui/charts';
 import { useResponsive } from '../hooks/useResponsive';
 
 const { Text } = Typography;
@@ -52,6 +53,10 @@ export default function Dashboard() {
 
   const overall = stats?.overall || {};
   const recent = stats?.recent || [];
+  const bySubject = stats?.bySubject || [];
+  const totalQ = overall.total_questions || 0;
+  const totalC = overall.total_correct || 0;
+  const accuracy = totalQ > 0 ? Math.round((totalC / totalQ) * 100) : 0;
 
   return (
     <div>
@@ -76,7 +81,7 @@ export default function Dashboard() {
           <DashStat icon={<EditOutlined style={{ color: '#1D4ED8' }} />} title="总答题数" value={overall.total_questions || 0} glowColor="blue" />
         </Col>
         <Col xs={24} sm={12} md={6}>
-          <DashStat icon={<TrophyOutlined style={{ color: '#059669' }} />} title="正确率" value={overall.total_questions > 0 ? Math.round((overall.total_correct / overall.total_questions) * 100) : 0} suffix="%" glowColor="green" />
+          <DashStat icon={<TrophyOutlined style={{ color: '#059669' }} />} title="正确率" value={accuracy} suffix="%" glowColor="green" />
         </Col>
         <Col xs={24} sm={12} md={6}>
           <DashStat icon={<CheckCircleOutlined style={{ color: '#7C3AED' }} />} title="平均分" value={overall.avg_score || 0} glowColor="purple" />
@@ -126,20 +131,61 @@ export default function Dashboard() {
         </Card>
       )}
 
-      {trend.length > 0 && (
-        <Card title={<span style={{ fontSize: 16 }}>成绩趋势</span>} style={{ marginTop: 24, borderRadius: 12 }}>
-          <div style={{ display: 'flex', alignItems: 'flex-end', height: isMobile ? 170 : 200, gap: isMobile ? 2 : 4, padding: '0 8px' }}>
-            {trend.map((t, i) => {
-              const h = Math.max(4, (t.score / 100) * (isMobile ? 145 : 180));
-              return (
-                <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                  <Text style={{ fontSize: 11, marginBottom: 4 }}>{t.score}</Text>
-                  <div style={{ width: '100%', maxWidth: 40, height: h, background: t.score >= 60 ? 'linear-gradient(180deg, #059669 0%, #34D399 100%)' : 'linear-gradient(180deg, #DC2626 0%, #F87171 100%)', borderRadius: '4px 4px 0 0' }} />
-                  <Text style={{ fontSize: 10, marginTop: 4, color: '#999' }}>{new Date(t.started_at).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })}</Text>
+      {/* ─── 数据可视化区：正确率环形 + 模块表现 ─── */}
+      <Row gutter={[isMobile ? 12 : 16, isMobile ? 12 : 16]} style={{ marginTop: isMobile ? 16 : 24 }}>
+        <Col xs={24} md={9}>
+          <Card
+            title={<span style={{ fontSize: 16 }}>总体正确率</span>}
+            style={{ borderRadius: 14, border: '1px solid #e2e8f0', height: '100%' }}
+            bodyStyle={{ padding: isMobile ? 18 : 22 }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 16 : 24, flexWrap: 'wrap', justifyContent: isMobile ? 'center' : 'flex-start' }}>
+              <DonutChart
+                percent={accuracy}
+                size={isMobile ? 116 : 132}
+                color={accuracy >= 60 ? '#059669' : '#DC2626'}
+              >
+                <div style={{ fontSize: isMobile ? 24 : 28, fontWeight: 700, color: '#1a1a1a', lineHeight: 1.1 }}>
+                  {accuracy}<span style={{ fontSize: 14, fontWeight: 500 }}>%</span>
                 </div>
-              );
-            })}
-          </div>
+                <div style={{ fontSize: 11, color: '#94a3b8' }}>正确率</div>
+              </DonutChart>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 108 }}>
+                <div>
+                  <Text type="secondary" style={{ fontSize: 12 }}>答对</Text>
+                  <div style={{ fontSize: 18, fontWeight: 600, color: '#059669' }}>{totalC} 题</div>
+                </div>
+                <div>
+                  <Text type="secondary" style={{ fontSize: 12 }}>总题</Text>
+                  <div style={{ fontSize: 18, fontWeight: 600, color: '#334155' }}>{totalQ} 题</div>
+                </div>
+                <div>
+                  <Text type="secondary" style={{ fontSize: 12 }}>平均用时</Text>
+                  <div style={{ fontSize: 18, fontWeight: 600, color: '#334155' }}>{overall.avg_duration || 0} 秒</div>
+                </div>
+              </div>
+            </div>
+          </Card>
+        </Col>
+        <Col xs={24} md={15}>
+          <Card
+            title={<span style={{ fontSize: 16 }}>科目掌握情况</span>}
+            style={{ borderRadius: 14, border: '1px solid #e2e8f0', height: '100%' }}
+            bodyStyle={{ padding: isMobile ? 18 : 22 }}
+          >
+            <ModuleBars items={bySubject} />
+          </Card>
+        </Col>
+      </Row>
+
+      {trend.length > 0 && (
+        <Card
+          title={<span style={{ fontSize: 16 }}>成绩趋势</span>}
+          extra={<Text type="secondary" style={{ fontSize: 12 }}>近 {trend.length} 次练习</Text>}
+          style={{ marginTop: isMobile ? 16 : 24, borderRadius: 14, border: '1px solid #e2e8f0' }}
+          bodyStyle={{ padding: isMobile ? 18 : 22 }}
+        >
+          <TrendLine points={trend} height={isMobile ? 160 : 190} />
         </Card>
       )}
     </div>

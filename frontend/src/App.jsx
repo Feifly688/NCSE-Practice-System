@@ -6,6 +6,7 @@ import MainLayout from './layouts/MainLayout';
 import AdminLayout from './layouts/AdminLayout';
 import ProtectedRoute from './components/ProtectedRoute';
 import AdminRoute from './components/AdminRoute';
+import GuestRoute from './components/GuestRoute';
 import ErrorBoundary from './components/ErrorBoundary';
 import AuthModal from './components/AuthModal';
 import Home from './pages/Home';
@@ -24,6 +25,7 @@ const Questions = lazy(() => import('./pages/admin/Questions'));
 const Users = lazy(() => import('./pages/admin/Users'));
 const Generate = lazy(() => import('./pages/admin/Generate'));
 const Articles = lazy(() => import('./pages/admin/Articles'));
+const ExamPapers = lazy(() => import('./pages/admin/ExamPapers'));
 
 const theme = {
   token: {
@@ -71,7 +73,8 @@ export default function App() {
           <Suspense fallback={<PageFallback />}>
             <Routes>
               <Route element={<MainLayout />}>
-                <Route path="/" element={<Home />} />
+                {/* 登录页（首页）：已登录用户由 GuestRoute 守卫重定向到仪表盘 */}
+                <Route path="/" element={<GuestRoute><Home /></GuestRoute>} />
                 <Route path="/login" element={<AuthRedirect />} />
                 <Route path="/register" element={<AuthRedirect />} />
                 <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
@@ -89,6 +92,7 @@ export default function App() {
                 <Route path="articles" element={<Articles />} />
                 <Route path="users" element={<Users />} />
                 <Route path="generate" element={<Generate />} />
+                <Route path="exam-papers" element={<ExamPapers />} />
                 <Route path="*" element={<NotFound />} />
               </Route>
             </Routes>
