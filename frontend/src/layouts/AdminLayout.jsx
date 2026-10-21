@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Layout, Menu, Button, Drawer, Space, Typography } from 'antd';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { FileTextOutlined, UserOutlined, ThunderboltOutlined, ArrowLeftOutlined, ReadOutlined, MenuOutlined } from '@ant-design/icons';
+import { FileTextOutlined, UserOutlined, ThunderboltOutlined, ArrowLeftOutlined, ReadOutlined, MenuOutlined, TrophyOutlined } from '@ant-design/icons';
 import { useResponsive } from '../hooks/useResponsive';
 
 const { Sider, Content } = Layout;
@@ -20,6 +20,7 @@ export default function AdminLayout() {
     { key: '/admin/articles', icon: <ReadOutlined />, label: '文章来源' },
     { key: '/admin/users', icon: <UserOutlined />, label: '用户管理' },
     { key: '/admin/generate', icon: <ThunderboltOutlined />, label: '题目生成' },
+    { key: '/admin/exam-papers', icon: <TrophyOutlined />, label: '真题管理' },
     { type: 'divider' },
     { key: '/dashboard', icon: <ArrowLeftOutlined />, label: '返回前台' },
   ];

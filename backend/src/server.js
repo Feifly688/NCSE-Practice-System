@@ -10,6 +10,7 @@ const articleRoutes = require('./routes/articles');
 const adminRoutes = require('./routes/admin');
 const generateRoutes = require('./routes/generate');
 const statsRoutes = require('./routes/stats');
+const examPaperRoutes = require('./routes/exampaper');
 
 const app = express();
 const port = process.env.APP_PORT || 4000;
@@ -48,6 +49,7 @@ app.use('/api/articles', articleRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/generate', generateRoutes);
 app.use('/api/stats', statsRoutes);
+app.use('/api/admin/exam-papers', examPaperRoutes);
 
 // Health 端点
 app.get('/api/health', async (_req, res) => {

@@ -280,6 +280,7 @@ function getSourceId(sourceName) {
 }
 
 // POST /api/articles/preview
+// 返回候选文章 + 各来源抓取统计（fetched=0 表示该源未抓到，前端可提示）
 router.post('/preview', asyncHandler(async (req, res) => {
   const { sources, totalCount } = req.body;
   if (!sources || !Array.isArray(sources) || sources.length === 0) return res.status(400).json({ error: '请选择至少一个来源' });
@@ -300,16 +301,23 @@ router.post('/preview', asyncHandler(async (req, res) => {
           used.add(fp);
         }
       }
-      return filtered;
+      return { sourceId, fetchedCount: fetched.length, items: filtered };
     });
     const results = await runConcurrent(tasks, 3);
-    for (const items of results) {
-      out.push(...items);
+    for (const r of results) {
+      out.push(...r.items);
       if (out.length >= (totalCount || 10)) break;
     }
-    return out.slice(0, totalCount || 10);
+    return {
+      candidates: out.slice(0, totalCount || 10),
+      sourceStats: results.map(r => ({ sourceId: r.sourceId, fetched: r.fetchedCount })),
+    };
   });
-  return res.json({ candidates: result, total: result.length });
+  return res.json({
+    candidates: result.candidates,
+    total: result.candidates.length,
+    sourceStats: result.sourceStats,
+  });
 }));
 
 // POST /api/articles/confirm
@@ -317,7 +325,7 @@ router.post('/confirm', asyncHandler(async (req, res) => {
   const { articles, category = 'both' } = req.body;
   if (!articles || !Array.isArray(articles) || articles.length === 0) return res.status(400).json({ error: '没有要添加的文章' });
   const result = await withConnection(async (conn) => {
-    let inserted = 0, skipped = 0;
+    let inserted = 0, skipped = 0, duplicated = 0;
     const tasks = articles.map(a => async () => {
       const fp = makeFingerprint(a.source, a.title);
       const [existing] = await conn.query('SELECT id FROM article WHERE fingerprint = ?', [fp]);
@@ -333,8 +341,12 @@ router.post('/confirm', asyncHandler(async (req, res) => {
       return 'inserted';
     });
     const statuses = await runConcurrent(tasks, 3);
-    for (const s of statuses) { if (s === 'inserted') inserted++; else if (s === 'empty') skipped++; }
-    return { inserted, skipped };
+    for (const s of statuses) {
+      if (s === 'inserted') inserted++;
+      else if (s === 'empty') skipped++;
+      else if (s === 'duplicate') duplicated++;
+    }
+    return { inserted, skipped, duplicated };
   });
   return res.json(result);
 }));

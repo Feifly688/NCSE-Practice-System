@@ -115,6 +115,33 @@ function getSystemPrompt(subject) {
   }
 }
 
+// 真题题型白名单（用于校验生成结果是否落在真实题型范围内）
+const VALID_QTYPES = [
+  '意图判断', '主旨概括', '细节理解', '标题填入', '下文推断',
+  '语句排序', '语句衔接', '词语理解', '逻辑填空', '单选题',
+];
+
+/**
+ * 生成题型与难度分配计划，随 prompt 一起下发给模型。
+ * 目的：避免同批题目题型扎堆、难度单一，更贴近真题的题型配比与难度梯度。
+ */
+function buildPlan(count, subject) {
+  const verbalTypes = ['意图判断', '主旨概括', '细节理解', '标题填入', '下文推断'];
+  const types = subject === 'politics'
+    ? ['细节理解', '主旨概括', '意图判断']
+    : verbalTypes;
+  // 难度梯度：简单/中等/困难按真题分布（约 2:5:3），并保证至少出现一次中等以上
+  const pool = [];
+  for (let i = 0; i < count; i++) {
+    const slot = i % 10;
+    const level = slot < 2 ? 2 : slot < 7 ? 3 : 4;
+    const qtype = types[i % types.length];
+    pool.push({ index: i + 1, qtype, difficulty: level });
+  }
+  if (count > 1 && !pool.some(p => p.difficulty >= 4)) pool[pool.length - 1].difficulty = 4;
+  return pool;
+}
+
 // 验证生成的题目质量
 function validateQuestion(q, articleText) {
   const errors = [];
@@ -141,16 +168,41 @@ function validateQuestion(q, articleText) {
     if (lens.some(l => l < 10 || l > 30)) {
       errors.push('选项长度不在10-30字范围');
     }
+    // 选项不能重复（真题不会出现雷同选项）
+    const normalized = q.options.map(o => String(o).trim());
+    if (new Set(normalized).size !== normalized.length) {
+      errors.push('存在重复选项');
+    }
   }
 
   // 3. stem 检查
   if (!q.stem || !q.stem.endsWith('：')) {
     errors.push('stem 不以冒号结尾');
+  } else if (q.stem.length > 50) {
+    errors.push('stem 过长（超过50字）');
   }
 
   // 4. answer 检查
   if (!['A', 'B', 'C', 'D'].includes(q.answer)) {
     errors.push('answer 无效');
+  }
+
+  // 5. 难度必须是 1-5 的整数
+  const diff = Number(q.difficulty);
+  if (!Number.isInteger(diff) || diff < 1 || diff > 5) {
+    errors.push('难度不在 1-5 整数范围');
+  }
+
+  // 6. 题型须落在真题题型白名单内
+  if (q.qtype && !VALID_QTYPES.includes(q.qtype)) {
+    errors.push('题型不在真题题型范围内: ' + q.qtype);
+  }
+
+  // 7. 解析长度（真题解析通常 60-150 字）
+  if (!q.explanation || q.explanation.length < 40) {
+    errors.push('解析过短');
+  } else if (q.explanation.length > 200) {
+    errors.push('解析过长');
   }
 
   return errors;
@@ -159,21 +211,39 @@ function validateQuestion(q, articleText) {
 async function generateQuestionsWithAI(articleText, articleTitle, count, subject = 'verbal_comprehension') {
   const systemPrompt = getSystemPrompt(subject);
 
+  // 题型与难度分配计划：明确每道题该出什么题型、什么难度，
+  // 避免同批题目题型扎堆或难度单一，贴近真题的分布特征
+  const plan = buildPlan(count, subject);
+  const planText = plan
+    .map(p => `  第${p.index}题：题型「${p.qtype}」，难度 ${p.difficulty}`)
+    .join('\n');
+
+  const common = `
+
+## 本次任务分配（必须严格遵守）
+${planText}
+
+## 真题语感要求
+- 题干简洁、不带冗余提示，问法与国考真题保持一致
+- 选项表述风格与原文一致（原文书面则选项书面），不得出现明显的"以下说法不正确"类模板化套话堆砌
+- 四个选项中只能有一个严格正确，其余三个必须是"看起来也成立、但有细微偏差"的干扰项
+- 每道题的 passage 来源段落不能重叠，且必须是原文连续段落`;
+
   let userPrompt;
   if (subject === 'politics') {
     userPrompt = `从以下文章生成${count}道政治题目：
 
 标题：${articleTitle}
-内容：${articleText}
+内容：${articleText}${common}
 
 按 system prompt 规范输出JSON（questions 数组）。`;
   } else {
     userPrompt = `从以下文章生成${count}道言语理解题目：
 
 标题：${articleTitle}
-内容：${articleText}
+内容：${articleText}${common}
 
-按 system prompt 规范输出JSON（questions 数组）。每道题的 passage 来源段落不能重叠。`;
+按 system prompt 规范输出JSON（questions 数组）。`;
   }
 
   try {
