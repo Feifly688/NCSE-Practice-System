@@ -27,10 +27,16 @@ MYSQL_USER=<数据库用户>
 MYSQL_PASSWORD=<数据库密码>
 MYSQL_DATABASE=ncse-practice-system
 JWT_SECRET=<openssl rand -hex 32 生成的随机值>
+JWT_EXPIRES_IN=7d            # 勾选「记住我」时的 token 有效期
+JWT_EXPIRES_SHORT=2h         # 未勾选时的短有效期（公共设备）
 CORS_ORIGIN=https://<前端域名>
 ADMIN_USERNAME=<管理员用户名>
 ADMIN_PASSWORD=<至少12位随机强密码>
 ```
+
+`JWT_EXPIRES_IN` 与 `JWT_EXPIRES_SHORT` 支持 `s`/`m`/`h`/`d`/`w` 单位（如 `12h`、`30m`）。前端提示文案由后端 `GET /api/auth/session-policy` 动态下发，改这两个变量后前端文案自动同步，**无需改动前端代码**。修改后需重启后端进程；已签发的 token 仍按签发时的有效期执行。
+
+未勾选「记住我」时使用短有效期，登录 2 小时后需重新登录——这是共享电脑场景下的预期行为。
 
 管理员可改用 `ADMIN_EMAIL`，但 `ADMIN_USERNAME` 与 `ADMIN_EMAIL` 至少需要配置一个。AI 功能需要额外设置 `API_KEY`、`BASE_URL` 和 `MODEL`。
 

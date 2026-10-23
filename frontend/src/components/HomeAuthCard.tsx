@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useResponsive } from '../hooks/useResponsive';
 import StarBorder from './react-bits/StarBorder';
+import RememberMeField from './RememberMeField';
 
 const { Text } = Typography;
 
@@ -19,16 +20,20 @@ type Mode = 'login' | 'register';
  */
 export default function HomeAuthCard() {
   const navigate = useNavigate();
-  const { login, register, loading } = useAuth();
+  const { login, register, loading, sessionPolicy } = useAuth();
   const { isMobile } = useResponsive();
   const [mode, setMode] = useState<Mode>('login');
   const [loginForm] = Form.useForm();
   const [registerForm] = Form.useForm();
+  // 记住我：勾选 = 长有效期（默认 7 天）；不勾选 = 短有效期（默认 2 小时）
+  const [remember, setRemember] = useState(true);
+
+  const shortLabel = sessionPolicy?.short?.label || '2 小时';
 
   async function handleLogin(values: { account: string; password: string }) {
     try {
-      await login(values.account, values.password);
-      message.success('登录成功');
+      await login(values.account, values.password, remember);
+      message.success(remember ? '登录成功' : `登录成功（${shortLabel}后需重新登录）`);
       loginForm.resetFields();
       navigate('/dashboard');
     } catch (err: any) {
@@ -38,8 +43,8 @@ export default function HomeAuthCard() {
 
   async function handleRegister(values: any) {
     try {
-      await register(values);
-      message.success('注册成功');
+      await register(values, remember);
+      message.success(remember ? '注册成功' : `注册成功（${shortLabel}后需重新登录）`);
       registerForm.resetFields();
       navigate('/dashboard');
     } catch (err: any) {
@@ -132,6 +137,8 @@ export default function HomeAuthCard() {
               style={{ borderRadius: 9 }}
             />
           </Form.Item>
+          {/* 记住我：勾选=长有效期，不勾选=短有效期（公共设备更安全） */}
+          <RememberMeField checked={remember} onChange={setRemember} style={{ marginBottom: 14 }} />
           {/* React Bits StarBorder 提交按钮：星星沿边框环跑 + 点击光脉冲。
               antd Button 无 loading 内置，用 disabled + 文案表达提交中状态。 */}
           <StarBorder
@@ -211,6 +218,7 @@ export default function HomeAuthCard() {
               style={{ borderRadius: 9 }}
             />
           </Form.Item>
+          <RememberMeField checked={remember} onChange={setRemember} style={{ marginBottom: 14 }} />
           <StarBorder
             as="button"
             type="submit"

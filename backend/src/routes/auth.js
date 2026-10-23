@@ -4,6 +4,7 @@ const rateLimit = require('express-rate-limit');
 const { requireAuth, signToken } = require('../middleware/auth');
 const { asyncHandler } = require('../middleware/asyncHandler');
 const { withConnection } = require('../db');
+const { resolveExpiresIn, describeExpiresIn, longExpiresIn, shortExpiresIn } = require('../lib/tokenPolicy');
 
 const router = express.Router();
 
@@ -50,8 +51,9 @@ router.post('/register', registerLimiter, asyncHandler(async (req, res) => {
   if (result.conflict) return res.status(409).json({ error: result.conflict });
 
   const user = { id: result.insertId, username, email: email || null, nickname, role: 'user', created_at: new Date().toISOString() };
-  const token = signToken(user);
-  return res.json({ token, user });
+  const remember = req.body?.remember;
+  const token = signToken(user, { remember });
+  return res.json({ token, user, session: describeExpiresIn(resolveExpiresIn({ remember })) });
 }));
 
 // POST /api/auth/login
@@ -72,9 +74,22 @@ router.post('/login', loginLimiter, asyncHandler(async (req, res) => {
   const ok = await bcrypt.compare(password, user.password_hash);
   if (!ok) return res.status(401).json({ error: '邮箱或密码错误' });
 
-  const token = signToken(user);
-  return res.json({ token, user: { id: user.id, username: user.username, email: user.email, nickname: user.nickname, role: user.role, created_at: user.created_at } });
+  const token = signToken(user, { remember: req.body?.remember });
+  return res.json({
+    token,
+    user: { id: user.id, username: user.username, email: user.email, nickname: user.nickname, role: user.role, created_at: user.created_at },
+    session: describeExpiresIn(resolveExpiresIn({ remember: req.body?.remember })),
+  });
 }));
+
+// GET /api/auth/session-policy
+// 公开端点：前端据此渲染「记住我」旁的时效提示，避免硬编码文案与后端配置脱节
+router.get('/session-policy', (_req, res) => {
+  return res.json({
+    long: describeExpiresIn(longExpiresIn()),
+    short: describeExpiresIn(shortExpiresIn()),
+  });
+});
 
 // GET /api/auth/me
 router.get('/me', requireAuth, asyncHandler(async (req, res) => {

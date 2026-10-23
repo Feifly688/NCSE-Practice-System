@@ -5,6 +5,9 @@ const api = axios.create({
   timeout: 30000, // 普通请求 30 秒超时
 });
 
+// token 过期事件：拦截器无法直接操作 React 状态，通过 DOM 事件通知 AuthContext
+export const AUTH_EXPIRED_EVENT = 'ncse:auth-expired';
+
 // request interceptor: attach token
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('token');
@@ -21,10 +24,14 @@ api.interceptors.response.use(
     if (err.response) {
       const { status } = err.response;
       if (status === 401) {
-        // 未登录或 token 过期 → 跳转登录
+        // 区分「从未登录」与「登录态失效」：
+        // 前者静默清理（访客浏览），后者派发事件提示用户重新登录。
+        const hadToken = !!localStorage.getItem('token');
         localStorage.removeItem('token');
         localStorage.removeItem('user');
-        window.location.href = '/login';
+        if (hadToken) {
+          window.dispatchEvent(new CustomEvent(AUTH_EXPIRED_EVENT));
+        }
       }
       // 403 不再跳转登录，由调用方处理（通常会显示错误消息）
     }

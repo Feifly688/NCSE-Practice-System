@@ -1,7 +1,15 @@
-import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
-import api from '../services/api';
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
+import { message } from 'antd';
+import api, { AUTH_EXPIRED_EVENT } from '../services/api';
+import { fetchSessionPolicy, getTokenExpiry } from '../services/session';
 
 const AuthContext = createContext(null);
+
+/** 会话策略（长/短有效期）兜底值：仅在后端策略接口不可用时使用 */
+const FALLBACK_POLICY = {
+  long: { expiresIn: '7d', ms: 7 * 24 * 3600 * 1000, label: '7 天' },
+  short: { expiresIn: '2h', ms: 2 * 3600 * 1000, label: '2 小时' },
+};
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(() => {
@@ -13,6 +21,8 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(false);
   // 登录/注册弹窗状态：null 表示关闭，'login' / 'register' 表示当前标签页
   const [authModal, setAuthModal] = useState(null);
+  // 会话有效期策略，由后端下发，避免前端硬编码文案与运维配置脱节
+  const [sessionPolicy, setSessionPolicy] = useState(null);
   const userRef = useRef(user);
   userRef.current = user;
 
@@ -27,13 +37,33 @@ export function AuthProvider({ children }) {
     setAuthModal(null);
   }
 
+  // 拉取会话有效期策略（失败时回退到默认文案，不阻塞登录）
+  useEffect(() => {
+    let alive = true;
+    fetchSessionPolicy(api).then((policy) => {
+      if (alive) setSessionPolicy(policy);
+    });
+    return () => { alive = false; };
+  }, []);
+
+  // 监听 token 失效事件：清理本地状态并提示用户重新登录
+  // （axios 拦截器无法直接改 React 状态，通过 DOM 事件桥接）
+  useEffect(() => {
+    const handleExpired = () => {
+      setUser(null);
+      message.warning('登录状态已失效，请重新登录');
+    };
+    window.addEventListener(AUTH_EXPIRED_EVENT, handleExpired);
+    return () => window.removeEventListener(AUTH_EXPIRED_EVENT, handleExpired);
+  }, []);
+
   // 验证 token 是否仍然有效
   useEffect(() => {
     const token = localStorage.getItem('token');
     if (token && userRef.current) {
       api.get('/auth/me').catch(() => {
-        // token 无效时 api.js 的 interceptor 会处理 401 跳转
-        // 如果没跳转（如网络错误），清除本地状态
+        // token 无效时拦截器会派发失效事件并清理 localStorage；
+        // 这里兜底处理网络错误等非 401 场景
         localStorage.removeItem('token');
         localStorage.removeItem('user');
         setUser(null);
@@ -41,39 +71,46 @@ export function AuthProvider({ children }) {
     }
   }, []);
 
-  async function login(account, password) {
+  /**
+   * 登录。remember 决定 token 有效期：
+   *   true（勾选"记住我"）→ 服务端签发长有效期（默认 7 天）
+   *   false（未勾选）      → 短有效期（默认 2 小时），适合公共设备
+   */
+  const login = useCallback(async (account, password, remember = true) => {
     setLoading(true);
     try {
-      const { data } = await api.post('/auth/login', { account, password });
+      const { data } = await api.post('/auth/login', { account, password, remember });
       localStorage.setItem('token', data.token);
       localStorage.setItem('user', JSON.stringify(data.user));
       setUser(data.user);
       return data;
     } finally { setLoading(false); }
-  }
+  }, []);
 
-  async function register(values) {
+  const register = useCallback(async (values, remember = true) => {
     setLoading(true);
     try {
-      const { data } = await api.post('/auth/register', values);
+      const { data } = await api.post('/auth/register', { ...values, remember });
       localStorage.setItem('token', data.token);
       localStorage.setItem('user', JSON.stringify(data.user));
       setUser(data.user);
       return data;
     } finally { setLoading(false); }
-  }
+  }, []);
 
-  function logout() {
+  const logout = useCallback(() => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     setUser(null);
-  }
+  }, []);
 
   return (
     <AuthContext.Provider value={{
       user, setUser, loading, isAuthenticated, isAdmin,
       login, register, logout,
       authModal, openAuth, closeAuth,
+      sessionPolicy: sessionPolicy || FALLBACK_POLICY,
+      tokenExpiry: getTokenExpiry(localStorage.getItem('token')),
     }}>
       {children}
     </AuthContext.Provider>

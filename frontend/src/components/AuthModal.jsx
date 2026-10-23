@@ -3,6 +3,7 @@ import { Modal, Tabs, Form, Input, Button, Typography, message, Space } from 'an
 import { UserOutlined, LockOutlined, MailOutlined } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import RememberMeField from './RememberMeField';
 
 const { Text } = Typography;
 
@@ -18,10 +19,14 @@ const PANEL_BG = 'rgba(18, 18, 26, 0.85)';
 export default function AuthModal() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { authModal, closeAuth, login, register, loading } = useAuth();
+  const { authModal, closeAuth, login, register, loading, sessionPolicy } = useAuth();
   const [tab, setTab] = useState('login');
   const [loginForm] = Form.useForm();
   const [registerForm] = Form.useForm();
+  // 记住我：勾选 = 长有效期（默认 7 天）；不勾选 = 短有效期（默认 2 小时）
+  const [remember, setRemember] = useState(true);
+
+  const shortLabel = sessionPolicy?.short?.label || '2 小时';
 
   // 打开时同步到请求的标签页
   useEffect(() => {
@@ -39,8 +44,8 @@ export default function AuthModal() {
 
   async function handleLogin(values) {
     try {
-      await login(values.account, values.password);
-      message.success('登录成功');
+      await login(values.account, values.password, remember);
+      message.success(remember ? '登录成功' : `登录成功（${shortLabel}后需重新登录）`);
       loginForm.resetFields();
       closeAuth();
       navigate('/dashboard');
@@ -51,8 +56,8 @@ export default function AuthModal() {
 
   async function handleRegister(values) {
     try {
-      await register(values);
-      message.success('注册成功');
+      await register(values, remember);
+      message.success(remember ? '注册成功' : `注册成功（${shortLabel}后需重新登录）`);
       registerForm.resetFields();
       closeAuth();
       navigate('/dashboard');
@@ -81,6 +86,7 @@ export default function AuthModal() {
           >
             <Input.Password aria-label="密码" prefix={<LockOutlined style={{ color: 'rgba(255,255,255,0.35)' }} />} placeholder="密码" style={{ borderRadius: 8 }} />
           </Form.Item>
+          <RememberMeField checked={remember} onChange={setRemember} style={{ marginBottom: 18 }} />
           <Button
             type="primary"
             htmlType="submit"
@@ -134,6 +140,7 @@ export default function AuthModal() {
           >
             <Input.Password aria-label="密码，至少 6 位" prefix={<LockOutlined style={{ color: 'rgba(255,255,255,0.35)' }} />} placeholder="密码（至少6位）" style={{ borderRadius: 8 }} />
           </Form.Item>
+          <RememberMeField checked={remember} onChange={setRemember} style={{ marginBottom: 18 }} />
           <Button
             type="primary"
             htmlType="submit"

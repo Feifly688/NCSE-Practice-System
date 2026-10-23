@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const { withConnection } = require('../db');
+const { resolveExpiresIn } = require('../lib/tokenPolicy');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_local_secret';
 if (!process.env.JWT_SECRET) console.warn('WARNING: JWT_SECRET not set in .env, using fallback (insecure for production)');
@@ -60,11 +61,16 @@ function requireAdmin(req, res, next) {
   return next();
 }
 
-function signToken(user) {
+// Token 有效期策略见 lib/tokenPolicy.js：
+//   勾选「记住我」→ JWT_EXPIRES_IN（默认 7d），日常使用不必频繁登录
+//   未勾选        → JWT_EXPIRES_SHORT（默认 2h），公共设备/共享浏览器自动收敛风险
+// 未传 remember 字段的老客户端按长有效期处理，保持向后兼容。
+
+function signToken(user, options = {}) {
   return jwt.sign(
     { userId: user.id, email: user.email, role: user.role },
     JWT_SECRET,
-    { expiresIn: '7d' }
+    { expiresIn: resolveExpiresIn(options) }
   );
 }
 

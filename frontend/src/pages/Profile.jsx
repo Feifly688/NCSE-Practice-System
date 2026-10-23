@@ -4,6 +4,7 @@ import { UserOutlined, MailOutlined, LockOutlined, SaveOutlined, EditOutlined } 
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
+import { getTokenExpiry, describeRemaining } from '../services/session';
 import { useResponsive } from '../hooks/useResponsive';
 
 const { Title } = Typography;
@@ -12,6 +13,17 @@ export default function Profile() {
   const navigate = useNavigate();
   const { user, setUser, logout } = useAuth();
   const { isMobile } = useResponsive();
+  // 从 JWT 的 exp 字段解析登录失效时间，让会话时长对用户透明
+  const [sessionExpiry, setSessionExpiry] = useState('-');
+  useEffect(() => {
+    const expiryAt = getTokenExpiry(localStorage.getItem('token'));
+    if (!expiryAt) {
+      setSessionExpiry('-');
+      return;
+    }
+    const d = new Date(expiryAt);
+    setSessionExpiry(`${d.toLocaleString('zh-CN')}（${describeRemaining(expiryAt)}）`);
+  }, [user]);
   const [profileForm] = Form.useForm();
   const [passwordForm] = Form.useForm();
   const [usernameForm] = Form.useForm();
@@ -100,6 +112,7 @@ export default function Profile() {
           <Descriptions.Item label="邮箱">{user?.email || '-'}</Descriptions.Item>
           <Descriptions.Item label="角色">{user?.role === 'admin' ? '管理员' : '普通用户'}</Descriptions.Item>
           <Descriptions.Item label="注册时间">{user?.created_at ? new Date(user.created_at).toLocaleString('zh-CN') : '-'}</Descriptions.Item>
+          <Descriptions.Item label="登录有效期至">{sessionExpiry}</Descriptions.Item>
         </Descriptions>
       </Card>
 
