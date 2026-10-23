@@ -4,12 +4,15 @@ const { requireAuth } = require('../middleware/auth');
 const { asyncHandler } = require('../middleware/asyncHandler');
 const { withConnection } = require('../db');
 const { localDateTimeStr } = require('../lib/time');
+const { safeOptions } = require('../lib/json');
 
 const router = express.Router();
 
 const aiAnalysisLimiter = require('express-rate-limit')({
   windowMs: 60 * 1000,
-  max: 5,
+  max: 10,
+  // 参数是错的题（500/400/404）不该消耗用户额度，只统计真正发起 AI 调用的请求
+  skipFailedRequests: true,
   keyGenerator: (req) => String(req.user?.userId || 'anon'),
   message: { error: '请求过于频繁，请稍后再试' }
 });
@@ -475,7 +478,7 @@ router.post('/ai-analysis', requireAuth, aiAnalysisLimiter, asyncHandler(async (
   });
   if (!q) return res.status(404).json({ error: '题目不存在' });
 
-  const options = JSON.parse(q.options_json || '[]');
+  const options = safeOptions(q.options_json);
   const optionsText = options.map((opt, i) => String.fromCharCode(65 + i) + '. ' + opt).join('\n');
 
   const API_KEY = process.env.API_KEY || process.env.MIMO_API_KEY;
@@ -516,24 +519,33 @@ ${optionsText}
 
 请用简洁的中文回答，不超过200字。`;
 
-  const aiRes = await axios.post(
-    BASE_URL + '/chat/completions',
-    {
-      model: process.env.MODEL || 'deepseek-v4-flash',
-      messages: [
-        { role: 'system', content: '你是公务员考试辅导专家，擅长用通俗易懂的方式讲解题目。' },
-        { role: 'user', content: prompt }
-      ],
-      max_tokens: 500,
-      temperature: 0.7
-    },
-    {
-      headers: { 'Authorization': 'Bearer ' + API_KEY, 'Content-Type': 'application/json' },
-      timeout: 30000
-    }
-  );
+  let analysis = '';
+  try {
+    const aiRes = await axios.post(
+      BASE_URL + '/chat/completions',
+      {
+        model: process.env.MODEL || 'deepseek-v4-flash',
+        messages: [
+          { role: 'system', content: '你是公务员考试辅导专家，擅长用通俗易懂的方式讲解题目。' },
+          { role: 'user', content: prompt }
+        ],
+        max_tokens: 500,
+        temperature: 0.7
+      },
+      {
+        headers: { 'Authorization': 'Bearer ' + API_KEY, 'Content-Type': 'application/json' },
+        timeout: 30000
+      }
+    );
+    // 上游若返回非标准结构（裸文本/流式分片），这里取不到内容时要显式降级，
+    // 不能把原始响应直接透给前端，否则前端 JSON 解析会失败
+    analysis = (aiRes.data?.choices?.[0]?.message?.content || '').trim();
+  } catch (e) {
+    console.error('[AI] 解析调用失败:', e.response?.status || '', e.response?.data?.error?.message || e.message);
+    return res.status(502).json({ error: 'AI 服务暂时不可用，请稍后再试' });
+  }
 
-  const analysis = aiRes.data.choices?.[0]?.message?.content || '暂无解析';
+  if (!analysis) return res.status(502).json({ error: 'AI 未返回有效内容，请稍后再试' });
   return res.json({ analysis });
 }));
 

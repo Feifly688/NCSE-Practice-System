@@ -10,21 +10,10 @@ const express = require('express');
 const { requireAuth } = require('../middleware/auth');
 const { asyncHandler } = require('../middleware/asyncHandler');
 const { withConnection } = require('../db');
+const { safeJson } = require('../lib/json');
 
 const router = express.Router();
 router.use(requireAuth);
-
-/** 解析选项字段（兼容 mysql2 对 JSON 列已解析为数组的情况） */
-function safeJson(v, fallback) {
-  if (Array.isArray(v)) return v;
-  if (v && typeof v === 'object') return v;
-  try {
-    const p = JSON.parse(v);
-    return p ?? fallback;
-  } catch {
-    return fallback;
-  }
-}
 
 /** 答案比较：多选按字母集合比较 */
 function isAnswerRight(yourAnswer, rightAnswer) {

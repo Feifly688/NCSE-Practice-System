@@ -26,6 +26,7 @@ const {
   splitIntoChunks, parseChunk, runPool, dedupeList, normalizeQuestion,
 } = require('../lib/paperParser');
 const { buildFingerprint, findDuplicate } = require('../lib/questionDedupe');
+const { safeJson } = require('../lib/json');
 
 const router = express.Router();
 
@@ -371,22 +372,6 @@ router.get('/:id/questions', asyncHandler(async (req, res) => {
   }));
   return res.json({ paperId: Number(req.params.id), questions, total: questions.length });
 }));
-
-/**
- * 解析选项字段。
- * 注意：mysql2 会把 JSON 列直接解析为数组，TEXT 列则是字符串，
- * 因此两种形态都要兼容，避免 JSON.parse(数组) 抛错导致选项丢失。
- */
-function safeJson(v, fallback) {
-  if (Array.isArray(v)) return v;
-  if (v && typeof v === 'object') return v;
-  try {
-    const p = JSON.parse(v);
-    return p ?? fallback;
-  } catch {
-    return fallback;
-  }
-}
 
 // ── 6. 确认入库：分模块 + 双重去重（指纹 + 相似度/特征）──
 router.post('/:id/confirm', asyncHandler(async (req, res) => {

@@ -406,8 +406,9 @@ export default function Practice() {
   async function requestAiAnalysis(questionId, userAnswer) {
     setAiLoading(prev => ({ ...prev, [questionId]: true }));
     try {
-      const r = await api.post('/practice/ai-analysis', { question_id: questionId, user_answer: userAnswer }, { timeout: 60000 }); // 60 seconds for AI analysis
-      setAiAnalysis(prev => ({ ...prev, [questionId]: r.data.analysis }));
+      // AI 生成较慢，单独放宽到 60 秒
+      const r = await api.post('/practice/ai-analysis', { question_id: questionId, user_answer: userAnswer }, { timeout: 60000 });
+      setAiAnalysis(prev => ({ ...prev, [questionId]: r.data?.analysis }));
     } catch (err) {
       // 后端可能返回业务错误（如 AI 未配置），也可能返回非 JSON（上游异常），
       // 后者取 err.message 会暴露原始响应片段，统一收敛为友好文案
@@ -488,8 +489,8 @@ export default function Practice() {
               </div>
               <div style={{ marginTop: 8 }}><Text type="secondary">你的答案：{userAns || '未答'} | 正确答案：{q.answer}</Text></div>
               {q.explanation && <div style={{ marginTop: 8, padding: '8px 12px', background: '#e6f7ff', borderRadius: 6 }}><Text type="secondary">解析：{q.explanation}</Text></div>}
-              {/* AI 解析入口：错题讲"为什么错"，答对的题讲"思路"，
-                  两类题目都提供，避免全对时入口整体消失 */}
+              {/* AI 解析入口：入口文案与配色对全部题目保持一致，
+                  后端再按答题对错生成不同侧重点的讲解内容 */}
               <div style={{ marginTop: 8 }}>
                 {aiAnalysis[q.id] ? (
                   <div style={{ padding: '8px 12px', background: '#fff7e6', borderRadius: 6, border: '1px solid #ffd591' }}>
@@ -498,7 +499,7 @@ export default function Practice() {
                   </div>
                 ) : (
                   <Button size="small" loading={aiLoading[q.id]} onClick={() => requestAiAnalysis(q.id, userAns)}>
-                    {isCorrect ? 'AI 思路讲解' : 'AI 解析'}
+                    AI 解析
                   </Button>
                 )}
               </div>
