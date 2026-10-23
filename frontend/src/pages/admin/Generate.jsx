@@ -1,9 +1,34 @@
 ﻿import React, { useState, useEffect, useRef } from 'react';
-import { Typography, Card, Button, Select, Modal, message, InputNumber, Checkbox, Divider, Space, List, Empty, Tag, Table } from 'antd';
+import { Typography, Card, Button, Select, Modal, message, InputNumber, Checkbox, Divider, Space, List, Empty, Tag, Table, Alert } from 'antd';
 import { ThunderboltOutlined, EyeOutlined, CheckCircleOutlined, ExperimentOutlined } from '@ant-design/icons';
 import api from '../../services/api';
 
 const { Title, Paragraph, Text } = Typography;
+
+/**
+ * 生成结果草稿的存储键。
+ *
+ * 用 sessionStorage 而非 localStorage：刷新页面不丢（生成很耗时，刷新多是误操作），
+ * 但关闭标签页/浏览器后自动清除，不会残留陈旧草稿。
+ */
+const DRAFT_KEY = 'ncse:generate-draft';
+
+/** 读取草稿；数据损坏或为空时返回 null，不影响正常使用 */
+function readDraft() {
+  try {
+    const raw = sessionStorage.getItem(DRAFT_KEY);
+    if (!raw) return null;
+    const d = JSON.parse(raw);
+    if (!d || !Array.isArray(d.previewQuestions) || d.previewQuestions.length === 0) return null;
+    return d;
+  } catch {
+    return null;
+  }
+}
+
+function removeDraft() {
+  try { sessionStorage.removeItem(DRAFT_KEY); } catch { /* 隐私模式下忽略 */ }
+}
 
 export default function Generate() {
   const [articles, setArticles] = useState([]);
@@ -29,11 +54,48 @@ export default function Generate() {
   // 真服务端分页：pageSize 可切换（10/20/50），切页时重新请求后端
   const [pageSize, setPageSize] = useState(20);
   const [total, setTotal] = useState(0);
+  // 已生成但未保存的结果草稿（防止误触遮罩/刷新导致数据丢失）
+  const [draft, setDraft] = useState(readDraft);
 
   useEffect(() => {
     loadArticles(currentPage, pageSize);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPage, pageSize, showGenerated, selectedSubject, selectedSource]);
+
+  // 草稿自动保存：生成结果或勾选状态变化时立即落盘。
+  // 保存 articleIds 是为了「返回」重新生成时能还原选中范围。
+  useEffect(() => {
+    if (previewStep && previewQuestions.length > 0) {
+      const snapshot = {
+        previewQuestions,
+        selectedQuestions,
+        subject: selectedSubject,
+        questionsPerArticle,
+        articleIds: selectedArticles,
+        savedAt: Date.now(),
+      };
+      try {
+        sessionStorage.setItem(DRAFT_KEY, JSON.stringify(snapshot));
+        setDraft(snapshot);
+      } catch { /* 隐私模式/配额不足时忽略，不影响主流程 */ }
+    }
+  }, [previewStep, previewQuestions, selectedQuestions, selectedSubject, questionsPerArticle, selectedArticles]);
+
+  // 关闭标签页前的最后兜底（此时 React 状态仍有效，effect 依赖未变时不会重复触发）
+  useEffect(() => {
+    const flush = () => {
+      if (previewStep && previewQuestions.length > 0) {
+        try {
+          sessionStorage.setItem(DRAFT_KEY, JSON.stringify({
+            previewQuestions, selectedQuestions, subject: selectedSubject,
+            questionsPerArticle, articleIds: selectedArticles, savedAt: Date.now(),
+          }));
+        } catch { /* 忽略 */ }
+      }
+    };
+    window.addEventListener('beforeunload', flush);
+    return () => window.removeEventListener('beforeunload', flush);
+  });
 
   async function loadArticles(page = currentPage, size = pageSize) {
     setLoading(true);
@@ -134,6 +196,25 @@ export default function Generate() {
   }
 
   function openGenerateModal() {
+    // 有草稿时优先恢复，避免"重新打开弹窗却把已生成结果清空"导致数据丢失
+    const existing = readDraft();
+    if (existing) {
+      setPreviewQuestions(existing.previewQuestions);
+      setSelectedQuestions(
+        Array.isArray(existing.selectedQuestions) && existing.selectedQuestions.length
+          ? existing.selectedQuestions
+          : existing.previewQuestions.map((_, i) => i)
+      );
+      // 还原生成时的板块与题数，保证「返回 → 重新生成」可用
+      if (existing.subject) setSelectedSubject(existing.subject);
+      if (existing.questionsPerArticle) setQuestionsPerArticle(existing.questionsPerArticle);
+      if (Array.isArray(existing.articleIds)) setSelectedArticles(existing.articleIds);
+      setDraft(existing);
+      setPreviewStep(true);
+      setModalOpen(true);
+      message.info(`已恢复上次生成的 ${existing.previewQuestions.length} 道题目`);
+      return;
+    }
     if (selectedArticles.length === 0) {
       message.warning('请先选择要生成题目的文章');
       return;
@@ -207,6 +288,44 @@ export default function Generate() {
     setCancelling(true);
   }
 
+  /** 关闭弹窗的统一入口：生成中或已有结果时先确认，绝不静默丢弃数据 */
+  function handleModalClose() {
+    if (generating) {
+      // 生成在后台继续，关闭窗口不会中断；完成后重新打开即可恢复
+      Modal.confirm({
+        title: '生成仍在进行中',
+        content: '关闭此窗口不会中断生成，完成后重新打开即可查看并保存结果。',
+        okText: '关闭窗口',
+        cancelText: '继续等待',
+        onOk: () => setModalOpen(false),
+      });
+      return;
+    }
+    if (previewStep && previewQuestions.length > 0) {
+      Modal.confirm({
+        title: '还有未保存的生成结果',
+        content: `共 ${previewQuestions.length} 道题目尚未保存。可保留草稿后关闭，下次打开时自动恢复。`,
+        okText: '保留草稿并关闭',
+        cancelText: '继续编辑',
+        onOk: () => setModalOpen(false), // 只关窗口，不动 previewStep / 不清数据
+      });
+      return;
+    }
+    setModalOpen(false);
+    setPreviewStep(false);
+  }
+
+  /** 用户明确放弃草稿（确认框中选择"放弃"） */
+  function discardDraft() {
+    removeDraft();
+    setDraft(null);
+    setPreviewStep(false);
+    setPreviewQuestions([]);
+    setSelectedQuestions([]);
+    setModalOpen(false);
+    message.info('已放弃未保存的生成结果');
+  }
+
   async function handleConfirm() {
     if (selectedQuestions.length === 0) {
       message.warning('请选择要保存的题目');
@@ -217,8 +336,13 @@ export default function Generate() {
       const toSave = selectedQuestions.map(i => previewQuestions[i]);
       const r = await api.post('/generate/confirm', { questions: toSave, subject: selectedSubject });
       message.success(`成功保存 ${r.data.inserted} 道题目`);
+      // 入库成功后草稿即失去意义，立即清除
+      removeDraft();
+      setDraft(null);
       setModalOpen(false);
       setPreviewStep(false);
+      setPreviewQuestions([]);
+      setSelectedQuestions([]);
       setSelectedArticles([]);
       // 保存后回到第一页重新加载，避免因条目变化停留在空页码
       setCurrentPage(1);
@@ -384,9 +508,11 @@ export default function Generate() {
               type="primary"
               icon={<ThunderboltOutlined />}
               onClick={openGenerateModal}
-              disabled={selectedArticles.length === 0}
+              disabled={selectedArticles.length === 0 && !draft}
             >
-              生成题目 ({selectedArticles.length}篇)
+              {draft
+                ? `恢复未保存的结果 (${draft.previewQuestions.length}题)`
+                : `生成题目 (${selectedArticles.length}篇)`}
             </Button>
           </Space>
         </div>
@@ -452,17 +578,17 @@ export default function Generate() {
       <Modal
         title={previewStep ? '预览生成的题目' : '确认生成'}
         open={modalOpen}
-        onCancel={() => { setModalOpen(false); setPreviewStep(false); }}
+        onCancel={handleModalClose}
         width={900}
         footer={previewStep ? [
           <Button key="back" onClick={() => setPreviewStep(false)}>返回</Button>,
-          <Button key="cancel" onClick={() => { setModalOpen(false); setPreviewStep(false); }}>取消</Button>,
+          <Button key="cancel" onClick={handleModalClose}>取消</Button>,
           <Button key="confirm" type="primary" icon={<CheckCircleOutlined />} loading={confirmLoading} onClick={handleConfirm}
             disabled={selectedQuestions.length === 0}>
             保存选中题目 ({selectedQuestions.length})
           </Button>
         ] : [
-          <Button key="cancel" onClick={() => setModalOpen(false)}>取消</Button>,
+          <Button key="cancel" onClick={handleModalClose}>取消</Button>,
           <Button key="generate" type="primary" icon={<ThunderboltOutlined />} loading={generating} onClick={handleGenerate}>
             开始生成
           </Button>
@@ -496,6 +622,20 @@ export default function Generate() {
           </div>
         ) : (
           <div>
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 12 }}
+              message="结果已自动保存为草稿"
+              description={
+                <>
+                  误触关闭、按 ESC 或刷新页面都不会丢失；保存到题库后草稿自动清除。
+                  <Button type="link" size="small" style={{ padding: 0, height: 'auto' }} onClick={discardDraft}>
+                    放弃这份草稿
+                  </Button>
+                </>
+              }
+            />
             <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <Text>共生成 {previewQuestions.length} 道题目</Text>
               <Checkbox
