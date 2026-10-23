@@ -148,6 +148,9 @@ router.get('/session/:id', requireAuth, asyncHandler(async (req, res) => {
         score: session.score, duration_sec: session.duration_sec,
         started_at: session.started_at, finished_at: session.finished_at
       },
+      // 注意：questions 来自 meta_json，仅含 {id, answer}（start 时写入的精简数据），
+      // 缺少 stem/options_json/explanation。需要完整题目数据请用 answerDetails
+      // （practice_answer JOIN question，字段齐全）。前端结果页已改用 answerDetails。
       questions: meta.questions || [],
       answers: meta.answers || {},
       elapsed_sec: meta.elapsed_sec || session.duration_sec || 0,
@@ -479,7 +482,25 @@ router.post('/ai-analysis', requireAuth, aiAnalysisLimiter, asyncHandler(async (
   const BASE_URL = process.env.BASE_URL || process.env.MIMO_BASE_URL || 'https://api.deepseek.com/v1';
   if (!API_KEY) return res.status(500).json({ error: 'AI 服务未配置' });
 
-  const prompt = `你是一位公务员考试辅导老师。学生做错了以下题目，请给出个性化的解析，重点解释：
+  // 答对与答错给予不同侧重点的讲解：错题重在纠偏，答对重在思路沉淀
+  const isCorrect = user_answer === q.answer;
+  const prompt = isCorrect
+    ? `你是一位公务员考试辅导老师。学生答对了以下题目，请给出思路讲解，重点说明：
+1. 这道题的突破口在哪里（如何快速定位关键信息）
+2. 正确答案 ${q.answer} 为什么最合适
+3. 同类题的通用解法与可迁移的技巧
+
+题目类型：${q.qtype}
+难度：${q.difficulty}/5
+${q.passage ? '片段：\n' + q.passage : ''}
+题干：${q.stem}
+选项：
+${optionsText}
+正确答案：${q.answer}
+标准解析：${q.explanation}
+
+请用简洁的中文回答，不超过200字。`
+    : `你是一位公务员考试辅导老师。学生做错了以下题目，请给出个性化的解析，重点解释：
 1. 为什么学生选的 ${user_answer || '未选'} 是错的
 2. 正确答案 ${q.answer} 为什么对
 3. 这道题的解题思路和易错点

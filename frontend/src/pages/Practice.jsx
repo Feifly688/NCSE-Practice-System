@@ -135,34 +135,42 @@ export default function Practice() {
       const { session, questions: qs, answers: ans, elapsed_sec, answerDetails: details } = r.data;
 
       if (viewMode === 'result' && session.status === 'completed') {
-        // 查看结果模式
-        setQuestions(qs.length > 0 ? qs : details.map(d => ({
+        // 查看结果模式。
+        // 注意：meta.questions 仅保存 {id, answer}（start 时写入），缺少
+        // stem/options_json/explanation 等展示字段；answerDetails 才是
+        // 题目完整数据的权威来源。若优先用 meta.questions 会导致结果页
+        // 题干、选项、解析全部空白。因此这里统一以 answerDetails 为准，
+        // meta.questions 仅在其缺失时作为兜底。
+        const source = details.length > 0
+          ? details
+          : (qs || []).map(q => ({ question_id: q.id, user_answer: (ans || {})[q.id], correct_answer: q.answer }));
+        setQuestions(source.map(d => ({
           id: d.question_id, stem: d.stem, passage: d.passage, options_json: d.options_json,
           answer: d.correct_answer, explanation: d.explanation, qtype: d.qtype, difficulty: d.difficulty
         })));
         // 从 answerDetails 构建 answers
         const ansMap = {};
-        for (const d of details) { ansMap[d.question_id] = d.user_answer; }
+        for (const d of source) { if (d.user_answer) ansMap[d.question_id] = d.user_answer; }
         setAnswers(ansMap);
         setResult({ session_id: session.id, total: session.total, correct: session.correct, score: session.score, duration_sec: session.duration_sec });
         setAnswerDetails(details);
         setStep('result');
-        loadFeedbacks((qs.length > 0 ? qs : details).map(d => d.id));
+        loadFeedbacks(source.map(d => d.question_id));
       } else if (session.status === 'in_progress') {
-        // 恢复答题
+        // 恢复答题。
+        // 与结果模式同理：meta.questions 只有 {id, answer}，必须改用
+        // answerDetails 的完整题目数据，否则恢复后题干/选项/解析全空白。
         setSessionId(session.id);
-        let restoreQuestions = qs;
-        let restoreAnswers = ans || {};
-        // 如果 meta_json 里没有 questions，尝试从 answerDetails 恢复
-        if (restoreQuestions.length === 0 && details.length > 0) {
-          restoreQuestions = details.map(d => ({
-            id: d.question_id, stem: d.stem, passage: d.passage, options_json: d.options_json,
-            answer: d.correct_answer, explanation: d.explanation, qtype: d.qtype, difficulty: d.difficulty
-          }));
-          const ansMap = {};
-          for (const d of details) { ansMap[d.question_id] = d.user_answer; }
-          restoreAnswers = ansMap;
-        }
+        let restoreQuestions = details.map(d => ({
+          id: d.question_id, stem: d.stem, passage: d.passage, options_json: d.options_json,
+          answer: d.correct_answer, explanation: d.explanation, qtype: d.qtype, difficulty: d.difficulty
+        }));
+        // 作答优先取 meta.answers（含未提交的进度），缺失时回退 answerDetails
+        let restoreAnswers = (ans && Object.keys(ans).length > 0) ? ans : (() => {
+          const m = {};
+          for (const d of details) { if (d.user_answer) m[d.question_id] = d.user_answer; }
+          return m;
+        })();
         if (restoreQuestions.length === 0) {
           message.warning('该答题记录数据不完整，建议重新开始');
           setStep('setup');
@@ -190,7 +198,7 @@ export default function Practice() {
           setAnswers(ansMap);
           setResult({ session_id: session.id, total: session.total, correct: session.correct, score: session.score, duration_sec: session.duration_sec });
           setStep('result');
-          loadFeedbacks(details.map(d => d.id));
+          loadFeedbacks(details.map(d => d.question_id));
         } else {
           message.error('答题数据不完整');
           setStep('setup');
@@ -401,7 +409,10 @@ export default function Practice() {
       const r = await api.post('/practice/ai-analysis', { question_id: questionId, user_answer: userAnswer }, { timeout: 60000 }); // 60 seconds for AI analysis
       setAiAnalysis(prev => ({ ...prev, [questionId]: r.data.analysis }));
     } catch (err) {
-      message.error(err.response?.data?.error || 'AI 解析失败');
+      // 后端可能返回业务错误（如 AI 未配置），也可能返回非 JSON（上游异常），
+      // 后者取 err.message 会暴露原始响应片段，统一收敛为友好文案
+      const msg = err.response?.data?.error;
+      message.error(msg || 'AI 解析失败，请稍后重试');
     } finally {
       setAiLoading(prev => ({ ...prev, [questionId]: false }));
     }
@@ -477,20 +488,20 @@ export default function Practice() {
               </div>
               <div style={{ marginTop: 8 }}><Text type="secondary">你的答案：{userAns || '未答'} | 正确答案：{q.answer}</Text></div>
               {q.explanation && <div style={{ marginTop: 8, padding: '8px 12px', background: '#e6f7ff', borderRadius: 6 }}><Text type="secondary">解析：{q.explanation}</Text></div>}
-              {!isCorrect && (
-                <div style={{ marginTop: 8 }}>
-                  {aiAnalysis[q.id] ? (
-                    <div style={{ padding: '8px 12px', background: '#fff7e6', borderRadius: 6, border: '1px solid #ffd591' }}>
-                      <Text strong style={{ color: '#fa8c16' }}>AI 解析：</Text>
-                      <Text style={{ display: 'block', marginTop: 4 }}>{aiAnalysis[q.id]}</Text>
-                    </div>
-                  ) : (
-                    <Button size="small" loading={aiLoading[q.id]} onClick={() => requestAiAnalysis(q.id, userAns)}>
-                      AI 解析
-                    </Button>
-                  )}
-                </div>
-              )}
+              {/* AI 解析入口：错题讲"为什么错"，答对的题讲"思路"，
+                  两类题目都提供，避免全对时入口整体消失 */}
+              <div style={{ marginTop: 8 }}>
+                {aiAnalysis[q.id] ? (
+                  <div style={{ padding: '8px 12px', background: '#fff7e6', borderRadius: 6, border: '1px solid #ffd591' }}>
+                    <Text strong style={{ color: '#fa8c16' }}>AI 解析：</Text>
+                    <Text style={{ display: 'block', marginTop: 4 }}>{aiAnalysis[q.id]}</Text>
+                  </div>
+                ) : (
+                  <Button size="small" loading={aiLoading[q.id]} onClick={() => requestAiAnalysis(q.id, userAns)}>
+                    {isCorrect ? 'AI 思路讲解' : 'AI 解析'}
+                  </Button>
+                )}
+              </div>
               {/* 评分与反馈：随结果一并展示，提交后可随时修改 */}
               <QuestionFeedback
                 questionId={q.id}
