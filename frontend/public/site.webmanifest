@@ -1,0 +1,22 @@
+{
+  "name": "NCSE 刷题系统",
+  "short_name": "NCSE",
+  "icons": [
+    {
+      "src": "/android-chrome-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/android-chrome-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "theme_color": "#1D4ED8",
+  "background_color": "#0F172A",
+  "display": "standalone",
+  "start_url": "/"
+}

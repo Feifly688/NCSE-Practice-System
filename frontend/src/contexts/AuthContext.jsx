@@ -2,6 +2,9 @@ import React, { createContext, useContext, useState, useEffect, useRef, useCallb
 import { message } from 'antd';
 import api, { AUTH_EXPIRED_EVENT } from '../services/api';
 import { fetchSessionPolicy, getTokenExpiry } from '../services/session';
+import {
+  getToken, getUser as readUser, setSession, updateUser, clearSession, isPersistent,
+} from '../services/authStorage';
 
 const AuthContext = createContext(null);
 
@@ -12,17 +15,14 @@ const FALLBACK_POLICY = {
 };
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(() => {
-    try {
-      const saved = localStorage.getItem('user');
-      return saved ? JSON.parse(saved) : null;
-    } catch { return null; }
-  });
+  const [user, setUser] = useState(() => readUser());
   const [loading, setLoading] = useState(false);
   // 登录/注册弹窗状态：null 表示关闭，'login' / 'register' 表示当前标签页
   const [authModal, setAuthModal] = useState(null);
   // 会话有效期策略，由后端下发，避免前端硬编码文案与运维配置脱节
   const [sessionPolicy, setSessionPolicy] = useState(null);
+  // 是否为持久化会话（登录时勾选了「记住我」），用于界面提示
+  const [persistent, setPersistent] = useState(() => isPersistent());
   const userRef = useRef(user);
   userRef.current = user;
 
@@ -50,7 +50,9 @@ export function AuthProvider({ children }) {
   // （axios 拦截器无法直接改 React 状态，通过 DOM 事件桥接）
   useEffect(() => {
     const handleExpired = () => {
+      clearSession();
       setUser(null);
+      setPersistent(false);
       message.warning('登录状态已失效，请重新登录');
     };
     window.addEventListener(AUTH_EXPIRED_EVENT, handleExpired);
@@ -59,30 +61,30 @@ export function AuthProvider({ children }) {
 
   // 验证 token 是否仍然有效
   useEffect(() => {
-    const token = localStorage.getItem('token');
+    const token = getToken();
     if (token && userRef.current) {
       api.get('/auth/me').catch(() => {
-        // token 无效时拦截器会派发失效事件并清理 localStorage；
+        // token 无效时拦截器会派发失效事件并清理存储；
         // 这里兜底处理网络错误等非 401 场景
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
+        clearSession();
         setUser(null);
+        setPersistent(false);
       });
     }
   }, []);
 
   /**
-   * 登录。remember 决定 token 有效期：
-   *   true（勾选"记住我"）→ 服务端签发长有效期（默认 7 天）
-   *   false（未勾选）      → 短有效期（默认 2 小时），适合公共设备
+   * 登录。remember 同时决定两件事，二者必须一致才能形成闭环：
+   *   - 服务端签发的 token 有效期（前端传参）
+   *   - 浏览器存储位置（勾选 → localStorage；未勾选 → sessionStorage）
    */
   const login = useCallback(async (account, password, remember = true) => {
     setLoading(true);
     try {
       const { data } = await api.post('/auth/login', { account, password, remember });
-      localStorage.setItem('token', data.token);
-      localStorage.setItem('user', JSON.stringify(data.user));
+      setSession({ token: data.token, user: data.user }, remember);
       setUser(data.user);
+      setPersistent(!!remember);
       return data;
     } finally { setLoading(false); }
   }, []);
@@ -91,26 +93,33 @@ export function AuthProvider({ children }) {
     setLoading(true);
     try {
       const { data } = await api.post('/auth/register', { ...values, remember });
-      localStorage.setItem('token', data.token);
-      localStorage.setItem('user', JSON.stringify(data.user));
+      setSession({ token: data.token, user: data.user }, remember);
       setUser(data.user);
+      setPersistent(!!remember);
       return data;
     } finally { setLoading(false); }
   }, []);
 
   const logout = useCallback(() => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+    clearSession();
     setUser(null);
+    setPersistent(false);
+  }, []);
+
+  /** 资料更新后同步落盘，保持原有存储位置不变 */
+  const persistUser = useCallback((next) => {
+    updateUser(next);
+    setUser(next);
   }, []);
 
   return (
     <AuthContext.Provider value={{
-      user, setUser, loading, isAuthenticated, isAdmin,
+      user, setUser: persistUser, loading, isAuthenticated, isAdmin,
       login, register, logout,
       authModal, openAuth, closeAuth,
       sessionPolicy: sessionPolicy || FALLBACK_POLICY,
-      tokenExpiry: getTokenExpiry(localStorage.getItem('token')),
+      tokenExpiry: getTokenExpiry(getToken()),
+      isPersistentSession: persistent,
     }}>
       {children}
     </AuthContext.Provider>

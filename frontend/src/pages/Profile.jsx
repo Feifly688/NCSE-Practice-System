@@ -5,18 +5,19 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
 import { getTokenExpiry, describeRemaining } from '../services/session';
+import { getToken } from '../services/authStorage';
 import { useResponsive } from '../hooks/useResponsive';
 
 const { Title } = Typography;
 
 export default function Profile() {
   const navigate = useNavigate();
-  const { user, setUser, logout } = useAuth();
+  const { user, setUser, logout, isPersistentSession, sessionPolicy } = useAuth();
   const { isMobile } = useResponsive();
   // 从 JWT 的 exp 字段解析登录失效时间，让会话时长对用户透明
   const [sessionExpiry, setSessionExpiry] = useState('-');
   useEffect(() => {
-    const expiryAt = getTokenExpiry(localStorage.getItem('token'));
+    const expiryAt = getTokenExpiry(getToken());
     if (!expiryAt) {
       setSessionExpiry('-');
       return;
@@ -45,9 +46,8 @@ export default function Profile() {
       setProfileLoading(true);
       const values = await profileForm.validateFields();
       await api.put('/auth/profile', values);
-      const updated = { ...user, ...values };
-      setUser(updated);
-      localStorage.setItem('user', JSON.stringify(updated));
+      // setUser 内部会同步落盘（保持原有存储位置：session 或 local）
+      setUser({ ...user, ...values });
       message.success('个人信息已更新');
     } catch (err) {
       if (err.errorFields) return;
@@ -63,9 +63,7 @@ export default function Profile() {
       const values = await usernameForm.validateFields();
       setUsernameLoading(true);
       const { data } = await api.put('/auth/username', values);
-      const updated = { ...user, username: data.username };
-      setUser(updated);
-      localStorage.setItem('user', JSON.stringify(updated));
+      setUser({ ...user, username: data.username });
       message.success('用户名已修改，下次请使用新用户名登录');
       setUsernameModalOpen(false);
     } catch (err) {
@@ -112,6 +110,11 @@ export default function Profile() {
           <Descriptions.Item label="邮箱">{user?.email || '-'}</Descriptions.Item>
           <Descriptions.Item label="角色">{user?.role === 'admin' ? '管理员' : '普通用户'}</Descriptions.Item>
           <Descriptions.Item label="注册时间">{user?.created_at ? new Date(user.created_at).toLocaleString('zh-CN') : '-'}</Descriptions.Item>
+          <Descriptions.Item label="会话类型">
+            {isPersistentSession
+              ? `长期保持（已勾选记住我，关闭浏览器后仍有效，上限 ${sessionPolicy?.long?.label || '7 天'}）`
+              : '临时会话（关闭浏览器即失效，需重新登录）'}
+          </Descriptions.Item>
           <Descriptions.Item label="登录有效期至">{sessionExpiry}</Descriptions.Item>
         </Descriptions>
       </Card>

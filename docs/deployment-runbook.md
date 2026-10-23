@@ -38,6 +38,15 @@ ADMIN_PASSWORD=<至少12位随机强密码>
 
 未勾选「记住我」时使用短有效期，登录 2 小时后需重新登录——这是共享电脑场景下的预期行为。
 
+「记住我」同时控制服务端有效期与前端存储位置，二者需一致才形成闭环：
+
+| 登录选择 | 服务端 token 有效期 | 前端存储 | 关闭浏览器后 |
+|---|---|---|---|
+| 勾选「记住我」 | `JWT_EXPIRES_IN`（7d） | `localStorage` | 仍保持登录 |
+| 未勾选 | `JWT_EXPIRES_SHORT`（2h） | `sessionStorage` | 失效，需重新登录 |
+
+前端存储行为集中在 `frontend/src/services/authStorage.js`，所有读写 token 的代码都必须经过该模块，不要再直接操作 `localStorage`/`sessionStorage`。
+
 管理员可改用 `ADMIN_EMAIL`，但 `ADMIN_USERNAME` 与 `ADMIN_EMAIL` 至少需要配置一个。AI 功能需要额外设置 `API_KEY`、`BASE_URL` 和 `MODEL`。
 
 ## 前端配置
