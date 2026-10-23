@@ -147,3 +147,22 @@ CREATE TABLE IF NOT EXISTS `favorite` (
   CONSTRAINT `fk_fav_user` FOREIGN KEY (`user_id`) REFERENCES `user`(`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_fav_question` FOREIGN KEY (`question_id`) REFERENCES `question`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Question feedback (题目评分与反馈)
+CREATE TABLE IF NOT EXISTS `question_feedback` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `user_id` BIGINT UNSIGNED NOT NULL,
+  `question_id` BIGINT UNSIGNED NOT NULL,
+  `session_id` BIGINT UNSIGNED NULL,
+  `rating` TINYINT UNSIGNED NOT NULL COMMENT '评分 1-5 星',
+  `feedback` TEXT NULL COMMENT '文字反馈，可为空',
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_feedback_user_question` (`user_id`,`question_id`),
+  KEY `idx_feedback_question` (`question_id`),
+  KEY `idx_feedback_session` (`session_id`),
+  CONSTRAINT `fk_feedback_user` FOREIGN KEY (`user_id`) REFERENCES `user`(`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_feedback_question` FOREIGN KEY (`question_id`) REFERENCES `question`(`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_feedback_session` FOREIGN KEY (`session_id`) REFERENCES `practice_session`(`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

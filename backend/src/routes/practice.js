@@ -305,6 +305,97 @@ router.post('/wrong-book/redo', requireAuth, asyncHandler(async (req, res) => {
   return res.json({ questions });
 }));
 
+// ── 题目评分与反馈 ──────────────────────────────────────
+
+// POST /api/practice/feedback
+// 提交或修改某题的评分与文字反馈。同一用户对同一题目重复提交为覆盖更新。
+router.post('/feedback', requireAuth, asyncHandler(async (req, res) => {
+  const { question_id, session_id, rating, feedback } = req.body;
+
+  // 入参校验：评分必须为 1-5 的整数
+  const ratingNum = Number(rating);
+  if (!question_id) return res.status(400).json({ error: '缺少 question_id' });
+  if (!Number.isInteger(ratingNum) || ratingNum < 1 || ratingNum > 5) {
+    return res.status(400).json({ error: '评分必须为 1-5 的整数' });
+  }
+
+  // 反馈长度限制，避免异常大请求体
+  const feedbackText = typeof feedback === 'string' ? feedback.trim() : '';
+  if (feedbackText.length > 1000) return res.status(400).json({ error: '反馈内容不能超过 1000 字' });
+
+  await withConnection(async (conn) => {
+    // 校验题目存在，避免脏外键
+    const [questions] = await conn.query('SELECT id FROM question WHERE id = ?', [question_id]);
+    if (questions.length === 0) throw Object.assign(new Error('题目不存在'), { status: 404 });
+
+    // 校验 session 归属（若传了 session_id），防止越权关联他人练习记录
+    let sessionValue = null;
+    if (session_id) {
+      const [sessions] = await conn.query(
+        'SELECT id FROM practice_session WHERE id = ? AND user_id = ?',
+        [session_id, req.user.userId]
+      );
+      if (sessions.length === 0) throw Object.assign(new Error('答题记录不存在'), { status: 404 });
+      sessionValue = sessions[0].id;
+    }
+
+    // 覆盖写入：利用 (user_id, question_id) 唯一键，重复评分即更新
+    await conn.query(
+      `INSERT INTO question_feedback (user_id, question_id, session_id, rating, feedback)
+       VALUES (?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE session_id = VALUES(session_id), rating = VALUES(rating),
+                               feedback = VALUES(feedback), updated_at = CURRENT_TIMESTAMP`,
+      [req.user.userId, question_id, sessionValue, ratingNum, feedbackText || null]
+    );
+  });
+
+  return res.json({ success: true, rating: ratingNum, feedback: feedbackText });
+}));
+
+// GET /api/practice/feedback?ids=1,2,3
+// 批量查询当前用户对若干题目的评分（结果页一次性渲染用，避免 N 次请求）
+router.get('/feedback', requireAuth, asyncHandler(async (req, res) => {
+  const ids = (req.query.ids || '').split(',').filter(Boolean).map(Number).filter(Number.isInteger);
+  if (ids.length === 0) return res.json({ feedbacks: {} });
+
+  const rows = await withConnection(async (conn) => {
+    const [r] = await conn.query(
+      `SELECT question_id, rating, feedback, updated_at FROM question_feedback
+       WHERE user_id = ? AND question_id IN (?)`,
+      [req.user.userId, ids]
+    );
+    return r;
+  });
+
+  // 以 question_id 为键返回，前端可直接按题目查找
+  const feedbacks = {};
+  for (const row of rows) {
+    feedbacks[row.question_id] = {
+      rating: row.rating,
+      feedback: row.feedback || '',
+      updated_at: row.updated_at,
+    };
+  }
+  return res.json({ feedbacks });
+}));
+
+// GET /api/practice/feedback/stats
+// 管理员视角的评分汇总（按题目聚合，用于后台观察题目质量）
+router.get('/feedback/stats', requireAuth, asyncHandler(async (req, res) => {
+  const rows = await withConnection(async (conn) => {
+    const [r] = await conn.query(
+      `SELECT qf.question_id, q.stem, q.qtype,
+              COUNT(*) AS rating_count, ROUND(AVG(qf.rating), 2) AS avg_rating,
+              SUM(qf.feedback IS NOT NULL AND qf.feedback <> '') AS feedback_count
+       FROM question_feedback qf JOIN question q ON qf.question_id = q.id
+       GROUP BY qf.question_id, q.stem, q.qtype
+       ORDER BY rating_count DESC, avg_rating ASC LIMIT 100`
+    );
+    return r;
+  });
+  return res.json({ items: rows });
+}));
+
 // ── 收藏接口 ──────────────────────────────────────────
 
 // GET /api/practice/favorites

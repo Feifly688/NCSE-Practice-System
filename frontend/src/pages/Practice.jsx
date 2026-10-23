@@ -5,6 +5,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import { parseOptions, cleanOption, formatTime } from '../utils';
 import { useResponsive } from '../hooks/useResponsive';
+import QuestionFeedback from '../components/QuestionFeedback';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -36,6 +37,9 @@ export default function Practice() {
   const [paused, setPaused] = useState(false);
   const [sessionId, setSessionId] = useState(null);
   const [answerDetails, setAnswerDetails] = useState([]);
+  // 结果页评分：key 为 question_id，value 为 { rating, feedback, updated_at }
+  const [feedbacks, setFeedbacks] = useState({});
+  const [ratedCount, setRatedCount] = useState(0);
   const timerRef = useRef(null);
   const autoSaveRef = useRef(null);
   const answersRef = useRef(answers);
@@ -143,6 +147,7 @@ export default function Practice() {
         setResult({ session_id: session.id, total: session.total, correct: session.correct, score: session.score, duration_sec: session.duration_sec });
         setAnswerDetails(details);
         setStep('result');
+        loadFeedbacks((qs.length > 0 ? qs : details).map(d => d.id));
       } else if (session.status === 'in_progress') {
         // 恢复答题
         setSessionId(session.id);
@@ -185,6 +190,7 @@ export default function Practice() {
           setAnswers(ansMap);
           setResult({ session_id: session.id, total: session.total, correct: session.correct, score: session.score, duration_sec: session.duration_sec });
           setStep('result');
+          loadFeedbacks(details.map(d => d.id));
         } else {
           message.error('答题数据不完整');
           setStep('setup');
@@ -309,12 +315,26 @@ export default function Practice() {
 
       setCurrentIndex(0);
       setStep('result');
+      loadFeedbacks(questions.map(q => q.id));
     } catch (err) {
       message.error('提交失败');
       setStep('doing');
       // 重启计时器
       setStartTime(Date.now());
       setPaused(false);
+    }
+  }
+
+  /** 结果页加载当前用户对这些题目的已有评分（支持提交后查看/修改） */
+  async function loadFeedbacks(questionIds) {
+    if (!questionIds || questionIds.length === 0) return;
+    try {
+      const r = await api.get('/practice/feedback', { params: { ids: questionIds.join(',') } });
+      const map = r.data.feedbacks || {};
+      setFeedbacks(map);
+      setRatedCount(Object.keys(map).length);
+    } catch {
+      // 评分加载失败不阻塞结果展示，用户仍可重新评分
     }
   }
 
@@ -423,6 +443,13 @@ export default function Practice() {
               )}
             </Space>
           </div>
+          {/* 评分进度：让用户清楚还需评价几题 */}
+          <div style={{ marginTop: 16 }}>
+            <Text type="secondary" style={{ fontSize: 13 }}>
+              已评价 <Text strong style={{ color: '#faad14' }}>{ratedCount}</Text> / {questions.length} 题
+              {ratedCount === questions.length && questions.length > 0 ? '，感谢你的反馈！' : '，下拉为每题评分'}
+            </Text>
+          </div>
         </Card>
 
         {questions.map((q, idx) => {
@@ -464,6 +491,16 @@ export default function Practice() {
                   )}
                 </div>
               )}
+              {/* 评分与反馈：随结果一并展示，提交后可随时修改 */}
+              <QuestionFeedback
+                questionId={q.id}
+                sessionId={result?.session_id}
+                initial={feedbacks[q.id] || null}
+                onSubmitted={(qid, rating, fb) => {
+                  setFeedbacks(prev => ({ ...prev, [qid]: { rating, feedback: fb, updated_at: new Date().toISOString() } }));
+                  setRatedCount(prev => (feedbacks[qid] ? prev : prev + 1));
+                }}
+              />
             </Card>
           );
         })}
