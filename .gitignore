@@ -2,6 +2,9 @@ node_modules/
 dist/
 .env
 .env.local
+# .env 的备份文件同样含密钥，禁止入库
+.env.bak*
+.env.*.bak*
 *.log
 .DS_Store
 Thumbs.db
