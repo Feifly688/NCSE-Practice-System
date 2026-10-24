@@ -17,6 +17,12 @@ const app = express();
 const port = process.env.APP_PORT || 4000;
 const isProd = process.env.NODE_ENV === 'production';
 
+// 反向代理信任：生产环境 API 由 Cloudflare Tunnel（cloudflared）直接转发到本进程，
+// 中间恰好 1 跳代理。不设置 trust proxy 时 express-rate-limit 会因读到
+// X-Forwarded-For 却无法信任它而抛 ValidationError，且按 IP 限流会把所有用户
+// 归为同一个出口 IP（隧道本机地址），导致误伤。
+app.set('trust proxy', 1);
+
 // CORS：开发环境允许 localhost:5173；生产环境由 CORS_ORIGIN 指定（前后端不同域时必填）
 const allowedOrigins = (process.env.CORS_ORIGIN || '')
   .split(',')
