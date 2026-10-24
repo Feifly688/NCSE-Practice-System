@@ -13,6 +13,7 @@
  */
 const { callChat, extractJson } = require('./aiClient');
 const { buildFingerprint, findDuplicate } = require('./questionDedupe');
+const { QUESTION_MARKERS } = require('./paperText');
 
 const SYSTEM_PROMPT = `你是公考真题数字化专家，负责把试卷文本切分为结构化题目。
 
@@ -307,6 +308,48 @@ function dedupeList(list) {
   return out;
 }
 
+/** 选项是否是「组合编号」形式（①②③ / ②③④），政治理论组合表述题的典型选项 */
+function isCombinationOptions(options) {
+  const opts = Array.isArray(options) ? options : [];
+  return opts.length >= 2 && opts.every((o) => /^[①②③④⑤⑥⑦⑧⑨⑩]{2,}$/.test(String(o).trim()));
+}
+
+/**
+ * 合并被模型拆散的「组合表述题」残片。
+ *
+ * 政治理论的写法：长题干 + ①②③④编号行 + A.①②③ 选项。小模型（glm-4-flash）
+ * 常把「编号行之后、问句之前」的部分当成新题输出——残片的题干没有问句、
+ * 选项却仍是组合编号（实测 #15 被拆成两道，prompt 约束不住，必须代码层兜底）。
+ *
+ * 判据（同时满足才合并，误判率低）：
+ *   1. 残片题干**不含问句**（无 ？/? 与疑问特征词）
+ *   2. 残片选项是**组合编号**形式
+ *   3. 前一题题干**含问句**（组合表述题的问句在前半段）
+ * 合并时残片题干并入前一题；若残片选项是组合编号而前一题是图片占位，
+ * 用残片选项替换（恢复真实选项内容）。
+ */
+function mergeFragments(list) {
+  const out = [];
+  for (const q of list) {
+    const prev = out[out.length - 1];
+    const qNoQuestion = !QUESTION_MARKERS.test(q.stem) && !/[？?]/.test(String(q.stem || ''));
+    const prevHasQuestion = prev && (QUESTION_MARKERS.test(prev.stem) || /[？?]/.test(String(prev.stem || '')));
+    if (prev && qNoQuestion && prevHasQuestion && isCombinationOptions(q.options)) {
+      // 残片题干里常混入选项行（"A. ①②③"），合并前剥掉，避免 stem 冗余
+      const fragStem = String(q.stem || '')
+        .replace(/(?:^|\n)\s*[A-D]\s*[.．、]\s*[①②③④⑤⑥⑦⑧⑨⑩]+/g, '')
+        .trim();
+      if (fragStem) prev.stem = (prev.stem + '\n' + fragStem).slice(0, 2000);
+      if (isCombinationOptions(q.options) && !isCombinationOptions(prev.options)) {
+        prev.options = q.options;
+      }
+      continue;
+    }
+    out.push({ ...q });
+  }
+  return out;
+}
+
 /**
  * 拆分单个片段（含重试与降级）。
  * @returns {Promise<{ questions: Array, error: string|null, degraded: string|null, attempts: number }>}
@@ -365,7 +408,8 @@ async function parseChunk(chunk, opts = {}) {
         // 材料回填：模型没填 passage 时，用该分片的板块共享材料补上
         // （资料分析的材料只在板块开头出现一次，模型在同一片里未必能关联上）
         .map((q) => (q.passage && q.passage.trim() ? q : { ...q, passage: material || null }));
-      const questions = dedupeList(normalized);
+      // 先合并被拆散的组合表述题残片，再去重（残片会干扰指纹与相似度判定）
+      const questions = dedupeList(mergeFragments(normalized));
 
       // 输出被截断：切片减半递归，尽量覆盖被丢掉的题目
       if (res.truncated && depth < 2 && chunk.text.length > 1200) {
@@ -480,6 +524,8 @@ module.exports = {
   normalizeQuestion,
   normalizeAnswer,
   normalizeModule,
+  isCombinationOptions,
+  mergeFragments,
   dedupeList,
   parseChunk,
   runPool,
