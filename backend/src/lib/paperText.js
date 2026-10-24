@@ -294,16 +294,20 @@ function buildQuestionIndex(text, sections = []) {
   const byNumber = new Map();
   for (let k = 0; k < numAt.length; k++) {
     const start = k > 0 ? numAt[k - 1].line + 1 : 0;
+    const end = k + 1 < numAt.length ? numAt[k + 1].line : lines.length;
     const pre = lines
       .slice(start, numAt[k].line)
       .filter((l) => l.trim() && !OPTION_LINE.test(l))
       .join('\n')
       .trim();
+    // 本题的完整文本块（题干 + 选项），用于把 AI 拆出的题与原文题号对齐
+    const blockText = lines.slice(start, end).join(' ').trim();
     const sec = sectionAt(numAt[k].line);
     byNumber.set(numAt[k].num, {
       num: numAt[k].num,
       line: numAt[k].line,
       pre,
+      blockText,
       section: sec ? sec.name : '未分区',
     });
   }

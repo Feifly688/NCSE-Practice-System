@@ -17,7 +17,7 @@ const express = require('express');
 const axios = require('axios');
 const cheerio = require('cheerio');
 const multer = require('multer');
-const { requireAuth, requireAdmin } = require('../middleware/auth');
+const { requireAuth, requireAuthOrToken, requireAdmin } = require('../middleware/auth');
 const { asyncHandler } = require('../middleware/asyncHandler');
 const { withConnection } = require('../db');
 const { extractPdfText } = require('../lib/pdfText');
@@ -25,11 +25,18 @@ const { callChat } = require('../lib/aiClient');
 const {
   splitIntoChunks, parseChunk, runPool, dedupeList, normalizeQuestion,
 } = require('../lib/paperParser');
-const { buildFingerprint, findDuplicate } = require('../lib/questionDedupe');
+const { buildFingerprint, findDuplicate, matchQuestionNumbers } = require('../lib/questionDedupe');
 const { preprocessPaperText } = require('../lib/paperText');
 const { safeJson } = require('../lib/json');
+const { extractQuestionImages } = require('../lib/pdfRegions');
+const fs = require('fs');
+const path = require('path');
 
 const router = express.Router();
+
+/** 试卷相关文件目录：原卷 PDF + 题目区域截图 */
+const PAPER_FILES_DIR = path.resolve(__dirname, '../../uploads/papers');
+const PAPER_IMAGE_SUBDIR = 'paper-images';
 
 // PDF 上传：内存暂存，限制 30MB，仅接受 PDF
 const upload = multer({
@@ -40,6 +47,22 @@ const upload = multer({
     cb(isPdf ? null : new Error('仅支持 PDF 文件'), isPdf);
   },
 });
+
+// ── 0. 题目区域截图（静态文件）──────────────────────────────────
+// 从原 PDF 裁出的题目截图，供整卷答题时展示图形推理/几何图/统计图表。
+// 只要求登录（普通答题用户也要能看），放在管理员权限中间件之前。
+router.get('/images/:paperId/:file', requireAuthOrToken, asyncHandler(async (req, res) => {
+  const paperId = String(req.params.paperId);
+  const file = String(req.params.file);
+  // 只允许「字母数字-_.」且不含路径分隔符，防目录穿越
+  if (!/^\d{1,10}$/.test(paperId) || !/^[A-Za-z0-9._-]{1,64}$/.test(file) || file.includes('..')) {
+    return res.status(400).json({ error: '非法的图片路径' });
+  }
+  const abs = path.join(PAPER_FILES_DIR, PAPER_IMAGE_SUBDIR, paperId, file);
+  if (!fs.existsSync(abs)) return res.status(404).json({ error: '图片不存在' });
+  res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
+  return res.sendFile(abs);
+}));
 
 router.use(requireAuth, requireAdmin);
 
@@ -166,17 +189,56 @@ async function runParseJob(paperId) {
     section: q.module || '未分区',
   }));
 
+  // ── 题目区域截图：把图形从原 PDF 里裁出来 ──────────────────────
+  // 文本层里没有的图形（图形推理、几何图、统计图表）只能靠渲染原 PDF 取得。
+  // 没有原 PDF 的老试卷无法补图，只能保留题干并标记「选项为图片」。
+  const imageBySeq = new Map();
+  let imageStats = null;
+  const pdfPath = path.join(PAPER_FILES_DIR, `${paperId}.pdf`);
+  if (fs.existsSync(pdfPath)) {
+    try {
+      const outDir = path.join(PAPER_FILES_DIR, PAPER_IMAGE_SUBDIR, String(paperId));
+      const { questions: imagesByNo, stats } = await extractQuestionImages(pdfPath, outDir);
+      imageStats = stats;
+      console.log(
+        `[exam] paper=${paperId} 区域截图完成：页 ${stats.pages}，题号区域 ${stats.regions}，` +
+        `生成 ${stats.rendered} 张，失败 ${stats.failed} 张`
+      );
+      if (imagesByNo.size > 0) {
+        // AI 拆出的题按顺序对应原文题号（用题干相似度对齐，避免错位）
+        const numbers = matchQuestionNumbers(deduped, pre.index.byNumber);
+        let mapped = 0;
+        for (let i = 0; i < deduped.length; i++) {
+          const no = numbers[i];
+          if (no == null) continue;
+          const files = imagesByNo.get(no);
+          if (!files || !files.length) continue;
+          const rel = files.map((f) => path.basename(f));
+          imageBySeq.set(deduped[i].seq, rel.join(','));
+          mapped++;
+        }
+        console.log(`[exam] paper=${paperId} 截图挂载：${mapped}/${deduped.length} 题`);
+      }
+    } catch (err) {
+      console.error('[exam] 区域截图失败:', err.message);
+      errors.push('区域截图失败：' + err.message);
+    }
+  } else {
+    console.log(`[exam] paper=${paperId} 没有原始 PDF（uploads/papers/${paperId}.pdf），跳过区域截图`);
+  }
+
   // 写入整卷题目（先清后写，保证重拆结果干净）
   await withConnection(async (conn) => {
     await conn.query('DELETE FROM exam_paper_question WHERE exam_paper_id = ?', [paperId]);
     for (const q of deduped) {
       await conn.query(
         `INSERT INTO exam_paper_question
-         (exam_paper_id, seq, section, qtype, difficulty, passage, stem, options_json, answer, explanation, fingerprint)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+         (exam_paper_id, seq, section, qtype, difficulty, passage, stem, options_json, image_url, answer, explanation, fingerprint)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           paperId, q.seq, q.section, q.qtype, q.difficulty,
-          q.passage || null, q.stem, JSON.stringify(q.options), q.answer, q.explanation || null,
+          q.passage || null, q.stem, JSON.stringify(q.options), imageBySeq.get(q.seq) || null,
+          q.answer, q.explanation || null,
           q.fingerprint || buildFingerprint(q),
         ]
       );
@@ -208,6 +270,7 @@ async function runParseJob(paperId) {
   }
   if (noAnswer > 0) account.push(`${noAnswer} 题缺答案待补`);
   if (imageOptions > 0) account.push(`${imageOptions} 题选项为图片`);
+  if (imageBySeq.size > 0) account.push(`${imageBySeq.size} 题已附原卷截图`);
 
   let parseError = null;
   const notes = [];
@@ -243,8 +306,14 @@ async function updateParseState(paperId, fields) {
   }).catch((err) => console.error('[exam] 更新拆题状态失败:', err.message));
 }
 
-/** 保存试卷并异步触发拆题（上传与爬取共用） */
-async function ingestPaper({ title, year, source, sourceUrl, fileName, origin, text, userId }) {
+/**
+ * 保存试卷并异步触发拆题（上传与爬取共用）
+ *
+ * pdfBuffer 传入时会把原始 PDF 落盘（uploads/papers/{id}.pdf）：
+ * 文本层里没有的图形（图形推理、几何图、统计图表）只能从原 PDF 裁剪出来，
+ * 没有原文件就永远补不回来。
+ */
+async function ingestPaper({ title, year, source, sourceUrl, fileName, origin, text, userId, pdfBuffer }) {
   const id = await withConnection(async (conn) => {
     const [r] = await conn.query(
       `INSERT INTO exam_paper (title, year, source, source_url, file_name, origin, raw_text, parse_status, creator_user_id)
@@ -253,6 +322,14 @@ async function ingestPaper({ title, year, source, sourceUrl, fileName, origin, t
     );
     return r.insertId;
   });
+  if (pdfBuffer && pdfBuffer.length) {
+    try {
+      fs.mkdirSync(PAPER_FILES_DIR, { recursive: true });
+      fs.writeFileSync(path.join(PAPER_FILES_DIR, `${id}.pdf`), pdfBuffer);
+    } catch (err) {
+      console.error('[exam] 保存原始 PDF 失败:', err.message);
+    }
+  }
   // 异步触发，不阻塞响应
   runParseJob(id).catch((err) => console.error('[exam] 拆题任务异常:', err.message));
   return id;
@@ -285,6 +362,7 @@ router.post('/upload', upload.single('file'), asyncHandler(async (req, res) => {
     origin: 'upload',
     text: extracted.text,
     userId: req.user.userId,
+    pdfBuffer: req.file.buffer,
   });
 
   return res.json({

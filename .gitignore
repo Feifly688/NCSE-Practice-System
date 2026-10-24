@@ -15,3 +15,6 @@ Thumbs.db
 .understand-anything/
 CLAUDE.md
 AGENTS.md
+
+# 真题原卷 PDF 与题目区域截图（运行时生成，不入库）
+backend/uploads/

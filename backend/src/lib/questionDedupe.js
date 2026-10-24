@@ -115,6 +115,41 @@ function findDuplicate(q, candidates, opts = {}) {
   return null;
 }
 
+/**
+ * 把 AI 拆出的题目与原文题号对齐。
+ *
+ * AI 拆题会有遗漏或多拆，顺序也可能错位，不能直接按下标对应。
+ * 这里用题干相似度（bigram Dice）逐题匹配原文题号：
+ * 拆出的第 i 题 → 原文里最像它的那个题号。匹配不到就返回 null（该题不挂图片）。
+ *
+ * @param {Array<{stem: string}>} questions AI 拆出的题目
+ * @param {Map<number, {blockText: string}>} index 原文题号索引
+ * @returns {Array<number|null>} 与 questions 等长的题号数组
+ */
+function matchQuestionNumbers(questions, index, opts = {}) {
+  const threshold = opts.threshold ?? 0.45;
+  const entries = [];
+  for (const [num, info] of index) entries.push({ num, text: String(info.blockText || '') });
+  const used = new Set();
+  const out = new Array(questions.length).fill(null);
+
+  for (let i = 0; i < questions.length; i++) {
+    const stem = String(questions[i]?.stem || '').trim();
+    if (!stem) continue;
+    let best = null;
+    for (const e of entries) {
+      if (used.has(e.num)) continue;
+      const score = diceSimilarity(stem, e.text);
+      if (!best || score > best.score) best = { num: e.num, score };
+    }
+    if (best && best.score >= threshold) {
+      out[i] = best.num;
+      used.add(best.num);
+    }
+  }
+  return out;
+}
+
 module.exports = {
   normalizeText,
   bigrams,
@@ -124,4 +159,5 @@ module.exports = {
   stemFingerprint,
   judgeDuplicate,
   findDuplicate,
+  matchQuestionNumbers,
 };

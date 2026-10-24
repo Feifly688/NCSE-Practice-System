@@ -59,7 +59,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
       return { forbidden: true, parse_status: paper.parse_status };
     }
     const [qs] = await conn.query(
-      `SELECT id, seq, section, qtype, difficulty, passage, stem, options_json
+      `SELECT id, seq, section, qtype, difficulty, passage, stem, options_json, image_url
        FROM exam_paper_question WHERE exam_paper_id = ? ORDER BY seq`,
       [id]
     );
@@ -82,6 +82,10 @@ router.get('/:id', asyncHandler(async (req, res) => {
       passage: q.passage || null,
       stem: q.stem,
       options: safeJson(q.options_json, []),
+      // 题目区域截图（原 PDF 裁剪），多张用逗号分隔
+      images: q.image_url
+        ? String(q.image_url).split(',').filter(Boolean).map((f) => `/api/exam-papers/images/${data.paper.id}/${f}`)
+        : [],
     });
   }
   const sections = Array.from(sectionMap.entries()).map(([name, questions]) => ({

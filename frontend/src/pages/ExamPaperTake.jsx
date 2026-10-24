@@ -9,11 +9,25 @@ import {
   FlagOutlined, FlagFilled, DashboardOutlined, ClockCircleOutlined,
 } from '@ant-design/icons';
 import api from '../services/api';
+import { getToken } from '../services/authStorage';
 import { useResponsive } from '../hooks/useResponsive';
 
 const { Title, Text, Paragraph } = Typography;
 
 const OPTION_LABELS = ['A', 'B', 'C', 'D', 'E', 'F'];
+
+/**
+ * 题目截图地址：<img> 标签带不了 Authorization 头，
+ * 后端图片路由额外接受 ?t=<token>（仅用于这类静态资源）。
+ */
+function paperImageUrl(src) {
+  if (!src) return '';
+  if (/^https?:\/\//i.test(src)) return src;
+  const base = api.defaults.baseURL || '/api';
+  const token = getToken() || '';
+  const sep = src.includes('?') ? '&' : '?';
+  return `${base}${src}${sep}t=${encodeURIComponent(token)}`;
+}
 
 /** 秒 → mm:ss */
 function fmtTime(sec) {
@@ -363,6 +377,28 @@ export default function ExamPaperTake() {
                       }}>
                         {q.passage}
                       </Paragraph>
+                    )}
+
+                    {/* 原卷区域截图：图形推理/几何图/统计图表在文本层里没有，只能看图 */}
+                    {(q.images || []).length > 0 && (
+                      <div style={{ marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {q.images.map((src) => {
+                          const url = paperImageUrl(src);
+                          return (
+                            <img
+                              key={src}
+                              src={url}
+                              alt="原卷题目截图"
+                              loading="lazy"
+                              onClick={() => window.open(url, '_blank')}
+                              style={{
+                                width: '100%', maxWidth: '100%', border: '1px solid #f0f0f0',
+                                borderRadius: 8, background: '#fff', cursor: 'zoom-in', display: 'block',
+                              }}
+                            />
+                          );
+                        })}
+                      </div>
                     )}
 
                     <div style={{ fontSize: isMobile ? 14 : 15, lineHeight: 1.8, marginBottom: 12, whiteSpace: 'pre-wrap' }}>

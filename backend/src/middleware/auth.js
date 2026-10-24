@@ -53,6 +53,38 @@ async function requireAuth(req, res, next) {
   }
 }
 
+/**
+ * requireAuth 的宽松变体：额外接受 ?t=<token> 查询参数。
+ *
+ * 用途：<img src> 这类标签无法携带 Authorization 头，题目截图必须走这种形式。
+ * 只在图片这类 GET 静态资源路由上使用，不要给业务接口开这个口子
+ * （URL 里的 token 会进日志与 Referer）。
+ */
+async function requireAuthOrToken(req, res, next) {
+  const header = req.headers.authorization;
+  let token = null;
+  if (header && header.startsWith('Bearer ')) {
+    token = header.slice(7);
+  } else if (req.query && typeof req.query.t === 'string' && req.query.t.length > 10) {
+    token = req.query.t;
+  }
+  if (!token) return res.status(401).json({ error: '未登录' });
+
+  try {
+    const payload = jwt.verify(token, JWT_SECRET);
+    const user = await withConnection(async (conn) => {
+      const [rows] = await conn.query('SELECT status, role FROM `user` WHERE id = ?', [payload.userId]);
+      return rows[0] || null;
+    });
+    if (!user) return res.status(401).json({ error: '用户不存在' });
+    if (user.status === 'disabled') return res.status(403).json({ error: '账号已被禁用' });
+    req.user = { userId: payload.userId, email: payload.email, role: user.role };
+    return next();
+  } catch (_) {
+    return res.status(401).json({ error: '登录已过期，请重新登录' });
+  }
+}
+
 // requireAdmin: 必须是管理员
 function requireAdmin(req, res, next) {
   if (!req.user || req.user.role !== 'admin') {
@@ -74,4 +106,4 @@ function signToken(user, options = {}) {
   );
 }
 
-module.exports = { optionalAuth, requireAuth, requireAdmin, signToken };
+module.exports = { optionalAuth, requireAuth, requireAuthOrToken, requireAdmin, signToken };
