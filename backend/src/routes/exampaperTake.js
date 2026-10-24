@@ -104,9 +104,10 @@ router.get('/:id', asyncHandler(async (req, res) => {
       passage: q.passage || null,
       stem: q.stem,
       options: safeJson(q.options_json, []),
-      // 题目区域截图（原 PDF 裁剪），多张用逗号分隔
+      // 题目区域截图（原 PDF 裁剪），多张用逗号分隔。
+      // 路径不带 /api 前缀：前端会拼上 axios 的 baseURL，避免出现 /api/api/...
       images: q.image_url
-        ? String(q.image_url).split(',').filter(Boolean).map((f) => `/api/exam-papers/images/${data.paper.id}/${f}`)
+        ? String(q.image_url).split(',').filter(Boolean).map((f) => `/exam-papers/images/${data.paper.id}/${f}`)
         : [],
     });
   }

@@ -54,8 +54,8 @@ async function main() {
 
   // 4. 轮询拆题状态
   let status = 'pending';
-  for (let i = 0; i < 60; i++) {
-    await new Promise((r) => setTimeout(r, 5000));
+  for (let i = 0; i < 40; i++) {
+    await new Promise((r) => setTimeout(r, 3000));
     const sr = await fetch(`${BASE}/api/admin/exam-papers/${paperId}/parse-status`, {
       headers: { Authorization: `Bearer ${token}` },
     });
