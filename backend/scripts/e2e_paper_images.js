@@ -83,7 +83,7 @@ async function main() {
     // 6. 校验图片文件存在且可访问
     for (const q of withImg) {
       for (const f of String(q.image_url).split(',')) {
-        const abs = path.resolve(__dirname, '../../uploads/papers/paper-images', String(paperId), f);
+        const abs = path.resolve(__dirname, '../uploads/papers/paper-images', String(paperId), f);
         const ok = fs.existsSync(abs);
         const rr = await fetch(`${BASE}/api/exam-papers/images/${paperId}/${f}?t=${token}`);
         console.log(`   图片 ${f}: 文件${ok ? '存在' : '缺失'} HTTP=${rr.status} type=${rr.headers.get('content-type')} size=${ok ? fs.statSync(abs).size : 0}`);

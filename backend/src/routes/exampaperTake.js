@@ -15,7 +15,6 @@ const { withConnection } = require('../db');
 const { safeJson } = require('../lib/json');
 
 const router = express.Router();
-router.use(requireAuth);
 
 /** 试卷相关文件目录：原卷 PDF + 题目区域截图（与管理端保持一致） */
 const PAPER_FILES_DIR = path.resolve(__dirname, '../../uploads/papers');
@@ -24,6 +23,8 @@ const PAPER_IMAGE_SUBDIR = 'paper-images';
 // GET /api/exam-papers/images/:paperId/:file —— 题目区域截图
 // 从原 PDF 裁出的截图，供答题时展示图形推理/几何图/统计图表。
 // <img> 标签带不了 Authorization 头，故这个路由额外接受 ?t=<token>。
+// 注意：必须放在 router.use(requireAuth) 之前 —— 否则 <img> 请求（无 Authorization 头）
+// 会被 requireAuth 先拦掉直接 401，根本到不了这里。
 router.get('/images/:paperId/:file', requireAuthOrToken, asyncHandler(async (req, res) => {
   const paperId = String(req.params.paperId);
   const file = String(req.params.file);
@@ -36,6 +37,8 @@ router.get('/images/:paperId/:file', requireAuthOrToken, asyncHandler(async (req
   res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
   return res.sendFile(abs);
 }));
+
+router.use(requireAuth);
 
 /** 答案比较：多选按字母集合比较 */
 function isAnswerRight(yourAnswer, rightAnswer) {
