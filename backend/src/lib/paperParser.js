@@ -320,12 +320,13 @@ function normalizeQuestion(q, opts = {}) {
   };
 }
 
-/** 片内去重（题干指纹 + 相似度） */
-function dedupeList(list) {
+/** 片内去重（题干指纹 + 相似度）。threshold 可由调用方覆盖（补拆合并用更低阈值） */
+function dedupeList(list, opts = {}) {
+  const threshold = opts.threshold ?? 0.92;
   const out = [];
   for (const q of list) {
     const fp = buildFingerprint(q);
-    const dup = findDuplicate({ ...q, fingerprint: fp }, out.map((o) => ({ ...o, id: o._tmpId })), { threshold: 0.92 });
+    const dup = findDuplicate({ ...q, fingerprint: fp }, out.map((o) => ({ ...o, id: o._tmpId })), { threshold });
     if (dup) continue;
     out.push({ ...q, fingerprint: fp });
   }

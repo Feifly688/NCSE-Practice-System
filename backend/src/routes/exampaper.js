@@ -183,20 +183,25 @@ async function runParseJob(paperId) {
   // 从而把总题数确定性拉回接近原文。
   const usedNums0 = new Set(matchQuestionNumbers(deduped, pre.index.byNumber).filter((n) => n != null));
   // 「未匹配」不等于「漏题」：匹配算法可能因局部错配漏掉已拆出的题。
-  // 补拆前先过滤——若某个原文题号的题干部分与任一已拆出的题足够相似，
+  // 补拆前先过滤——若某个原文题号的题干部分与任一已拆出的题足够相似
+  // （阈值 0.6，与合并去重的 0.75 衔接，避免 0.45~0.92 的「两头漏」区间：
+  // 过滤放行但去重不判，补拆题重复入库——实测 137 题多 7 全是这类），
   // 说明题已经拆出来了（只是没匹配上），补拆它只会造出重复题。
   const trulyMissing = pre.numbers.filter((n) => {
     if (usedNums0.has(n)) return false;
     const block = String((pre.index.byNumber.get(n) || {}).blockText || '');
     if (block.length < 20) return true; // 原文块太短无法判断，按漏题处理
     const blockStem = stemPart(block);
-    return !questions.some((q) => diceSimilarity(String(q.stem || ''), blockStem) >= 0.45);
+    return !questions.some((q) => diceSimilarity(String(q.stem || ''), blockStem) >= 0.6);
   });
   if (trulyMissing.length > 0) {
     console.log(`[exam] paper=${paperId} 题数对账：未匹配 ${pre.numbers.length - usedNums0.size} 题号，其中真漏 ${trulyMissing.length} 题（题号 ${trulyMissing.join(',')}），开始定向补拆`);
     const supp = await supplementMissingQuestions(pre, trulyMissing, paper.title);
     if (supp.length > 0) {
-      const merged = dedupeList(mergeFragments([...questions, ...supp]));
+      // 补拆结果与已拆出题合并去重：阈值降到 0.75（低于片内的 0.92）——
+      // AI 两次拆同一题的题干表述可能有细微差异（一次含"根据以上材料"、
+      // 一次不含），Dice 落在 0.75~0.92 之间，用 0.92 判不出重复。
+      const merged = dedupeList(mergeFragments([...questions, ...supp]), { threshold: 0.75 });
       // 按原文题号排序：有题号的按题号；匹配不到题号的题**继承前一题的位置**
       // （key = 前一题号 + 0.5），不再全部挤到末尾——实测补拆题（#2/#3/#8 等）
       // 被排到末尾会打乱整卷答题顺序。
