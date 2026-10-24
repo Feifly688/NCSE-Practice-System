@@ -25,7 +25,7 @@ const { callChat } = require('../lib/aiClient');
 const {
   splitIntoChunks, parseChunk, runPool, dedupeList, normalizeQuestion, mergeFragments,
 } = require('../lib/paperParser');
-const { buildFingerprint, findDuplicate, matchQuestionNumbers } = require('../lib/questionDedupe');
+const { buildFingerprint, findDuplicate, matchQuestionNumbers, diceSimilarity } = require('../lib/questionDedupe');
 const { preprocessPaperText } = require('../lib/paperText');
 const { safeJson } = require('../lib/json');
 const { extractQuestionImages } = require('../lib/pdfRegions');
@@ -182,10 +182,18 @@ async function runParseJob(paperId) {
   // 构造 1-5 题的小片重拆一次——小片漏题率远低于大碎片，
   // 从而把总题数确定性拉回接近原文。
   const usedNums0 = new Set(matchQuestionNumbers(deduped, pre.index.byNumber).filter((n) => n != null));
-  const missingNums = pre.numbers.filter((n) => !usedNums0.has(n));
-  if (missingNums.length > 0) {
-    console.log(`[exam] paper=${paperId} 题数对账：漏 ${missingNums.length} 题（题号 ${missingNums.join(',')}），开始定向补拆`);
-    const supp = await supplementMissingQuestions(pre, missingNums, paper.title);
+  // 「未匹配」不等于「漏题」：匹配算法可能因局部错配漏掉已拆出的题。
+  // 补拆前先过滤——若某个原文题号的文本与任一已拆出的题足够相似，
+  // 说明题已经拆出来了（只是没匹配上），补拆它只会造出重复题。
+  const trulyMissing = pre.numbers.filter((n) => {
+    if (usedNums0.has(n)) return false;
+    const block = String((pre.index.byNumber.get(n) || {}).blockText || '');
+    if (block.length < 20) return true; // 原文块太短无法判断，按漏题处理
+    return !questions.some((q) => diceSimilarity(String(q.stem || ''), block) >= 0.45);
+  });
+  if (trulyMissing.length > 0) {
+    console.log(`[exam] paper=${paperId} 题数对账：未匹配 ${pre.numbers.length - usedNums0.size} 题号，其中真漏 ${trulyMissing.length} 题（题号 ${trulyMissing.join(',')}），开始定向补拆`);
+    const supp = await supplementMissingQuestions(pre, trulyMissing, paper.title);
     if (supp.length > 0) {
       const merged = dedupeList(mergeFragments([...questions, ...supp]));
       // 补拆结果按原文题号重排，保证 seq 与题号顺序一致（图片挂载依赖这个顺序）

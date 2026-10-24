@@ -122,6 +122,13 @@ function findDuplicate(q, candidates, opts = {}) {
  * 这里用题干相似度（bigram Dice）逐题匹配原文题号：
  * 拆出的第 i 题 → 原文里最像它的那个题号。匹配不到就返回 null（该题不挂图片）。
  *
+ * **顺序约束**（关键）：AI 是逐片/逐行提取的，拆出题的顺序与原文题号
+ * 基本同序。若无约束地贪心（第 i 题可匹配任意未占用题号），一次早期
+ * 错配（两题都相似时选了偏大的题号）会让原文小题号永远匹配不上，
+ * 后续大量题连锁错配——实测 126 题只匹配上 86 题，误判 40 题"漏题"，
+ * 定向补拆又把它们拆一遍造成 9 题重复。加上「第 i 题只能匹配
+ * 前一个已匹配题号之后」的约束后，错配被限制在局部。
+ *
  * @param {Array<{stem: string}>} questions AI 拆出的题目
  * @param {Map<number, {blockText: string}>} index 原文题号索引
  * @returns {Array<number|null>} 与 questions 等长的题号数组
@@ -130,22 +137,28 @@ function matchQuestionNumbers(questions, index, opts = {}) {
   const threshold = opts.threshold ?? 0.45;
   const entries = [];
   for (const [num, info] of index) entries.push({ num, text: String(info.blockText || '') });
+  entries.sort((a, b) => a.num - b.num); // 题号升序，供顺序约束使用
   const used = new Set();
   const out = new Array(questions.length).fill(null);
+  let startIdx = 0; // 顺序约束游标：下一题只能匹配它之后的题号
 
   for (let i = 0; i < questions.length; i++) {
     const stem = String(questions[i]?.stem || '').trim();
     if (!stem) continue;
     let best = null;
-    for (const e of entries) {
+    for (let j = startIdx; j < entries.length; j++) {
+      const e = entries[j];
       if (used.has(e.num)) continue;
       const score = diceSimilarity(stem, e.text);
-      if (!best || score > best.score) best = { num: e.num, score };
+      if (!best || score > best.score) best = { num: e.num, score, idx: j };
     }
     if (best && best.score >= threshold) {
       out[i] = best.num;
       used.add(best.num);
+      startIdx = best.idx + 1;
     }
+    // 匹配不到时不动 startIdx：下一题仍可尝试当前及之后的题号
+    // （AI 偶尔少拆一题，不能因此阻塞后续所有匹配）
   }
   return out;
 }
