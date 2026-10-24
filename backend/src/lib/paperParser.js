@@ -302,8 +302,9 @@ async function parseChunk(chunk, opts = {}) {
       const normalized = raw
         .map((q) => normalizeQuestion(q, { keepIncomplete: true }))
         .filter(Boolean)
-        // 材料回填：模型没填 passage 但本片有板块共享材料时补上
-        .map((q) => (q.passage || material ? q : { ...q, passage: material || null }));
+        // 材料回填：模型没填 passage 时，用该分片的板块共享材料补上
+        // （资料分析的材料只在板块开头出现一次，模型在同一片里未必能关联上）
+        .map((q) => (q.passage && q.passage.trim() ? q : { ...q, passage: material || null }));
       const questions = dedupeList(normalized);
 
       // 输出被截断：切片减半递归，尽量覆盖被丢掉的题目
