@@ -100,6 +100,88 @@ async function crawlText(url) {
  * 执行整卷拆题（异步任务）：分批调用 AI → 写入 exam_paper_question → 更新状态。
  * 不抛异常（内部捕获并记录到 parse_error）。
  */
+/**
+ * 拆题收口：题号对账去重 + 模块归位 + 卷序重排。
+ *
+ * 为什么必须有这一步：dedupeList 只做「题与题之间」的两两去重，而多拆的题
+ * 大多不是「同一题被拆两次」这么直白 —— 实测一份 130 题的卷子被拆成 135 题，
+ * 多出的 5 题全部落在末尾（seq 124/125/130 等位置），内容却是前面板块已经
+ * 拆出来的题（政治理论 #10、判断推理 #85、资料分析 #117）。原因是补拆/跨片
+ * 输出的题与已拆出的题指向**同一个原文题号**，排序时又被挤到卷末。
+ *
+ * 三条规则：
+ *   1. 同一原文题号只保留「与原文题干最像」的一条（其余必为重复）；
+ *   2. 匹配不到题号的题，若与已保留的题足够相似（0.6，与补拆前的真漏过滤
+ *      同阈值 —— 那边已认定「拆出来了」，这边就不能再留一条），直接丢弃；
+ *   3. 模块以原文分区为准（AI 给的 module 可能是子类型或错位），卷序按题号，
+ *      匹配不到题号的题继承前一题位置（+0.5），不再全部挤到末尾。
+ *
+ * @param {Array} list AI 拆出的题目（已过 mergeFragments + dedupeList）
+ * @param {object} pre preprocessPaperText 的结果
+ * @returns {Array} 带 seq / section 的成卷题目
+ */
+function reconcileQuestions(list, pre) {
+  const byNumber = pre.index.byNumber;
+  const nums = matchQuestionNumbers(list, byNumber);
+
+  // 规则 1：同一原文题号只留最像的一条
+  const best = new Map();
+  const unmatched = [];
+  list.forEach((q, i) => {
+    const no = nums[i];
+    if (no == null) { unmatched.push(i); return; }
+    const block = byNumber.get(no);
+    const score = diceSimilarity(
+      stemPart(String(q.stem || '')),
+      stemPart(String((block && block.blockText) || ''))
+    );
+    const prev = best.get(no);
+    if (!prev || score > prev.score) best.set(no, { i, q, no, score });
+  });
+  const kept = [...best.values()];
+
+  // 规则 2：未匹配题与已保留题重复则丢弃
+  const extra = [];
+  for (const i of unmatched) {
+    const s = stemPart(String(list[i].stem || ''));
+    const dup = kept.some((k) => diceSimilarity(stemPart(String(k.q.stem || '')), s) >= 0.6);
+    if (!dup) extra.push({ i, q: list[i], no: null });
+  }
+
+  // 规则 3：卷序（题号优先，无题号继承前一题 +0.5）+ 模块以原文分区为准
+  const ordered = [...kept, ...extra].sort((a, b) => a.i - b.i);
+  let lastKey = -0.5;
+  for (const o of ordered) {
+    if (o.no != null) { o.key = o.no; lastKey = o.no; }
+    else { o.key = lastKey + 0.5; lastKey = o.key; }
+  }
+  ordered.sort((a, b) => a.key - b.key || a.i - b.i);
+
+  const dropped = list.length - ordered.length;
+  if (dropped > 0) {
+    console.log(`[exam] 题号对账收口：${list.length} → ${ordered.length} 题（去掉 ${dropped} 条同题号/相似重复）`);
+  }
+  return ordered.map((o, i) => {
+    const src = o.no != null ? byNumber.get(o.no) : null;
+    return {
+      ...o.q,
+      seq: i + 1,
+      section: (src && src.section) || o.q.module || '未分区',
+    };
+  });
+}
+
+/**
+ * 原卷是否自带答案区（区分「原卷没有答案」与「有答案但没拆出来」）。
+ * 特征：参考答案标题，或答案速查表（形如「1-5 CABDC」「101-105 ABDCE」）。
+ * 题干里不会出现「数字-数字 + 连续 3 个以上选项字母」的组合，故误判风险低。
+ */
+function hasAnswerSection(text) {
+  const t = String(text || '');
+  if (/参考答案|答案及解析|答案速查|【答案】/.test(t)) return true;
+  return /\b\d{1,3}\s*[-~—]\s*\d{1,3}\s*[A-Ea-e]{3,}/.test(t);
+}
+
 async function runParseJob(paperId) {
   const paper = await withConnection(async (conn) => {
     const [rows] = await conn.query('SELECT id, title, raw_text FROM exam_paper WHERE id = ?', [paperId]);
@@ -169,11 +251,7 @@ async function runParseJob(paperId) {
 
   // 跨片合并：组合表述题的题干与残片可能被切到不同片（实测 #15），
   // parseChunk 内的 mergeFragments 只能合片内相邻的，汇总层再合一次跨片相邻的。
-  let deduped = dedupeList(mergeFragments(questions)).map((q, i) => ({
-    ...q,
-    seq: i + 1,
-    section: q.module || '未分区',
-  }));
+  let deduped = reconcileQuestions(dedupeList(mergeFragments(questions)), pre);
 
   // ── 定向补拆：把模型漏输出的题捡回来 ──────────────────────────
   // 小模型（glm-4-flash）每片固定漏 1 题左右（实测资料分析 20 题漏 5、
@@ -202,18 +280,7 @@ async function runParseJob(paperId) {
       // AI 两次拆同一题的题干表述可能有细微差异（一次含"根据以上材料"、
       // 一次不含），Dice 落在 0.75~0.92 之间，用 0.92 判不出重复。
       const merged = dedupeList(mergeFragments([...questions, ...supp]), { threshold: 0.75 });
-      // 按原文题号排序：有题号的按题号；匹配不到题号的题**继承前一题的位置**
-      // （key = 前一题号 + 0.5），不再全部挤到末尾——实测补拆题（#2/#3/#8 等）
-      // 被排到末尾会打乱整卷答题顺序。
-      const nums = matchQuestionNumbers(merged, pre.index.byNumber);
-      const ordered = merged.map((q, i) => ({ q, i, no: nums[i] }));
-      let lastKey = -0.5;
-      for (const o of ordered) {
-        if (o.no != null) { o.key = o.no; lastKey = o.no; }
-        else { o.key = lastKey + 0.5; lastKey = o.key; }
-      }
-      ordered.sort((a, b) => a.key - b.key || a.i - b.i);
-      deduped = ordered.map((o, i) => ({ ...o.q, seq: i + 1, section: o.q.module || '未分区' }));
+      deduped = reconcileQuestions(merged, pre);
       console.log(`[exam] paper=${paperId} 补拆合并后共 ${deduped.length} 题`);
     }
   }
@@ -318,7 +385,13 @@ async function runParseJob(paperId) {
     if (gap > 0) account.push(`差 ${gap} 题`);
     else if (gap < 0) account.push(`多出 ${-gap} 题（可能有重复或题号识别偏差）`);
   }
-  if (noAnswer > 0) account.push(`${noAnswer} 题缺答案待补`);
+  // 「无答案」有两种截然不同的成因：原卷压根没有答案区（真题卷常见，答案单独成册），
+  // 或原卷有但没拆出来。前者提示「待补」会误导管理员反复重跑。
+  if (noAnswer > 0) {
+    account.push(hasAnswerSection(pre.text)
+      ? `${noAnswer} 题缺答案待补`
+      : `${noAnswer} 题无答案（原卷未含答案区，需上传带答案的 PDF 或人工录入）`);
+  }
   if (imageOptions > 0) account.push(`${imageOptions} 题选项为图片`);
   if (imageBySeq.size > 0) account.push(`${imageBySeq.size} 题已附原卷截图`);
 
