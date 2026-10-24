@@ -407,8 +407,22 @@ function buildQuestionIndex(text, sections = []) {
       .filter((l) => l.trim() && !OPTION_LINE.test(l))
       .join('\n')
       .trim();
-    // 本题的完整文本块（题干 + 选项），用于把 AI 拆出的题与原文题号对齐
-    const blockText = lines.slice(start, end).join(' ').trim();
+    // 本题的完整文本块（题干 + 选项），用于把 AI 拆出的题与原文题号对齐。
+    // 起点必须是**本题题干行**而不是上一题号行之后：
+    //   - kind C（题号与题干同行）：题干从题号行开始
+    //   - kind A/B（题号独立成行/在题干行尾）：题干在题号行之前，向上跳过选项行找题干行
+    // 否则 blockText 会混入上一题的选项，matchQuestionNumbers 对齐质量下降。
+    let stemStart = numAt[k].line;
+    if (numAt[k].kind !== 'C') {
+      for (let j = numAt[k].line - 1; j >= 0; j--) {
+        const t = lines[j].trim();
+        if (!t) continue;
+        if (OPTION_LINE.test(t)) break;
+        stemStart = j;
+        break;
+      }
+    }
+    const blockText = lines.slice(stemStart, end).join(' ').trim();
     const sec = sectionAt(numAt[k].line);
     // pre 里「最后一个问句之前」的部分才是材料；问句之后是本题题干
     const split = splitByQuestion(pre);

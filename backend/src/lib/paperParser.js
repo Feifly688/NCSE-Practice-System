@@ -50,9 +50,44 @@ const SYSTEM_PROMPT = `你是公考真题数字化专家，负责把试卷文本
    请把该材料原文填入这些题的 passage；不依赖材料的题 passage 留空。
 9. 材料/题干中出现的换行请保留为 "\\n"，不要合并成一段。
 10. **输出前先数一遍片段正文里的题号个数，questions 数组长度必须与之相等**；
-    漏题比多输出严重得多，宁可多保留也不要少。`;
+    漏题比多输出严重得多，宁可多保留也不要少。
+11. **一道题只能输出一次，不要在中间拆开**：政治理论的组合表述题写法是
+    「长题干 + ①②③④编号行 + A.①②③ / B.②③④ 选项」，编号行与选项行都属于**同一道题**，
+    编号行不是新题的开始；不要把一道长题拆成多道输出，也不要把相邻两道题合并成一道。`;
 
 const MODULE_NAMES = '常识判断|言语理解与表达|判断推理|数量关系|资料分析|政治理论|公共基础知识|申论|政治';
+
+/** 标准行测模块名（module 归一化的目标集） */
+const STANDARD_MODULES = ['常识判断', '言语理解与表达', '判断推理', '数量关系', '资料分析', '政治理论'];
+
+/**
+ * 模块名归一化。
+ *
+ * 模型输出的 module 不稳定：同一份「判断推理」板块，有时输出"判断推理"、
+ * 有时输出"逻辑判断"/"图形推理"（国考大纲里这四个是判断推理的子类），
+ * 还有"判断推理-逻辑判断"这类带后缀的写法。不归一化会让答题卡分区
+ * 裂成多行（实测"判断推理 25 题 + 逻辑判断 7 题"）。
+ *
+ * @param {string} raw 模型输出的模块名
+ * @returns {string|null} 归一化后的模块名；无法识别时保留原样
+ */
+function normalizeModule(raw) {
+  const t = String(raw || '')
+    .trim()
+    .replace(/[（(][^)）]*[)）]/g, '')   // 去掉括号注释：「判断推理（逻辑判断）」→「判断推理」
+    .replace(/[-—:：].*$/, '')          // 去掉连字符后缀：「判断推理-逻辑判断」→「判断推理」
+    .trim();
+  if (!t) return null;
+  if (STANDARD_MODULES.includes(t)) return t;
+  // 子类型 → 父类（判断推理的四个子类最常见）
+  if (/逻辑判断|图形推理|定义判断|类比推理|科学推理/.test(t)) return '判断推理';
+  if (/言语|阅读|片段|篇章|语句表达/.test(t)) return '言语理解与表达';
+  if (/政治|思想/.test(t)) return '政治理论';
+  if (/常识/.test(t)) return '常识判断';
+  if (/数量|数学运算|数字推理/.test(t)) return '数量关系';
+  if (/资料|数据/.test(t)) return '资料分析';
+  return t;
+}
 
 /**
  * 识别分区标题并提取模块名。
@@ -215,7 +250,7 @@ function normalizeQuestion(q, opts = {}) {
     // 选项在原文中是图片（图形推理/几何图/统计图）：保留题目，选项用占位符
     if (!keepIncomplete) return null;
     return {
-      module: String(q.module || '').trim() || null,
+      module: normalizeModule(q.module),
       qtype: String(q.qtype || '').trim() || '单选题',
       difficulty: 3,
       passage: String(q.passage || '').trim() || null,
@@ -232,7 +267,7 @@ function normalizeQuestion(q, opts = {}) {
     // 模型没能给出答案：拆题阶段保留（待人工补答案），入库阶段丢弃
     if (!keepIncomplete) return null;
     return {
-      module: String(q.module || '').trim() || null,
+      module: normalizeModule(q.module),
       qtype: String(q.qtype || '').trim() || '单选题',
       difficulty: 3,
       passage: String(q.passage || '').trim() || null,
@@ -249,7 +284,7 @@ function normalizeQuestion(q, opts = {}) {
   difficulty = Math.round(difficulty);
 
   return {
-    module: String(q.module || '').trim() || null,
+    module: normalizeModule(q.module),
     qtype: String(q.qtype || '').trim() || '单选题',
     difficulty,
     passage: String(q.passage || '').trim() || null,
@@ -444,6 +479,7 @@ module.exports = {
   splitHalf,
   normalizeQuestion,
   normalizeAnswer,
+  normalizeModule,
   dedupeList,
   parseChunk,
   runPool,
