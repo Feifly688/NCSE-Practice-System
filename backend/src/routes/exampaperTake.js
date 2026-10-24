@@ -7,13 +7,35 @@
  *   - 判分在服务端完成，多选题按字母集合完全匹配计分
  */
 const express = require('express');
-const { requireAuth } = require('../middleware/auth');
+const fs = require('fs');
+const path = require('path');
+const { requireAuth, requireAuthOrToken } = require('../middleware/auth');
 const { asyncHandler } = require('../middleware/asyncHandler');
 const { withConnection } = require('../db');
 const { safeJson } = require('../lib/json');
 
 const router = express.Router();
 router.use(requireAuth);
+
+/** 试卷相关文件目录：原卷 PDF + 题目区域截图（与管理端保持一致） */
+const PAPER_FILES_DIR = path.resolve(__dirname, '../../uploads/papers');
+const PAPER_IMAGE_SUBDIR = 'paper-images';
+
+// GET /api/exam-papers/images/:paperId/:file —— 题目区域截图
+// 从原 PDF 裁出的截图，供答题时展示图形推理/几何图/统计图表。
+// <img> 标签带不了 Authorization 头，故这个路由额外接受 ?t=<token>。
+router.get('/images/:paperId/:file', requireAuthOrToken, asyncHandler(async (req, res) => {
+  const paperId = String(req.params.paperId);
+  const file = String(req.params.file);
+  // 只允许「数字」与「字母数字-_.」，防目录穿越
+  if (!/^\d{1,10}$/.test(paperId) || !/^[A-Za-z0-9._-]{1,64}$/.test(file) || file.includes('..')) {
+    return res.status(400).json({ error: '非法的图片路径' });
+  }
+  const abs = path.join(PAPER_FILES_DIR, PAPER_IMAGE_SUBDIR, paperId, file);
+  if (!fs.existsSync(abs)) return res.status(404).json({ error: '图片不存在' });
+  res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
+  return res.sendFile(abs);
+}));
 
 /** 答案比较：多选按字母集合比较 */
 function isAnswerRight(yourAnswer, rightAnswer) {

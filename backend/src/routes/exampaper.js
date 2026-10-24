@@ -17,7 +17,7 @@ const express = require('express');
 const axios = require('axios');
 const cheerio = require('cheerio');
 const multer = require('multer');
-const { requireAuth, requireAuthOrToken, requireAdmin } = require('../middleware/auth');
+const { requireAuth, requireAdmin } = require('../middleware/auth');
 const { asyncHandler } = require('../middleware/asyncHandler');
 const { withConnection } = require('../db');
 const { extractPdfText } = require('../lib/pdfText');
@@ -47,22 +47,6 @@ const upload = multer({
     cb(isPdf ? null : new Error('仅支持 PDF 文件'), isPdf);
   },
 });
-
-// ── 0. 题目区域截图（静态文件）──────────────────────────────────
-// 从原 PDF 裁出的题目截图，供整卷答题时展示图形推理/几何图/统计图表。
-// 只要求登录（普通答题用户也要能看），放在管理员权限中间件之前。
-router.get('/images/:paperId/:file', requireAuthOrToken, asyncHandler(async (req, res) => {
-  const paperId = String(req.params.paperId);
-  const file = String(req.params.file);
-  // 只允许「字母数字-_.」且不含路径分隔符，防目录穿越
-  if (!/^\d{1,10}$/.test(paperId) || !/^[A-Za-z0-9._-]{1,64}$/.test(file) || file.includes('..')) {
-    return res.status(400).json({ error: '非法的图片路径' });
-  }
-  const abs = path.join(PAPER_FILES_DIR, PAPER_IMAGE_SUBDIR, paperId, file);
-  if (!fs.existsSync(abs)) return res.status(404).json({ error: '图片不存在' });
-  res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
-  return res.sendFile(abs);
-}));
 
 router.use(requireAuth, requireAdmin);
 
