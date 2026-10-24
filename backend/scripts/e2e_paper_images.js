@@ -49,14 +49,14 @@ async function main() {
   console.log('2) 上传成功 paperId =', paperId, '| 文本长度 =', uj.textLength, '| 方法 =', uj.method);
 
   // 3. 原 PDF 是否落盘
-  const pdfSaved = path.resolve(__dirname, '../../uploads/papers', `${paperId}.pdf`);
+  const pdfSaved = path.resolve(__dirname, '../uploads/papers', `${paperId}.pdf`);
   console.log('3) 原始 PDF 落盘:', fs.existsSync(pdfSaved) ? `是 (${fs.statSync(pdfSaved).size} 字节)` : '否');
 
   // 4. 轮询拆题状态
   let status = 'pending';
   for (let i = 0; i < 60; i++) {
     await new Promise((r) => setTimeout(r, 5000));
-    const sr = await fetch(`${BASE}/api/exam-papers/${paperId}/parse-status`, {
+    const sr = await fetch(`${BASE}/api/admin/exam-papers/${paperId}/parse-status`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     const sj = await sr.json();
@@ -103,7 +103,7 @@ async function main() {
     await conn.query('DELETE FROM exam_paper_question WHERE exam_paper_id = ?', [paperId]);
     await conn.query('DELETE FROM exam_paper WHERE id = ?', [paperId]);
   });
-  const imgDir = path.resolve(__dirname, '../../uploads/papers/paper-images', String(paperId));
+  const imgDir = path.resolve(__dirname, '../uploads/papers/paper-images', String(paperId));
   if (fs.existsSync(imgDir)) fs.rmSync(imgDir, { recursive: true, force: true });
   if (fs.existsSync(pdfSaved)) fs.rmSync(pdfSaved, { force: true });
   await withConnection(async (conn) => {

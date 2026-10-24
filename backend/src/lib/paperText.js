@@ -20,6 +20,8 @@ const PAGE_NOISE = /^\s*第\s*\d{1,4}\s*页\s*[,，]?\s*共\s*\d{1,4}\s*页\s*$/
 const BLANK_LINE = /^[　\s]*$/;
 /** 独立成行的题号 */
 const STANDALONE_NUM = /^\s*(\d{1,3})\s*[.、．]\s*$/;
+/** 行首题号 + 正文（"101. 根据下表……"），PDF/网页卷常见 */
+const LEADING_NUM = /^\s*(\d{1,3})\s*[.、．]\s+\S/;
 /** 行尾题号：数字前不能紧跟字母/数字；前置标点不再强制（类比推理题如「堤溃蚁孔：薪尽火灭96.」无标点） */
 const TRAILING_NUM = /(\d{1,3})\s*([.、．])?\s*$/;
 /** 以选项标记开头的行 —— 这类行的行尾数字属于选项内容，不能当题号 */
@@ -119,6 +121,16 @@ function normalizeQuestionNumbers(text) {
       numbers.push(n);
       out.push(`${n}.`);
       continue;
+    }
+    // 行首题号 + 正文（"101. 根据下表……"）：题号与题干同在首行，保持原样不拆分
+    const leading = line.match(LEADING_NUM);
+    if (leading && !OPTION_LINE.test(line)) {
+      const n = Number(leading[1]);
+      if (n >= 1 && n <= 300) {
+        numbers.push(n);
+        out.push(line);
+        continue;
+      }
     }
     // 行尾题号：以选项标记开头的行不参与判定（其行尾数字属于选项内容）
     if (!OPTION_LINE.test(line)) {
@@ -282,7 +294,13 @@ function buildQuestionIndex(text, sections = []) {
   const numAt = [];
   lines.forEach((l, i) => {
     const m = l.match(STANDALONE_NUM);
-    if (m) numAt.push({ num: Number(m[1]), line: i });
+    if (m) { numAt.push({ num: Number(m[1]), line: i, kind: 'A' }); return; }
+    // 行首题号 + 正文：题号与题干同在首行
+    const lead = l.match(LEADING_NUM);
+    if (lead && !OPTION_LINE.test(l)) {
+      const n = Number(lead[1]);
+      if (n >= 1 && n <= 300) numAt.push({ num: n, line: i, kind: 'C' });
+    }
   });
 
   const sectionAt = (line) => {
