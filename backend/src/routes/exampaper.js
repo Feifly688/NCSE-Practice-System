@@ -197,12 +197,18 @@ async function runParseJob(paperId) {
     const supp = await supplementMissingQuestions(pre, trulyMissing, paper.title);
     if (supp.length > 0) {
       const merged = dedupeList(mergeFragments([...questions, ...supp]));
-      // 补拆结果按原文题号重排，保证 seq 与题号顺序一致（图片挂载依赖这个顺序）
+      // 按原文题号排序：有题号的按题号；匹配不到题号的题**继承前一题的位置**
+      // （key = 前一题号 + 0.5），不再全部挤到末尾——实测补拆题（#2/#3/#8 等）
+      // 被排到末尾会打乱整卷答题顺序。
       const nums = matchQuestionNumbers(merged, pre.index.byNumber);
-      deduped = merged
-        .map((q, i) => ({ q, no: nums[i] }))
-        .sort((a, b) => (a.no == null ? 99999 : a.no) - (b.no == null ? 99999 : b.no))
-        .map((o, i) => ({ ...o.q, seq: i + 1, section: o.q.module || '未分区' }));
+      const ordered = merged.map((q, i) => ({ q, i, no: nums[i] }));
+      let lastKey = -0.5;
+      for (const o of ordered) {
+        if (o.no != null) { o.key = o.no; lastKey = o.no; }
+        else { o.key = lastKey + 0.5; lastKey = o.key; }
+      }
+      ordered.sort((a, b) => a.key - b.key || a.i - b.i);
+      deduped = ordered.map((o, i) => ({ ...o.q, seq: i + 1, section: o.q.module || '未分区' }));
       console.log(`[exam] paper=${paperId} 补拆合并后共 ${deduped.length} 题`);
     }
   }

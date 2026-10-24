@@ -240,6 +240,20 @@ function normalizeAnswer(v, optionCount) {
 }
 
 /**
+ * 清洗题干：去掉开头的题号（模型有时把 "120. " 一起写进 stem）。
+ *
+ * 不剥离的后果：同一道题「含题号」与「不含题号」两个版本的指纹不同，
+ * dedupeList 判不出重复——实测补拆后出现 seq123/seq131 这类重复对
+ * （饼状图题被拆两遍入库）。
+ */
+function cleanStem(stem) {
+  return String(stem || '')
+    .trim()
+    .replace(/^\s*\d{1,3}\s*[.、．]\s*/, '')
+    .slice(0, 2000);
+}
+
+/**
  * 清洗模型输出的一道题。
  *
  * @param {object} q 模型输出
@@ -265,7 +279,7 @@ function normalizeQuestion(q, opts = {}) {
       qtype: String(q.qtype || '').trim() || '单选题',
       difficulty: 3,
       passage: String(q.passage || '').trim() || null,
-      stem: String(q.stem).trim().slice(0, 2000),
+      stem: cleanStem(q.stem),
       options: ['（图片选项）', '（图片选项）', '（图片选项）', '（图片选项）'],
       answer: answer || null,
       explanation: String(q.explanation || '').trim().slice(0, 1000) || null,
@@ -282,7 +296,7 @@ function normalizeQuestion(q, opts = {}) {
       qtype: String(q.qtype || '').trim() || '单选题',
       difficulty: 3,
       passage: String(q.passage || '').trim() || null,
-      stem: String(q.stem).trim().slice(0, 2000),
+      stem: cleanStem(q.stem),
       options: options.slice(0, 6),
       answer: null,
       explanation: String(q.explanation || '').trim().slice(0, 1000) || null,
@@ -299,7 +313,7 @@ function normalizeQuestion(q, opts = {}) {
     qtype: String(q.qtype || '').trim() || '单选题',
     difficulty,
     passage: String(q.passage || '').trim() || null,
-    stem: String(q.stem).trim().slice(0, 2000),
+    stem: cleanStem(q.stem),
     options: options.slice(0, 6),
     answer,
     explanation: String(q.explanation || '').trim().slice(0, 1000) || null,
