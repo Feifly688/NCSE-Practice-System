@@ -94,8 +94,8 @@ function isSectionHeading(line) {
  * @returns {Array<{ section: string, text: string, index: number, material?: string }>}
  */
 function splitIntoChunks(text, opts = {}) {
-  const target = opts.target || 2400;
-  const max = opts.max || 3400;
+  const target = opts.target || 1900;
+  const max = opts.max || 2800;
   const lines = String(text || '').split('\n').map((l) => l.trim()).filter(Boolean);
   const isQuestionStart = (l) => /^\d{1,3}\s*[.、．]\s*$/.test(l);
 
@@ -276,9 +276,10 @@ async function parseChunk(chunk, opts = {}) {
   for (attempts = 1; attempts <= 2; attempts++) {
     let res;
     try {
-      res = await callChat({ system: SYSTEM_PROMPT, user, maxTokens });
+      res = await callChat({ system: SYSTEM_PROMPT, user, maxTokens, timeout: opts.timeout });
     } catch (err) {
       lastError = 'AI 调用失败：' + err.message;
+      console.warn(`[paperParser] 片段调用失败（${err.message}），第 ${attempts} 次`);
       continue;
     }
 
@@ -350,6 +351,29 @@ async function parseChunk(chunk, opts = {}) {
       }
       return { questions: [], error: lastError, degraded: 'split-failed', attempts };
     }
+  }
+
+  // 走到这里说明整片都没成功（AI 调用超时 / 输出解析失败）。
+  // 必须走切片减半递归：一次超时会让整片题目（实测 13 题）全部丢失，
+  // 而拆题的超时往往是"片太大"造成的，减半后单片更小、更快。
+  if (depth < 2 && chunk.text.length > 800) {
+    const halves = splitHalf(chunk.text);
+    const collected = [];
+    const errors = [];
+    for (const h of halves) {
+      const r = await parseChunk({ section: chunk.section, text: h, material }, { ...opts, depth: depth + 1 });
+      collected.push(...r.questions);
+      if (r.error) errors.push(r.error);
+    }
+    if (collected.length > 0) {
+      return {
+        questions: dedupeList(collected),
+        error: (errors[0] || lastError || '整片失败，已通过切片减半抢救') + '（已通过切片减半抢救部分题目）',
+        degraded: 'split-retry',
+        attempts,
+      };
+    }
+    return { questions: [], error: lastError, degraded: 'split-failed', attempts };
   }
 
   return { questions: [], error: lastError, degraded: 'failed', attempts };

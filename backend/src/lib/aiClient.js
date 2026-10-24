@@ -27,7 +27,7 @@ function ensureConfigured() {
  * 调用 chat 接口。
  * @returns {{ content: string, finishReason: string|null, usage: object, truncated: boolean }}
  */
-async function callChat({ system, user, maxTokens = 4000, temperature = 0.2, timeout = 180000, retries = 2 }) {
+async function callChat({ system, user, maxTokens = 4000, temperature = 0.2, timeout = 300000, retries = 2 }) {
   ensureConfigured();
   let lastErr = null;
   for (let attempt = 0; attempt <= retries; attempt++) {
