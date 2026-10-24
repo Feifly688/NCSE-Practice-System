@@ -213,6 +213,30 @@ function matchQuestionNumbers(questions, index, opts = {}) {
       j--;
     }
   }
+
+  // ── 位置锚定补配 ──────────────────────────────────────────────
+  // DP 遇到被改写的题干会走 gap，结果是「题拆出来了却没有题号」——
+  // 图片挂不上，还会被题数对账当成漏题再去补拆一次（实测一份 130 题的卷子
+  // 因此补拆 37 次，最后多出 9 题）。但顺序结构本身就是证据：若一段连续
+  // 未匹配的题，其前后已匹配题号之间**恰好空出同样多的题号**，按序填入即可。
+  const nums = entries.map((e) => e.num);
+  let a = 0;
+  while (a < n) {
+    if (out[a] != null) { a++; continue; }
+    let b = a;
+    while (b < n && out[b] == null) b++;
+    const segLen = b - a;
+    let prevPos = -1;
+    for (let p = a - 1; p >= 0; p--) if (out[p] != null) { prevPos = nums.indexOf(out[p]); break; }
+    let nextPos = m;
+    for (let q = b; q < n; q++) if (out[q] != null) { nextPos = nums.indexOf(out[q]); break; }
+    const slots = nextPos - prevPos - 1;
+    // 只在空位与缺口数完全一致时填（多拆/漏题的情况下数量对不上，不猜）
+    if (slots === segLen && slots > 0) {
+      for (let k = 0; k < segLen; k++) out[a + k] = nums[prevPos + 1 + k];
+    }
+    a = b;
+  }
   return out;
 }
 
