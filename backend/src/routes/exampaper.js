@@ -120,9 +120,63 @@ async function crawlText(url) {
  * @param {object} pre preprocessPaperText 的结果
  * @returns {Array} 带 seq / section 的成卷题目
  */
+/** 问句特征：用于判断一段文字是不是「问题」（而不是材料残片） */
+const ASK_RE = /[？?]|多少|哪项|哪些|正确的是|错误的是|的是|推出|约是|比重|排名|趋势|反映|属于|符合|不可能/;
+
+/**
+ * 剥离题干开头被误并入的共享材料。
+ *
+ * 资料分析一篇材料带 5 题，模型偶发把整段材料当成一道题输出（实测一份卷子
+ * 里出现 8 条，stem 与材料逐字相同，长度 200+，直接把题数从 130 顶到 134）。
+ *
+ * @returns {string|null} 剥离后的题干；整条就是材料（剥完不成题）时返回 null
+ */
+/**
+ * 判断一道「题」是不是被误当成题的共享材料，是则尝试剥离材料、只留问题。
+ *
+ * 判据必须与题号无关：这类条目往往连原文题号都匹配不上（实测 8 条全部 no=null），
+ * 只能直接和原文的材料段比。相似度门槛 0.8（逐字复制级别），并要求材料尾部
+ * 能在 stem 里原样找到，避免「题干开头几个字和材料撞了」被误杀。
+ *
+ * @returns {{stem: string|null, hit: boolean}} stem=null 表示整条就是材料，应丢弃
+ */
+function splitMaterial(stem, passages) {
+  const s = String(stem || '').trim();
+  const sPart = stemPart(s);
+  for (const p of passages) {
+    const pp = String(p || '').trim();
+    if (pp.length < 30) continue;
+    if (diceSimilarity(sPart, stemPart(pp)) < 0.8) continue;
+    const tail = pp.slice(-24);
+    const at = s.indexOf(tail);
+    if (at < 0) continue; // 不是逐字复制，放过
+    const rest = s.slice(at + tail.length).replace(/^[\s。、，,；;]*/, '').trim();
+    if (rest.length >= 8 && ASK_RE.test(rest)) return { stem: rest, hit: true };
+    return { stem: null, hit: true }; // 剥不出问题 → 整条是材料
+  }
+  return { stem: s, hit: false };
+}
+
 function reconcileQuestions(list, pre) {
   const byNumber = pre.index.byNumber;
-  const nums = matchQuestionNumbers(list, byNumber);
+  let nums = matchQuestionNumbers(list, byNumber);
+
+  // 步骤 0：清掉「材料被当成题」的条目，并重算题号对齐
+  const passageSet = new Set();
+  for (const v of byNumber.values()) if (v.passage && v.passage.length >= 30) passageSet.add(v.passage);
+  for (const s of pre.sections || []) if (s.material && s.material.length >= 30) passageSet.add(s.material);
+  const passages = [...passageSet];
+  const cleaned = [];
+  for (const q of list) {
+    const { stem, hit } = splitMaterial(q.stem, passages);
+    if (stem == null) continue;
+    cleaned.push(hit ? { ...q, stem } : q);
+  }
+  if (cleaned.length !== list.length) {
+    console.log(`[exam] 清除「材料被当成题」的条目：${list.length} → ${cleaned.length} 题`);
+    list = cleaned;
+    nums = matchQuestionNumbers(list, byNumber);
+  }
 
   // 规则 1：同一原文题号只留最像的一条
   const best = new Map();
