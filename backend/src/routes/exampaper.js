@@ -386,6 +386,7 @@ async function supplementMissingQuestions(pre, missingNums, paperTitle) {
 }
 
 async function updateParseState(paperId, fields) {
+  const keys = Object.keys(fields);
   if (keys.length === 0) return;
   const setSql = keys.map((k) => `\`${k}\` = ?`).join(', ');
   const values = keys.map((k) => fields[k]);
