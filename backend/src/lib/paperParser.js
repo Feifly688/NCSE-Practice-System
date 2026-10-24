@@ -314,18 +314,36 @@ function isCombinationOptions(options) {
   return opts.length >= 2 && opts.every((o) => /^[①②③④⑤⑥⑦⑧⑨⑩]{2,}$/.test(String(o).trim()));
 }
 
+/** 选项是否全是「图片占位」（选项内容在原卷里是图形，文本层只剩 A./B./C./D.） */
+function isImagePlaceholderOptions(options) {
+  const opts = Array.isArray(options) ? options : [];
+  return opts.length >= 2 && opts.every((o) => String(o).trim() === '（图片选项）');
+}
+
 /**
- * 合并被模型拆散的「组合表述题」残片。
+ * 标准题干白名单：这些句式本身**不含问句**（无问号、无疑问特征词），
+ * 但它们是完整的真题题干（图形推理/类比推理/分类题），绝不是残片。
+ * 合并残片时必须排除，否则会把整道图形推理题并进上一题。
+ */
+const STANDARD_STEM = /从所给的四个选项|选择最合适的一个|填入问号|使之呈现一定的规律性|使之成为排列|把下面的六个图形分为两类|分类正确的一项是|从四个图形中选出|以下图形|下列图形|右边哪项|哪项不可能是|立体图形|截面图|每道题呈现一段表述数字关系/;
+
+/**
+ * 合并被模型拆散的题残片。
  *
- * 政治理论的写法：长题干 + ①②③④编号行 + A.①②③ 选项。小模型（glm-4-flash）
- * 常把「编号行之后、问句之前」的部分当成新题输出——残片的题干没有问句、
- * 选项却仍是组合编号（实测 #15 被拆成两道，prompt 约束不住，必须代码层兜底）。
+ * 小模型（glm-4-flash）有两种典型的"拆散"行为：
+ *   A. 组合表述题（政治理论）：长题干 + ①②③④编号行 + A.①②③ 选项，
+ *      编号行之后、问句之前的部分被当成新题——残片无问句、选项是组合编号；
+ *   B. 长选项题：某题的选项跨多行（B./C./D. 各占一两行），模型把选项的
+ *      后续行当成新题的题干——残片无问句、选项只剩图片占位
+ *      （实测 #8 的选项 B/C/D 被当成 seq9）。
+ *   prompt 约束不住这两种行为（重跑仍复现），必须代码层兜底。
  *
  * 判据（同时满足才合并，误判率低）：
  *   1. 残片题干**不含问句**（无 ？/? 与疑问特征词）
- *   2. 残片选项是**组合编号**形式
- *   3. 前一题题干**含问句**（组合表述题的问句在前半段）
- *   4. 两题**同一模块**（切片边界两侧的题也要能合并，但不同模块不合并）
+ *   2. 残片题干**不是标准题干句式**（STANDARD_STEM 白名单，保护图形推理等）
+ *   3. 残片选项是**组合编号**或**图片占位**（两种拆散形态各自的选项特征）
+ *   4. 前一题题干**含问句**（问句在前半段）
+ *   5. 两题**同一模块**（切片边界两侧的题也要能合并，但不同模块不合并）
  * 合并时残片题干并入前一题（剥掉混入的选项行）；若残片选项是组合编号而前一题是
  * 图片占位，用残片选项替换（恢复真实选项内容）。
  *
@@ -339,7 +357,9 @@ function mergeFragments(list) {
     const qNoQuestion = !QUESTION_MARKERS.test(q.stem) && !/[？?]/.test(String(q.stem || ''));
     const prevHasQuestion = prev && (QUESTION_MARKERS.test(prev.stem) || /[？?]/.test(String(prev.stem || '')));
     const sameModule = prev && q.module && prev.module && String(q.module) === String(prev.module);
-    if (prev && qNoQuestion && prevHasQuestion && sameModule && isCombinationOptions(q.options)) {
+    const notStandardStem = !STANDARD_STEM.test(String(q.stem || ''));
+    const fragOptions = isCombinationOptions(q.options) || isImagePlaceholderOptions(q.options);
+    if (prev && qNoQuestion && notStandardStem && fragOptions && prevHasQuestion && sameModule) {
       // 残片题干里常混入选项行（"A. ①②③"），合并前剥掉，避免 stem 冗余
       const fragStem = String(q.stem || '')
         .replace(/(?:^|\n)\s*[A-D]\s*[.．、]\s*[①②③④⑤⑥⑦⑧⑨⑩]+/g, '')
