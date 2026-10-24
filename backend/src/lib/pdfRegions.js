@@ -1,5 +1,6 @@
 /**
- * 真题 PDF 图片提取：把「题干 + 选项（含图形）」所在区域裁剪成 PNG。
+ * 真题 PDF 图片提取：把「题干 + 选项（含图形）」所在区域裁剪成 PNG，
+ * 并把资料分析「一篇材料的材料段」也截出来（材料段的统计图表只能这样取得）。
  *
  * 为什么必须裁剪而不是直接贴原文：
  *   图形推理、几何图、统计图表在 PDF 里是矢量或位图对象，文本层只有 "A." "B." "C." "D."，
@@ -11,16 +12,26 @@
  *   3. 区间 = 该题题干行顶部 → 下一个题号行顶部（这样选项里的图形也会落在区间内）
  *   4. `pdftoppm -x/-y/-W/-H` 按像素坐标裁剪渲染成 PNG
  *
+ * 材料段截图（资料分析的关键补充）：
+ *   一篇材料（含统计表/柱状图等矢量图）只出现在篇首题号**之前**，不在任何题号区间内，
+ *   只按题号切区间会永远裁不到材料段的图。因此对「题号行上方存在长数据段」的题，
+ *   额外把材料段整体截一张，挂到该题号上（由上层分发到同篇所有题）。
+ *
  * 依赖：服务器需安装 poppler-utils（pdftotext / pdftoppm）。
  */
 const { execFile } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const { QUESTION_MARKERS } = require('./paperText');
 
 /** 渲染 DPI：越高越清晰，文件也越大 */
 const RENDER_DPI = Number(process.env.PDF_RENDER_DPI || 150);
 /** 单题最多保留几张图（跨页题） */
 const MAX_IMAGES_PER_QUESTION = 2;
+/** 材料段最少字数（低于此认为是题干片段而非一篇材料） */
+const MATERIAL_MIN_CHARS = 80;
+/** 统计型材料特征词（与 lib/paperText 的 DATA_MARKERS 保持一致） */
+const DATA_MARKERS = /%|％|百分点|同比|环比|亿元|万元|万件|亿吨|万吨|万人|规模以上|增长率|占比|比重|增加值|销售额|零售额/;
 
 const STANDALONE_NUM = /^\s*(\d{1,3})\s*[.、．]\s*$/;
 const TRAILING_NUM = /(\d{1,3})\s*([.、．])?\s*$/;
@@ -128,17 +139,122 @@ function detectQuestionLines(lines) {
 }
 
 /**
+ * 检测「题号行上方的材料段」（同页内）。
+ *
+ * 资料分析的排版：一篇材料 → 篇首题 → 若干题。材料段位于篇首题号行**上方**、
+ * 上一题（或板块标题/页顶）之间。判定：该区间非选项文字 ≥ 80 字且含数据特征词。
+ *
+ * @param {object} pg 页面（含 lines）
+ * @param {Array} marks 本页识别出的题号（按行序）
+ * @param {number} k marks 中本题号的下标
+ * @returns {{xMin,xMax,yTop,yBottom}|null} 左上角原点坐标系
+ */
+/**
+ * 从指定行**向上**收集连续的材料行（遇到选项行/页码行/问句行即停）。
+ *
+ * 为什么必须向上收集再遇选项行即停：选项常常跨行（"A.某公司针对一款新品……\n广，
+ * 营销成本较低但收益也较低……"），续行不以 A. 开头，按「区间内所有非选项行」收集
+ * 会把上一篇的选项续行也算进材料段（实测定义判断题因此误报）。
+ *
+ * @param {object} pg 页面
+ * @param {number} fromLine 收集下界（含）
+ * @param {number} toLine 收集上界（不含，从 toLine-1 开始向上）
+ * @param {boolean} skipPageNo 页码行跳过（材料在页码上方时）还是终止
+ */
+function collectMaterialLines(pg, fromLine, toLine, skipPageNo) {
+  const seg = [];
+  for (let i = toLine - 1; i >= fromLine; i--) {
+    const t = pg.lines[i].text.trim();
+    if (!t) continue;
+    if (/^\s*第\s*\d{1,4}\s*页/.test(t)) {
+      if (skipPageNo) continue;
+      break;
+    }
+    if (OPTION_LINE.test(t)) break;        // 选项行 → 材料到此为止
+    if (QUESTION_MARKERS.test(t)) break;   // 题干/问句行 → 材料到此为止
+    seg.unshift(pg.lines[i]);
+  }
+  return seg;
+}
+
+/**
+ * 检测「题号行上方的材料段」（同页内）。
+ *
+ * 资料分析的排版：一篇材料 → 篇首题 → 若干题。材料段位于篇首题号行**上方**、
+ * 上一题（或板块标题/页顶）之间。判定：向上收集到的连续文本 ≥ 80 字、含数据特征词。
+ *
+ * @param {object} pg 页面（含 lines）
+ * @param {Array} marks 本页识别出的题号（按行序）
+ * @param {number} k marks 中本题号的下标
+ * @returns {{xMin,xMax,yTop,yBottom}|null} 左上角原点坐标系
+ */
+function detectMaterialSegment(pg, marks, k) {
+  const mk = marks[k];
+  const prev = k > 0 ? marks[k - 1] : null;
+  const fromLine = prev ? prev.lineIndex + 1 : 0;
+  // 题号独立成行（kind A）时，题号行的上一行是题干，不属于材料
+  let toLine = mk.lineIndex;
+  if (mk.kind === 'A' && toLine > 0 && !OPTION_LINE.test(pg.lines[toLine - 1].text)) toLine -= 1;
+  if (toLine - fromLine < 1) return null;
+  const seg = collectMaterialLines(pg, fromLine, toLine, false);
+  if (seg.length < 1) return null;
+  const text = seg.map((l) => l.text).join('');
+  if (text.length < MATERIAL_MIN_CHARS) return null;
+  if (!DATA_MARKERS.test(text)) return null;
+  const stemY = pg.lines[toLine] ? pg.lines[toLine].yMin : pg.height;
+  const yTop = Math.min(...seg.map((l) => l.yMin));
+  // 下边界取篇首题干行顶部：材料文字与题干之间的空白区域可能藏着矢量图表
+  if (stemY - yTop < 20) return null;
+  // 材料段按整页宽裁剪：统计表/柱状图常占满版心，按文字宽度裁会把图切掉
+  return { xMin: 0, xMax: pg.width, yTop, yBottom: stemY };
+}
+
+/**
+ * 检测「上一页尾部的材料段」（跨页材料的前半段）。
+ *
+ * 一篇材料常跨页：前半段在上一页的尾部（某题之后、页码之前），
+ * 后半段在下一页开头（篇首题号之前）。只截后半段会丢掉材料开头的图表。
+ *
+ * @param {object} pg 页面
+ * @param {number} fromLine 起始行（上一页最后一个题号行之后）
+ */
+function detectTailMaterial(pg, fromLine) {
+  // 页码行是页脚，在材料下方，收集时跳过
+  const seg = collectMaterialLines(pg, fromLine, pg.lines.length, true);
+  if (seg.length < 2) return null;               // 材料是多行长文本，单行多为选项续行
+  const text = seg.map((l) => l.text).join('');
+  if (text.length < MATERIAL_MIN_CHARS) return null;
+  if (!DATA_MARKERS.test(text)) return null;
+  const yTop = Math.min(...seg.map((l) => l.yMin));
+  const yBottom = Math.max(...seg.map((l) => l.yMax));
+  if (yBottom - yTop < 30) return null;          // 纵向跨度太小 → 不是多行材料
+  // 截到材料最后一行（不再到页面底部，避免圈入页脚装饰）
+  return { xMin: 0, xMax: pg.width, yTop, yBottom };
+}
+
+/**
  * 把一页按题号切成「题目区间」。
  * 区间上边界 = 题干行顶部；下边界 = 下一个题号行顶部（这样选项里的图形也落在区间内）。
  *
  * 坐标系说明：`pdftotext -bbox-layout` 输出的 y 是**从页面顶部往下**的
  * （与 pdftoppm 的 -y 一致，虽然 PDF 规范里原点在左下角，实测 poppler 就是这样）。
+ *
+ * @returns {{ regions: Map<number, Array>, materials: Map<number, Array> }}
+ *   regions: 题号 → 题目区间列表；materials: 篇首题号 → 材料段区间列表（可跨页）
  */
 function buildRegions(pages) {
   /** 题号 → [{ page, xMin, xMax, yTop, yBottom, graphic }]（左上角原点） */
   const regions = new Map();
-  for (const pg of pages) {
-    const marks = detectQuestionLines(pg.lines);
+  /** 篇首题号 → [{ page, xMin, xMax, yTop, yBottom, material: true }] */
+  const materials = new Map();
+  // 预计算每页题号（跨页材料检测要用上一页的题号分布）
+  const pageMarks = pages.map((pg) => detectQuestionLines(pg.lines));
+
+  for (let p = 0; p < pages.length; p++) {
+    const pg = pages[p];
+    const marks = pageMarks[p];
+    const prevPage = p > 0 ? pages[p - 1] : null;
+    const prevMarks = p > 0 ? pageMarks[p - 1] : [];
     for (let k = 0; k < marks.length; k++) {
       const mk = marks[k];
       const next = marks[k + 1];
@@ -182,9 +298,36 @@ function buildRegions(pages) {
         yBottom,
         graphic,
       });
+
+      // ── 材料段：篇首题号上方的长数据段（资料分析的统计图表在这里）─────
+      // 跨页材料要截两段：本篇首页内的后半段 + 上一页尾部的前半段。
+      // 不能因同页命中就跳过跨页检查 —— 实测 M市材料跨 22/23 页，
+      // 只截页23部分会丢掉材料开头的图表。
+      const matSegs = [];
+      // 跨页段（上一页尾部 = 材料开头）排在前面，同页段（材料后半）排在后面
+      if (k === 0 && prevPage && prevMarks.length) {
+        const lastMark = prevMarks[prevMarks.length - 1];
+        const tail = detectTailMaterial(prevPage, lastMark.lineIndex + 1);
+        if (tail) {
+          matSegs.push({
+            ...tail,
+            page: prevPage.page,
+            pageWidth: prevPage.width,
+            pageHeight: prevPage.height,
+          });
+        }
+      }
+      const samePage = detectMaterialSegment(pg, marks, k);
+      if (samePage) {
+        matSegs.push({ ...samePage, page: pg.page, pageWidth: pg.width, pageHeight: pg.height });
+      }
+      for (const seg of matSegs) {
+        if (!materials.has(mk.num)) materials.set(mk.num, []);
+        materials.get(mk.num).push({ ...seg, material: true });
+      }
     }
   }
-  return regions;
+  return { regions, materials };
 }
 
 /**
@@ -224,43 +367,70 @@ function cropRegion(pdfPath, region, outFile, dpi = RENDER_DPI) {
 }
 
 /**
- * 提取整卷的题目区域图片。
+ * 提取整卷的题目区域图片（含资料分析的材料段截图）。
  *
  * @param {string} pdfPath 服务器上的 PDF 路径
  * @param {string} outDir 输出目录
- * @returns {Promise<{ questions: Map<number, string[]>, stats: object }>}
- *          questions: 题号 → 生成的 PNG 绝对路径列表
+ * @returns {Promise<{ questions: Map<number, string[]>, materials: Map<number, string[]>, stats: object }>}
+ *          questions: 题号 → 本题区域 PNG 绝对路径列表
+ *          materials: 篇首题号 → 材料段 PNG 绝对路径列表（资料分析的统计图表）
+ *          stats.skipped: 跳过的原因（poppler 未安装等），供上层显式报错
  */
 async function extractQuestionImages(pdfPath, outDir) {
-  const stats = { pages: 0, regions: 0, rendered: 0, failed: 0 };
-  if (!fs.existsSync(pdfPath)) return { questions: new Map(), stats };
-  if (!(await hasPoppler())) return { questions: new Map(), stats };
+  const stats = { pages: 0, regions: 0, rendered: 0, failed: 0, materialRegions: 0, materialRendered: 0, skipped: null };
+  const empty = { questions: new Map(), materials: new Map(), stats };
+  if (!fs.existsSync(pdfPath)) return empty;
+  if (!(await hasPoppler())) {
+    // 不能静默返回：否则上传界面看不到任何提示，用户以为图片功能正常
+    stats.skipped = 'poppler-missing';
+    return empty;
+  }
 
   fs.mkdirSync(outDir, { recursive: true });
   const { stdout } = await exec('pdftotext', ['-bbox-layout', pdfPath, '-']);
   const pages = parseBBox(stdout);
   stats.pages = pages.length;
-  const regions = buildRegions(pages);
+  const { regions, materials } = buildRegions(pages);
   stats.regions = regions.size;
+  stats.materialRegions = materials.size;
 
-  const questions = new Map();
-  for (const [num, list] of regions) {
+  // 裁剪一组区域为 PNG，返回文件路径列表
+  const renderGroup = async (list, namePrefix) => {
     const files = [];
-    // 同一题跨页时，每页各裁一张，最多保留 MAX_IMAGES_PER_QUESTION 张
     for (let i = 0; i < list.length && files.length < MAX_IMAGES_PER_QUESTION; i++) {
-      const outFile = path.join(outDir, `q${num}${files.length ? '-' + (files.length + 1) : ''}.png`);
+      const suffix = files.length ? '-' + (files.length + 1) : '';
+      const outFile = path.join(outDir, `${namePrefix}${suffix}.png`);
       try {
         const p = await cropRegion(pdfPath, list[i], outFile);
         files.push(p);
-        stats.rendered++;
       } catch (err) {
         stats.failed++;
-        console.warn(`[pdfRegions] 题号 ${num} 第 ${list[i].page} 页裁剪失败：${err.message}`);
+        console.warn(`[pdfRegions] ${namePrefix} 第 ${list[i].page} 页裁剪失败：${err.message}`);
       }
     }
-    if (files.length) questions.set(num, files);
+    return files;
+  };
+
+  const questions = new Map();
+  for (const [num, list] of regions) {
+    const files = await renderGroup(list, `q${num}`);
+    if (files.length) {
+      questions.set(num, files);
+      stats.rendered += files.length;
+    }
   }
-  return { questions, stats };
+
+  // 材料段截图（资料分析的统计表/柱状图），命名 q<题号>-m.png 与题目区间图区分
+  const materialFiles = new Map();
+  for (const [num, list] of materials) {
+    const files = await renderGroup(list, `q${num}-m`);
+    if (files.length) {
+      materialFiles.set(num, files);
+      stats.materialRendered += files.length;
+    }
+  }
+
+  return { questions, materials: materialFiles, stats };
 }
 
 module.exports = {

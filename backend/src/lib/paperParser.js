@@ -33,7 +33,9 @@ const SYSTEM_PROMPT = `你是公考真题数字化专家，负责把试卷文本
 ## 硬性要求
 1. **只输出 JSON**，不要输出任何解释文字，不要用 \`\`\` 代码块包裹
 2. JSON 结构必须且只能是：{"questions":[ ... ]}
-3. 选项必须与原文一致，答案必须明确；无法确定答案的题直接跳过不输出
+3. 选项必须与原文一致。**本试卷文本通常不含答案**，无法确定答案时 answer 填空字符串 ""，
+   但**题目必须全部输出，一道都不能少** —— 漏题是严重错误，无答案的题由后续人工补充，
+   绝不允许因为找不到答案就跳过整道题
 4. 材料段落（passage）归到所属题目，不要重复出现在多道题中
 5. 考试说明、注意事项、页眉页脚、答案卡说明等非题目内容不要输出
 
@@ -44,9 +46,11 @@ const SYSTEM_PROMPT = `你是公考真题数字化专家，负责把试卷文本
    说明选项是图片（图形推理、几何图、统计图等）：
    仍然要输出这道题，options 填 ["（图片选项）","（图片选项）","（图片选项）","（图片选项）"]，
    stem 保留原文题干，**不要因为选项没有文字就丢掉这道题**。
-8. 如果片段开头给出了【板块共享材料】，而题目（尤其是资料分析题）依赖这段材料，
+8. 如果片段开头给出了【本篇资料共享材料】，而题目（尤其是资料分析题）依赖这段材料，
    请把该材料原文填入这些题的 passage；不依赖材料的题 passage 留空。
-9. 材料/题干中出现的换行请保留为 "\\n"，不要合并成一段。`;
+9. 材料/题干中出现的换行请保留为 "\\n"，不要合并成一段。
+10. **输出前先数一遍片段正文里的题号个数，questions 数组长度必须与之相等**；
+    漏题比多输出严重得多，宁可多保留也不要少。`;
 
 const MODULE_NAMES = '常识判断|言语理解与表达|判断推理|数量关系|资料分析|政治理论|公共基础知识|申论|政治';
 
@@ -90,12 +94,16 @@ function isSectionHeading(line) {
  * 现在真正按题号边界收尾：到达阈值后向后找下一个题号行，把中间内容并入本片。
  *
  * @param {string} text 整卷文本（应已由 lib/paperText 预处理，题号已归一化为独立成行）
- * @param {object} opts { target, max, sections }
+ * @param {object} opts { target, max, sections, byNumber }
+ *   byNumber：lib/paperText 的题号索引（含 passage/passageShared），用于**题号级**材料下发。
+ *   资料分析的每篇材料只出现在篇首题号前，切片后可能与该篇的题目不在同一片，
+ *   因此每片要带上「本片第一个题号所属的那篇材料」。
  * @returns {Array<{ section: string, text: string, index: number, material?: string }>}
  */
 function splitIntoChunks(text, opts = {}) {
   const target = opts.target || 1900;
   const max = opts.max || 2800;
+  const byNumber = opts.byNumber || null;
   const lines = String(text || '').split('\n').map((l) => l.trim()).filter(Boolean);
   const isQuestionStart = (l) => /^\d{1,3}\s*[.、．]\s*$/.test(l);
 
@@ -149,16 +157,29 @@ function splitIntoChunks(text, opts = {}) {
       merged.push({ ...c });
     }
   }
-  // 附带该分区的共享材料（资料分析等板块的材料只在板块开头出现一次）
-  const materials = new Map();
+  // 附带该分片的共享材料：
+  //   1) 题号级优先 —— 本片第一个题号所属的那篇材料（资料分析多篇材料的正确来源）；
+  //   2) 板块级兜底 —— 分区标题后提取的板块材料（老逻辑，覆盖无题号索引的场景）。
+  // 只下发 passageShared=true 的材料，避免把某题的独立引言当成板块材料污染同片其他题。
+  const sectionMaterials = new Map();
   for (const s of opts.sections || []) {
-    if (s && s.name && s.material) materials.set(s.name, s.material);
+    if (s && s.name && s.material) sectionMaterials.set(s.name, s.material);
   }
-  return merged.map((c, i) => ({
-    ...c,
-    index: i,
-    material: materials.get(c.section) || '',
-  }));
+  // 找片段内第一个题号（行首「111.」或独立成行的「111.」都已归一化）
+  const firstQuestionNo = (chunkText) => {
+    const m = String(chunkText || '').match(/(?:^|\n)\s*(\d{1,3})\s*[.、．]/);
+    return m ? Number(m[1]) : null;
+  };
+  return merged.map((c, i) => {
+    let material = '';
+    if (byNumber && byNumber.size) {
+      const no = firstQuestionNo(c.text);
+      const q = no != null ? byNumber.get(no) : null;
+      if (q && q.passageShared && q.passage) material = q.passage;
+    }
+    if (!material) material = sectionMaterials.get(c.section) || '';
+    return { ...c, index: i, material };
+  });
 }
 
 /** 规范答案：从 "A"、"A."、"答案A"、"AB" 中提取字母 */
@@ -261,14 +282,18 @@ async function parseChunk(chunk, opts = {}) {
   const maxTokens = opts.maxTokens || 4000;
   const material = chunk.material || opts.material || '';
 
+  // 片段内题号个数：给模型一个明确的「应输出题数」目标，减少漏题
+  const qCount = (String(chunk.text || '').match(/(?:^|\n)\s*\d{1,3}\s*[.、．]/g) || []).length;
+
   const user =
     `试卷标题：${paperTitle}\n` +
     `当前模块：${chunk.section}\n` +
     (material
-      ? `【板块共享材料】（本模块所有题目共用，若题目依赖它，请填入这些题的 passage）：\n${material}\n\n`
+      ? `【本篇资料共享材料】（本篇资料的多道题共用，若题目依赖它，请填入这些题的 passage）：\n${material}\n\n`
       : '') +
-    `说明：这是试卷的一个片段，请提取其中出现的全部题目。\n\n` +
-    `片段正文：\n${chunk.text}`;
+    `说明：这是试卷的一个片段，请提取其中出现的全部题目。` +
+    (qCount > 0 ? `片段中可见题号 ${qCount} 个，questions 数组长度应与之相等。` : '') +
+    `\n\n片段正文：\n${chunk.text}`;
 
   let attempts = 0;
   let lastError = null;

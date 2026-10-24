@@ -1,8 +1,18 @@
 /**
  * PDF → 文本：文本型直接提取，扫描件/图片型 PDF 走 OCR 降级。
  *
+ * 提取链路（按优先级）：
+ *   1. `pdftotext -layout`（poppler）——**按阅读顺序**输出。
+ *      实测：pdf-parse（pdf.js）按 PDF 内容流顺序提取，而部分排版软件生成的 PDF
+ *      内容流顺序 ≠ 阅读顺序（板块标题后混入其他板块内容、题号与选项行被页眉
+ *      截断导致题号漏识别），因此 poppler 可用时**必须优先用 pdftotext**。
+ *      同一份 27 页真题实测：pdftotext -layout 识别 130/130 题号、零断档；
+ *      pdf-parse 仅 128/130（断档 77/80，选项行被页眉误删）。
+ *   2. pdf-parse——服务器未安装 poppler-utils 时的兜底。
+ *   3. OCR（视觉模型逐页识别）——前两者都提不到有效文本且 PDF 含图片对象时降级。
+ *
  * 行为约定（调用方据此向管理员给出可读提示）：
- *   - 文本型：pdf-parse 提取，做换行与空白归一化
+ *   - method 字段标明实际使用的链路：pdftotext-layout / pdf-parse / ocr-vision
  *   - 提取为空/过少 + PDF 内含图片对象 → 判定为扫描件/图片型
  *       · 服务器安装 poppler-utils（pdftoppm）时：按页渲染 PNG → 视觉模型逐页识别
  *       · 未安装时：返回明确错误，说明如何补救（不静默失败）
@@ -53,6 +63,38 @@ function hasPoppler() {
   return new Promise((resolve) => {
     execFile('pdftoppm', ['-v'], (err) => resolve(!err));
   });
+}
+
+/** execFile 的 Promise 包装（统一 maxBuffer，避免大 PDF 输出被截断） */
+function execFileAsync(cmd, args, opts = {}) {
+  return new Promise((resolve, reject) => {
+    execFile(cmd, args, { maxBuffer: 64 * 1024 * 1024, ...opts }, (err, stdout, stderr) => {
+      if (err) return reject(new Error(`${cmd} 执行失败：${err.message}${stderr ? ' / ' + String(stderr).slice(0, 200) : ''}`));
+      resolve({ stdout, stderr });
+    });
+  });
+}
+
+/**
+ * 用 poppler 的 pdftotext -layout 提取文本（阅读顺序）。
+ *
+ * -layout 保留版面缩进（多栏对齐），选项行会变成 "A.7.2   B.10.8   C.13.9"，
+ * 由下游 splitMergedOptions 拆行；行首缩进由 normalizeText 清除。
+ *
+ * @returns {Promise<{text: string, pages: number}>} pages 由分页符 \f 计数得到
+ */
+async function extractByPdftotext(buffer) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'eppdftxt-'));
+  const pdfPath = path.join(dir, 'input.pdf');
+  fs.writeFileSync(pdfPath, buffer);
+  try {
+    const { stdout } = await execFileAsync('pdftotext', ['-layout', '-enc', 'UTF-8', pdfPath, '-']);
+    const raw = String(stdout || '');
+    const pages = (raw.match(/\f/g) || []).length;
+    return { text: normalizeText(raw), pages };
+  } finally {
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* ignore */ }
+  }
 }
 
 /** 用 pdftoppm 将指定页渲染为 PNG，返回文件路径列表 */
@@ -116,6 +158,27 @@ async function ocrByVision(pdfPath, pages) {
  *                     warning?: string, error?: string, quality?: object }>}
  */
 async function extractPdfText(buffer) {
+  // ── 链路 1：pdftotext -layout（阅读顺序，优先）─────────────────
+  // 必须在 pdf-parse 之前：内容流顺序 ≠ 阅读顺序的 PDF（常见于排版软件导出）
+  // 用 pdf-parse 会得到乱序文本，导致题号漏识别、板块材料错位。
+  const poppler = await hasPoppler();
+  if (poppler) {
+    try {
+      const { text, pages } = await extractByPdftotext(buffer);
+      const quality = assessTextQuality(text);
+      if (quality.usable && quality.markers >= 3) {
+        if (quality.markers < 10) {
+          return { ok: true, text, pages, method: 'pdftotext-layout', quality, warning: '题号特征较少（' + quality.markers + ' 处），AI 拆题结果请人工核对' };
+        }
+        return { ok: true, text, pages, method: 'pdftotext-layout', quality };
+      }
+      console.warn(`[pdf] pdftotext -layout 质量不足（chars=${quality.chars} markers=${quality.markers}），回退 pdf-parse`);
+    } catch (err) {
+      console.warn('[pdf] pdftotext -layout 失败，回退 pdf-parse：' + err.message);
+    }
+  }
+
+  // ── 链路 2：pdf-parse（无 poppler 时的兜底）────────────────────
   let parsed = { text: '', numpages: 0 };
   try {
     const pdfParse = require('pdf-parse');
@@ -146,8 +209,7 @@ async function extractPdfText(buffer) {
       };
     }
 
-    // 图片型/扫描件 → OCR 降级
-    const poppler = await hasPoppler();
+    // 图片型/扫描件 → OCR 降级（poppler 可用性已在链路 1 检测过）
     if (!poppler) {
       return {
         ok: false,

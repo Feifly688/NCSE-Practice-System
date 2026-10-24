@@ -137,7 +137,7 @@ async function runParseJob(paperId) {
     `分区 ${pre.sections.length} 个，带共享材料的分区 ${pre.sections.filter((s) => s.material).length} 个`
   );
 
-  const chunks = splitIntoChunks(pre.text, { sections: pre.sections });
+  const chunks = splitIntoChunks(pre.text, { sections: pre.sections, byNumber: pre.index.byNumber });
   console.log(`[exam] paper=${paperId} 切分为 ${chunks.length} 个片段`);
 
   const started = Date.now();
@@ -182,26 +182,47 @@ async function runParseJob(paperId) {
   if (fs.existsSync(pdfPath)) {
     try {
       const outDir = path.join(PAPER_FILES_DIR, PAPER_IMAGE_SUBDIR, String(paperId));
-      const { questions: imagesByNo, stats } = await extractQuestionImages(pdfPath, outDir);
+      const { questions: imagesByNo, materials: materialByNo, stats } = await extractQuestionImages(pdfPath, outDir);
       imageStats = stats;
       console.log(
         `[exam] paper=${paperId} 区域截图完成：页 ${stats.pages}，题号区域 ${stats.regions}，` +
-        `生成 ${stats.rendered} 张，失败 ${stats.failed} 张`
+        `生成 ${stats.rendered} 张，失败 ${stats.failed} 张；材料段 ${stats.materialRegions} 篇，` +
+        `生成 ${stats.materialRendered} 张`
       );
-      if (imagesByNo.size > 0) {
+      if (stats.skipped) {
+        // poppler 未安装等情况：不能让用户以为截图功能正常
+        errors.push('题目区域截图已跳过（服务器未安装 poppler-utils：pdftotext/pdftoppm），图形类题目将只有文字');
+      }
+      if (imagesByNo.size > 0 || materialByNo.size > 0) {
         // AI 拆出的题按顺序对应原文题号（用题干相似度对齐，避免错位）
         const numbers = matchQuestionNumbers(deduped, pre.index.byNumber);
         let mapped = 0;
+        let materialMapped = 0;
         for (let i = 0; i < deduped.length; i++) {
           const no = numbers[i];
           if (no == null) continue;
-          const files = imagesByNo.get(no);
-          if (!files || !files.length) continue;
-          const rel = files.map((f) => path.basename(f));
-          imageBySeq.set(deduped[i].seq, rel.join(','));
-          mapped++;
+          const seq = deduped[i].seq;
+          // 1) 本题自己的区域截图
+          const own = imagesByNo.get(no);
+          // 2) 所属资料篇的材料段截图（同篇所有题共享，保证每题都能看到统计图表）
+          const from = pre.index.byNumber.get(no);
+          const matNo = from ? from.passageFrom : null;
+          const mat = matNo != null ? materialByNo.get(matNo) : null;
+          const files = [];
+          if (own && own.length) files.push(...own.map((f) => path.basename(f)));
+          if (mat && mat.length) {
+            for (const f of mat) {
+              const base = path.basename(f);
+              if (!files.includes(base)) files.push(base);
+            }
+            materialMapped++;
+          }
+          if (files.length) {
+            imageBySeq.set(seq, files.join(','));
+            mapped++;
+          }
         }
-        console.log(`[exam] paper=${paperId} 截图挂载：${mapped}/${deduped.length} 题`);
+        console.log(`[exam] paper=${paperId} 截图挂载：${mapped}/${deduped.length} 题（其中 ${materialMapped} 题挂了资料篇材料图）`);
       }
     } catch (err) {
       console.error('[exam] 区域截图失败:', err.message);
