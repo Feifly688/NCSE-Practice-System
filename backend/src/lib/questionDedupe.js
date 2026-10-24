@@ -116,19 +116,32 @@ function findDuplicate(q, candidates, opts = {}) {
 }
 
 /**
+ * 截取一段文本的「题干部分」：从开头到第一个选项行（A./B./C./D.）为止。
+ *
+ * 为什么需要：AI 拆出的 stem 只含题干，而原文 blockText 是「题干 + 选项」。
+ * 直接用整段做相似度会被选项稀释——言语题选项约 120 字、题干约 40 字，
+ * Dice 可能只有 0.2，低于匹配阈值（实测 130 题只匹配上 80 题，
+ * 误判 43 题"漏题"）。截到题干部分后是「题干 vs 题干」，相似度正常。
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+function stemPart(text) {
+  const s = String(text || '');
+  const m = s.match(/(?:^|\n)\s*[A-D]\s*[.．、]/);
+  return m ? s.slice(0, m.index) : s;
+}
+
+/**
  * 把 AI 拆出的题目与原文题号对齐。
  *
  * AI 拆题会有遗漏或多拆，顺序也可能错位（小模型会把相邻几题的顺序
  * 打乱，尤其中长题干题），不能直接按下标对应。
  *
- * 算法：**全局贪心**——先算所有「拆出题 × 原文题号」的相似度对，
- * 按分数降序依次分配（题与题号都未被占用才分配）。
- * 相比「逐题贪心」（第 i 题在剩余题号里挑最相似的），全局贪心不受
- * 顺序影响，也不会因一次早期错配连锁失败：
- *   - 旧逐题贪心：实测 126 题只匹配上 86 题（错配连锁）
- *   - 顺序约束版：小模型输出乱序时更糟（52 题匹配失败，连续区间连锁）
- *   - 全局贪心：每次分配都是当前剩余里的最优对
- * 计算量 130×130 次 Dice（约 0.5s），可接受。
+ * 算法：**全局贪心**——先算所有「拆出题 × 原文题号」的相似度对
+ * （两边都截取到题干部分，避免选项稀释相似度），按分数降序依次分配
+ * （题与题号都未被占用才分配）。相比「逐题贪心」，全局贪心不受
+ * 顺序影响，也不会因一次早期错配连锁失败。
  *
  * @param {Array<{stem: string}>} questions AI 拆出的题目
  * @param {Map<number, {blockText: string}>} index 原文题号索引
@@ -140,13 +153,13 @@ function matchQuestionNumbers(questions, index, opts = {}) {
   for (const [num, info] of index) entries.push({ num, text: String(info.blockText || '') });
   entries.sort((a, b) => a.num - b.num);
 
-  // 1) 所有超过阈值的候选对
+  // 1) 所有超过阈值的候选对（题干 vs 题干）
   const pairs = [];
   for (let i = 0; i < questions.length; i++) {
-    const stem = String(questions[i]?.stem || '').trim();
-    if (!stem) continue;
+    const stem = stemPart(String(questions[i]?.stem || ''));
+    if (!stem.trim()) continue;
     for (const e of entries) {
-      const score = diceSimilarity(stem, e.text);
+      const score = diceSimilarity(stem, stemPart(e.text));
       if (score >= threshold) pairs.push({ i, num: e.num, score });
     }
   }
@@ -175,4 +188,5 @@ module.exports = {
   judgeDuplicate,
   findDuplicate,
   matchQuestionNumbers,
+  stemPart,
 };
