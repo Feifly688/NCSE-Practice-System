@@ -23,7 +23,7 @@ const { withConnection } = require('../db');
 const { extractPdfText } = require('../lib/pdfText');
 const { callChat } = require('../lib/aiClient');
 const {
-  splitIntoChunks, parseChunk, runPool, dedupeList, normalizeQuestion,
+  splitIntoChunks, parseChunk, runPool, dedupeList, normalizeQuestion, mergeFragments,
 } = require('../lib/paperParser');
 const { buildFingerprint, findDuplicate, matchQuestionNumbers } = require('../lib/questionDedupe');
 const { preprocessPaperText } = require('../lib/paperText');
@@ -167,7 +167,9 @@ async function runParseJob(paperId) {
     if (r && (r.degraded === 'salvaged' || r.degraded === 'split-retry')) salvagedChunks++;
   });
 
-  const deduped = dedupeList(questions).map((q, i) => ({
+  // 跨片合并：组合表述题的题干与残片可能被切到不同片（实测 #15），
+  // parseChunk 内的 mergeFragments 只能合片内相邻的，汇总层再合一次跨片相邻的。
+  const deduped = dedupeList(mergeFragments(questions)).map((q, i) => ({
     ...q,
     seq: i + 1,
     section: q.module || '未分区',

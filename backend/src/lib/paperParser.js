@@ -325,8 +325,12 @@ function isCombinationOptions(options) {
  *   1. 残片题干**不含问句**（无 ？/? 与疑问特征词）
  *   2. 残片选项是**组合编号**形式
  *   3. 前一题题干**含问句**（组合表述题的问句在前半段）
- * 合并时残片题干并入前一题；若残片选项是组合编号而前一题是图片占位，
- * 用残片选项替换（恢复真实选项内容）。
+ *   4. 两题**同一模块**（切片边界两侧的题也要能合并，但不同模块不合并）
+ * 合并时残片题干并入前一题（剥掉混入的选项行）；若残片选项是组合编号而前一题是
+ * 图片占位，用残片选项替换（恢复真实选项内容）。
+ *
+ * 调用点有两处：parseChunk 内（片内相邻）+ runParseJob 汇总（跨片相邻——
+ * 题干与残片被切到不同片时只有汇总层能合上，实测 #15 就是这种情况）。
  */
 function mergeFragments(list) {
   const out = [];
@@ -334,7 +338,8 @@ function mergeFragments(list) {
     const prev = out[out.length - 1];
     const qNoQuestion = !QUESTION_MARKERS.test(q.stem) && !/[？?]/.test(String(q.stem || ''));
     const prevHasQuestion = prev && (QUESTION_MARKERS.test(prev.stem) || /[？?]/.test(String(prev.stem || '')));
-    if (prev && qNoQuestion && prevHasQuestion && isCombinationOptions(q.options)) {
+    const sameModule = prev && q.module && prev.module && String(q.module) === String(prev.module);
+    if (prev && qNoQuestion && prevHasQuestion && sameModule && isCombinationOptions(q.options)) {
       // 残片题干里常混入选项行（"A. ①②③"），合并前剥掉，避免 stem 冗余
       const fragStem = String(q.stem || '')
         .replace(/(?:^|\n)\s*[A-D]\s*[.．、]\s*[①②③④⑤⑥⑦⑧⑨⑩]+/g, '')
