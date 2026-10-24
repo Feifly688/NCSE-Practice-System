@@ -236,6 +236,23 @@ function hasAnswerSection(text) {
   return /\b\d{1,3}\s*[-~—]\s*\d{1,3}\s*[A-Ea-e]{3,}/.test(t);
 }
 
+/**
+ * 拆题并发数。
+ * 原来是 3：一份 130 题的卷子切 20 片、每片 60-150s，串行下来整卷 9-12 分钟，
+ * 用户体验就是「点了拆题一直转圈」。单片耗时几乎全在等模型，并发提到 5 后
+ * 整卷可压到 3-4 分钟。可调 PARSE_CONCURRENCY 覆盖（模型侧有限流时调小）。
+ */
+const PARSE_CONCURRENCY = Math.max(1, Number(process.env.PARSE_CONCURRENCY || 5));
+
+/** 整卷拆题预算：超时则保留已拆出的题目落库，不让用户无限等 */
+const PARSE_BUDGET_MS = Number(process.env.PARSE_BUDGET_MS || 15 * 60 * 1000);
+
+/** 判定「拆题任务已经死了」的静默时长：进程重启后 parse_status 会永远停在 parsing */
+const PARSE_STALE_MS = Number(process.env.PARSE_STALE_MS || 12 * 60 * 1000);
+
+/** 单片 AI 调用超时（毫秒） */
+const PARSE_CHUNK_TIMEOUT_MS = Number(process.env.PARSE_CHUNK_TIMEOUT_MS || 90000);
+
 async function runParseJob(paperId) {
   const paper = await withConnection(async (conn) => {
     const [rows] = await conn.query('SELECT id, title, raw_text FROM exam_paper WHERE id = ?', [paperId]);
@@ -280,7 +297,8 @@ async function runParseJob(paperId) {
   const results = await runPool(
     chunks.map((c, i) => async () => {
       const t0 = Date.now();
-      const r = await parseChunk(c, { paperTitle: paper.title });
+      // 单片硬超时：超时后 parseChunk 内部会切片减半重试，比干等更快收敛
+      const r = await parseChunk(c, { paperTitle: paper.title, timeout: PARSE_CHUNK_TIMEOUT_MS });
       console.log(
         `[exam] paper=${paperId} 第 ${i + 1}/${chunks.length} 片（${c.section}）完成：` +
         `${r.questions.length} 题 / ${((Date.now() - t0) / 1000).toFixed(1)}s / ` +
@@ -288,7 +306,7 @@ async function runParseJob(paperId) {
       );
       return r;
     }),
-    3
+    PARSE_CONCURRENCY
   );
 
   const questions = [];
@@ -345,7 +363,14 @@ async function runParseJob(paperId) {
   const imageBySeq = new Map();
   let imageStats = null;
   const pdfPath = path.join(PAPER_FILES_DIR, `${paperId}.pdf`);
-  if (fs.existsSync(pdfPath)) {
+  // 预算兜底：拆题已经耗时过久时，先让用户拿到题目，截图留到下一次重跑再补，
+  // 而不是让整卷继续挂着（用户感受就是「点了拆题没反应」）。
+  const overBudget = Date.now() - started > PARSE_BUDGET_MS;
+  if (overBudget) {
+    errors.push(`拆题总耗时已超过 ${Math.round(PARSE_BUDGET_MS / 60000)} 分钟，本次跳过题目截图以尽快返回结果（重新拆题可补图）`);
+    console.warn(`[exam] paper=${paperId} 超出时间预算，跳过截图阶段`);
+  }
+  if (!overBudget && fs.existsSync(pdfPath)) {
     try {
       const outDir = path.join(PAPER_FILES_DIR, PAPER_IMAGE_SUBDIR, String(paperId));
       const { questions: imagesByNo, materials: materialByNo, stats } = await extractQuestionImages(pdfPath, outDir);
@@ -663,6 +688,20 @@ router.get('/:id/parse-status', asyncHandler(async (req, res) => {
      WHERE exam_paper_id = ? GROUP BY section ORDER BY MIN(seq)`,
     [paper.id]
   ));
+
+  // 拆题进程被重启/中断时 parse_status 会永远停在 parsing，前端只能一直转圈。
+  // 这里按「最后一次状态更新时间」判定任务已死，直接给出结论 + 重跑入口。
+  if (paper.parse_status === 'parsing' && paper.last_parse_at) {
+    const silent = Date.now() - new Date(paper.last_parse_at).getTime();
+    if (silent > PARSE_STALE_MS) {
+      await updateParseState(paper.id, {
+        parse_status: 'failed',
+        parse_error: `拆题任务已中断（超过 ${Math.round(PARSE_STALE_MS / 60000)} 分钟无进展，通常是服务重启所致），请重新拆题`,
+      });
+      paper.parse_status = 'failed';
+      paper.parse_error = `拆题任务已中断（超过 ${Math.round(PARSE_STALE_MS / 60000)} 分钟无进展，通常是服务重启所致），请重新拆题`;
+    }
+  }
 
   return res.json({
     paperId: paper.id,

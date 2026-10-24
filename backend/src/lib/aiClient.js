@@ -27,7 +27,11 @@ function ensureConfigured() {
  * 调用 chat 接口。
  * @returns {{ content: string, finishReason: string|null, usage: object, truncated: boolean }}
  */
-async function callChat({ system, user, maxTokens = 4000, temperature = 0.2, timeout = 300000, retries = 2 }) {
+// 单次请求超时：默认 90s。原来 300s + 重试 2 次意味着最坏一片要等 15 分钟，
+// 整卷拆题会「卡住」——单片超时后 parseChunk 会切片减半重试，比原地干等快得多。
+const CHAT_TIMEOUT_MS = Number(process.env.AI_CHAT_TIMEOUT_MS || 90000);
+
+async function callChat({ system, user, maxTokens = 4000, temperature = 0.2, timeout = CHAT_TIMEOUT_MS, retries = 1 }) {
   ensureConfigured();
   let lastErr = null;
   for (let attempt = 0; attempt <= retries; attempt++) {

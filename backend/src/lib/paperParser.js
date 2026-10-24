@@ -29,7 +29,12 @@ const SYSTEM_PROMPT = `你是公考真题数字化专家，负责把试卷文本
 - stem：题干（含问句，保留原文表述）
 - options：选项数组，按 A/B/C/D 顺序
 - answer：答案字母（单选如 "A"，多选如 "AB"）
-- explanation：解析，60-150 字
+- explanation：固定填空字符串 ""
+
+## 速度约束（很重要）
+- **不要生成解析**：试卷文本通常不含答案与解析，逐题写 60-150 字解析纯属编造，
+  还会让输出长度翻几倍、把拆题从分钟级拖到十分钟级。explanation 一律填空字符串。
+- 题干与选项照抄原文，不要扩写、改写或补背景。
 
 ## 硬性要求
 1. **只输出 JSON**，不要输出任何解释文字，不要用 \`\`\` 代码块包裹
@@ -81,7 +86,7 @@ function normalizeModule(raw) {
   if (!t) return null;
   if (STANDARD_MODULES.includes(t)) return t;
   // 子类型 → 父类（判断推理的四个子类最常见）
-  if (/逻辑判断|图形推理|定义判断|类比推理|科学推理/.test(t)) return '判断推理';
+  if (/逻辑判断|逻辑推理|图形推理|定义判断|类比推理|科学推理/.test(t)) return '判断推理';
   if (/言语|阅读|片段|篇章|语句表达/.test(t)) return '言语理解与表达';
   if (/政治|思想/.test(t)) return '政治理论';
   if (/常识/.test(t)) return '常识判断';
