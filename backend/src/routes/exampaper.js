@@ -242,7 +242,7 @@ function hasAnswerSection(text) {
  * 用户体验就是「点了拆题一直转圈」。单片耗时几乎全在等模型，并发提到 5 后
  * 整卷可压到 3-4 分钟。可调 PARSE_CONCURRENCY 覆盖（模型侧有限流时调小）。
  */
-const PARSE_CONCURRENCY = Math.max(1, Number(process.env.PARSE_CONCURRENCY || 5));
+const PARSE_CONCURRENCY = Math.max(1, Number(process.env.PARSE_CONCURRENCY || 3));
 
 /** 整卷拆题预算：超时则保留已拆出的题目落库，不让用户无限等 */
 const PARSE_BUDGET_MS = Number(process.env.PARSE_BUDGET_MS || 15 * 60 * 1000);
@@ -250,8 +250,16 @@ const PARSE_BUDGET_MS = Number(process.env.PARSE_BUDGET_MS || 15 * 60 * 1000);
 /** 判定「拆题任务已经死了」的静默时长：进程重启后 parse_status 会永远停在 parsing */
 const PARSE_STALE_MS = Number(process.env.PARSE_STALE_MS || 12 * 60 * 1000);
 
-/** 单片 AI 调用超时（毫秒） */
-const PARSE_CHUNK_TIMEOUT_MS = Number(process.env.PARSE_CHUNK_TIMEOUT_MS || 90000);
+/**
+ * 单片 AI 调用超时（毫秒）。
+ * 实测并发 5 时单片会被排队拖到 269s/458s，超时后触发「切片减半」递归，
+ * 反而比等下去更慢。因此并发回到 3，超时放宽到 120s：宁可等一次，
+ * 也不要因为超时把一片拆成两片再各调一次。
+ */
+const PARSE_CHUNK_TIMEOUT_MS = Number(process.env.PARSE_CHUNK_TIMEOUT_MS || 120000);
+
+/** 拆题进度（进程内）：paperId -> { stage, done, total, startedAt } */
+const parseProgress = new Map();
 
 async function runParseJob(paperId) {
   const paper = await withConnection(async (conn) => {
@@ -292,6 +300,7 @@ async function runParseJob(paperId) {
 
   const chunks = splitIntoChunks(pre.text, { sections: pre.sections, byNumber: pre.index.byNumber });
   console.log(`[exam] paper=${paperId} 切分为 ${chunks.length} 个片段`);
+  parseProgress.set(paperId, { stage: '拆题', done: 0, total: chunks.length, startedAt: Date.now() });
 
   const started = Date.now();
   const results = await runPool(
@@ -299,6 +308,8 @@ async function runParseJob(paperId) {
       const t0 = Date.now();
       // 单片硬超时：超时后 parseChunk 内部会切片减半重试，比干等更快收敛
       const r = await parseChunk(c, { paperTitle: paper.title, timeout: PARSE_CHUNK_TIMEOUT_MS });
+      const p = parseProgress.get(paperId);
+      if (p) p.done += 1;
       console.log(
         `[exam] paper=${paperId} 第 ${i + 1}/${chunks.length} 片（${c.section}）完成：` +
         `${r.questions.length} 题 / ${((Date.now() - t0) / 1000).toFixed(1)}s / ` +
@@ -345,6 +356,8 @@ async function runParseJob(paperId) {
     return !questions.some((q) => diceSimilarity(String(q.stem || ''), blockStem) >= 0.6);
   });
   if (trulyMissing.length > 0) {
+    const p0 = parseProgress.get(paperId);
+    if (p0) { p0.stage = '补拆漏题'; p0.done = 0; p0.total = trulyMissing.length; }
     console.log(`[exam] paper=${paperId} 题数对账：未匹配 ${pre.numbers.length - usedNums0.size} 题号，其中真漏 ${trulyMissing.length} 题（题号 ${trulyMissing.join(',')}），开始定向补拆`);
     const supp = await supplementMissingQuestions(pre, trulyMissing, paper.title);
     if (supp.length > 0) {
@@ -365,6 +378,8 @@ async function runParseJob(paperId) {
   const pdfPath = path.join(PAPER_FILES_DIR, `${paperId}.pdf`);
   // 预算兜底：拆题已经耗时过久时，先让用户拿到题目，截图留到下一次重跑再补，
   // 而不是让整卷继续挂着（用户感受就是「点了拆题没反应」）。
+  const pImg = parseProgress.get(paperId);
+  if (pImg) { pImg.stage = '生成题目截图'; pImg.done = 0; pImg.total = 0; }
   const overBudget = Date.now() - started > PARSE_BUDGET_MS;
   if (overBudget) {
     errors.push(`拆题总耗时已超过 ${Math.round(PARSE_BUDGET_MS / 60000)} 分钟，本次跳过题目截图以尽快返回结果（重新拆题可补图）`);
@@ -492,6 +507,7 @@ async function runParseJob(paperId) {
     parse_error: parseError ? parseError.slice(0, 500) : null,
     parsed_count: deduped.length,
   });
+  parseProgress.delete(paperId);
 
   console.log(
     `[exam] 拆题完成 paper=${paperId} 题目=${deduped.length} 状态=${parseStatus} 耗时=${cost}s`
@@ -703,6 +719,8 @@ router.get('/:id/parse-status', asyncHandler(async (req, res) => {
     }
   }
 
+  // 拆题进度：整卷要跑 9-12 分钟，只回 parsing 会让用户以为「卡住了」
+  const prog = parseProgress.get(paper.id);
   return res.json({
     paperId: paper.id,
     parse_status: paper.parse_status,
@@ -712,6 +730,14 @@ router.get('/:id/parse-status', asyncHandler(async (req, res) => {
     question_count: paper.question_count,
     status: paper.status,
     sections,
+    progress: prog
+      ? {
+          stage: prog.stage,
+          done: prog.done,
+          total: prog.total,
+          elapsedMs: Date.now() - prog.startedAt,
+        }
+      : null,
   });
 }));
 

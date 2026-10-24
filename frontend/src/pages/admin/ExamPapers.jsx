@@ -297,6 +297,19 @@ export default function ExamPapers() {
 
   const parsing = parseState && ['parsing', 'loading'].includes(parseState.parse_status);
 
+  // 拆题要跑几分钟，只显示「请稍候」会让人以为卡死了——展示真实进度与预计剩余时间
+  const prog = parseState?.progress;
+  const progressPercent = prog && prog.total > 0 ? Math.min(99, Math.round((prog.done / prog.total) * 100)) : 0;
+  const progressText = (() => {
+    if (!prog) return 'AI 正在按片段分批拆题（自动重试与降级），请稍候…';
+    const sec = Math.round((prog.elapsedMs || 0) / 1000);
+    if (prog.total > 0) {
+      const eta = prog.done > 0 ? Math.round((sec / prog.done) * (prog.total - prog.done)) : null;
+      return `${prog.stage}中… 已完成 ${prog.done}/${prog.total}，已用时 ${sec}s${eta ? `，预计还需约 ${eta}s` : ''}`;
+    }
+    return `${prog.stage}…（已用时 ${sec}s）`;
+  })();
+
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
@@ -422,11 +435,11 @@ export default function ExamPapers() {
           <div style={{ textAlign: 'center', padding: '40px 0' }}>
             <Spin size="large" />
             <Paragraph type="secondary" style={{ marginTop: 16 }}>
-              AI 正在按片段分批拆题（自动重试与降级），请稍候…
+              {progressText}
             </Paragraph>
             <Progress
-              percent={parseState?.parsed_count ? 99 : 60}
-              status="active" showInfo={false} style={{ maxWidth: 320, margin: '0 auto' }}
+              percent={progressPercent || 60}
+              status="active" showInfo={progressPercent > 0} style={{ maxWidth: 320, margin: '0 auto' }}
             />
           </div>
         )}
