@@ -140,6 +140,11 @@ function splitIntoChunks(text, opts = {}) {
   const target = opts.target || 1900;
   const max = opts.max || 2800;
   const byNumber = opts.byNumber || null;
+  // 分区级切片目标：资料分析的题输出时要带回本篇 passage（材料可达 500 字），
+  // 输出 token 消耗远大于其他板块——实测 glm-4-flash 上限约 1900 tokens，
+  // 一片 11 题（含 passage 回填）输出约 2000 tokens 必被截断（片 17 丢 6 题）。
+  // 因此资料分析用 800 字/片（约 4-5 题，输出约 900 tokens，远离上限）。
+  const sectionTargets = opts.sectionTargets || { 资料分析: 800 };
   const lines = String(text || '').split('\n').map((l) => l.trim()).filter(Boolean);
   const isQuestionStart = (l) => /^\d{1,3}\s*[.、．]\s*$/.test(l);
 
@@ -164,8 +169,9 @@ function splitIntoChunks(text, opts = {}) {
       continue;
     }
     buf.push(line);
+    const curTarget = sectionTargets[section] || target;
     const size = buf.join('\n').length;
-    if (size >= target) {
+    if (size >= curTarget) {
       // 向后找最近的题号起始行，把当前题的剩余部分并入本片后再切
       let nextQ = -1;
       for (let k = i + 1; k < lines.length; k++) {
@@ -183,11 +189,12 @@ function splitIntoChunks(text, opts = {}) {
   }
   flush();
 
-  // 合并过小的相邻同分区片，减少调用次数
+  // 合并过小的相邻同分区片，减少调用次数（阈值按该分区的目标算）
   const merged = [];
   for (const c of chunks) {
     const last = merged[merged.length - 1];
-    if (last && last.section === c.section && (last.text.length + c.text.length) < target * 0.6) {
+    const lastTarget = sectionTargets[c.section] || target;
+    if (last && last.section === c.section && (last.text.length + c.text.length) < lastTarget * 0.6) {
       last.text += '\n' + c.text;
     } else {
       merged.push({ ...c });
@@ -201,9 +208,12 @@ function splitIntoChunks(text, opts = {}) {
   for (const s of opts.sections || []) {
     if (s && s.name && s.material) sectionMaterials.set(s.name, s.material);
   }
-  // 找片段内第一个题号（行首「111.」或独立成行的「111.」都已归一化）
+  // 找片段内第一个题号。
+  // 题号后必须跟「空格 + 内容」（kind C：题号与题干同行）或是行尾（kind A：题号独立成行）。
+  // 不能只匹配「数字 + 点」——资料分析材料里「同比增加42.4万张」这类行首数字
+  // 会被误判成题号 42，导致该片挂错材料篇（实测片 19 回退到板块材料）。
   const firstQuestionNo = (chunkText) => {
-    const m = String(chunkText || '').match(/(?:^|\n)\s*(\d{1,3})\s*[.、．]/);
+    const m = String(chunkText || '').match(/(?:^|\n)\s*(\d{1,3})\s*[.、．](?:\s+\S|\s*$)/);
     return m ? Number(m[1]) : null;
   };
   return merged.map((c, i) => {
@@ -385,18 +395,17 @@ async function parseChunk(chunk, opts = {}) {
   const maxTokens = opts.maxTokens || 4000;
   const material = chunk.material || opts.material || '';
 
-  // 片段内题号个数：给模型一个明确的「应输出题数」目标，减少漏题
-  const qCount = (String(chunk.text || '').match(/(?:^|\n)\s*\d{1,3}\s*[.、．]/g) || []).length;
-
+  // 不给模型「应输出题数」的具体数字：题号计数正则会把材料里的数字行误计
+  // （实测资料分析片 14 题误计为 15），误导模型反而多输出/少输出。
+  // 「自己数题号、一道不落」的要求放在 SYSTEM_PROMPT 第 10 条。
   const user =
     `试卷标题：${paperTitle}\n` +
     `当前模块：${chunk.section}\n` +
     (material
       ? `【本篇资料共享材料】（本篇资料的多道题共用，若题目依赖它，请填入这些题的 passage）：\n${material}\n\n`
       : '') +
-    `说明：这是试卷的一个片段，请提取其中出现的全部题目。` +
-    (qCount > 0 ? `片段中可见题号 ${qCount} 个，questions 数组长度应与之相等。` : '') +
-    `\n\n片段正文：\n${chunk.text}`;
+    `说明：这是试卷的一个片段，请提取其中出现的全部题目，一道都不要遗漏。\n\n` +
+    `片段正文：\n${chunk.text}`;
 
   let attempts = 0;
   let lastError = null;
