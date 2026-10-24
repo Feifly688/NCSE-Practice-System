@@ -118,16 +118,17 @@ function findDuplicate(q, candidates, opts = {}) {
 /**
  * 把 AI 拆出的题目与原文题号对齐。
  *
- * AI 拆题会有遗漏或多拆，顺序也可能错位，不能直接按下标对应。
- * 这里用题干相似度（bigram Dice）逐题匹配原文题号：
- * 拆出的第 i 题 → 原文里最像它的那个题号。匹配不到就返回 null（该题不挂图片）。
+ * AI 拆题会有遗漏或多拆，顺序也可能错位（小模型会把相邻几题的顺序
+ * 打乱，尤其中长题干题），不能直接按下标对应。
  *
- * **顺序约束**（关键）：AI 是逐片/逐行提取的，拆出题的顺序与原文题号
- * 基本同序。若无约束地贪心（第 i 题可匹配任意未占用题号），一次早期
- * 错配（两题都相似时选了偏大的题号）会让原文小题号永远匹配不上，
- * 后续大量题连锁错配——实测 126 题只匹配上 86 题，误判 40 题"漏题"，
- * 定向补拆又把它们拆一遍造成 9 题重复。加上「第 i 题只能匹配
- * 前一个已匹配题号之后」的约束后，错配被限制在局部。
+ * 算法：**全局贪心**——先算所有「拆出题 × 原文题号」的相似度对，
+ * 按分数降序依次分配（题与题号都未被占用才分配）。
+ * 相比「逐题贪心」（第 i 题在剩余题号里挑最相似的），全局贪心不受
+ * 顺序影响，也不会因一次早期错配连锁失败：
+ *   - 旧逐题贪心：实测 126 题只匹配上 86 题（错配连锁）
+ *   - 顺序约束版：小模型输出乱序时更糟（52 题匹配失败，连续区间连锁）
+ *   - 全局贪心：每次分配都是当前剩余里的最优对
+ * 计算量 130×130 次 Dice（约 0.5s），可接受。
  *
  * @param {Array<{stem: string}>} questions AI 拆出的题目
  * @param {Map<number, {blockText: string}>} index 原文题号索引
@@ -137,28 +138,29 @@ function matchQuestionNumbers(questions, index, opts = {}) {
   const threshold = opts.threshold ?? 0.45;
   const entries = [];
   for (const [num, info] of index) entries.push({ num, text: String(info.blockText || '') });
-  entries.sort((a, b) => a.num - b.num); // 题号升序，供顺序约束使用
-  const used = new Set();
-  const out = new Array(questions.length).fill(null);
-  let startIdx = 0; // 顺序约束游标：下一题只能匹配它之后的题号
+  entries.sort((a, b) => a.num - b.num);
 
+  // 1) 所有超过阈值的候选对
+  const pairs = [];
   for (let i = 0; i < questions.length; i++) {
     const stem = String(questions[i]?.stem || '').trim();
     if (!stem) continue;
-    let best = null;
-    for (let j = startIdx; j < entries.length; j++) {
-      const e = entries[j];
-      if (used.has(e.num)) continue;
+    for (const e of entries) {
       const score = diceSimilarity(stem, e.text);
-      if (!best || score > best.score) best = { num: e.num, score, idx: j };
+      if (score >= threshold) pairs.push({ i, num: e.num, score });
     }
-    if (best && best.score >= threshold) {
-      out[i] = best.num;
-      used.add(best.num);
-      startIdx = best.idx + 1;
-    }
-    // 匹配不到时不动 startIdx：下一题仍可尝试当前及之后的题号
-    // （AI 偶尔少拆一题，不能因此阻塞后续所有匹配）
+  }
+
+  // 2) 按分数降序贪心分配（全局最优近似）
+  pairs.sort((a, b) => b.score - a.score);
+  const usedQ = new Set();
+  const usedN = new Set();
+  const out = new Array(questions.length).fill(null);
+  for (const p of pairs) {
+    if (usedQ.has(p.i) || usedN.has(p.num)) continue;
+    out[p.i] = p.num;
+    usedQ.add(p.i);
+    usedN.add(p.num);
   }
   return out;
 }
