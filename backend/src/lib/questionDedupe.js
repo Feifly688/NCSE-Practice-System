@@ -86,8 +86,17 @@ function judgeDuplicate(a, b, threshold = 0.9) {
   if (sameQtype && sameAnswer && optScore >= 0.6) {
     return { dup: true, reason: 'similar', score };
   }
-  // 题干高度相似但特征不一致：仍然判重但标记为需人工确认
-  if (score >= 0.97) return { dup: true, reason: 'similar-force', score };
+  // 「题干相同、选项不同」是公考常见写法：填空题（"依次填入画横线部分最恰当的一项是："）、
+  // 图形推理题（"从所给的四个选项中，选择最合适的一个填入问号处……"）成批出现，
+  // 选项内容彼此完全不同。以前这里有一条 score >= 0.97 的强制判重，会把它们整片当成重复丢掉
+  // （实测整卷 130 题只拆出 110 题，缺的正是这些题）。
+  // 现在只在选项也高度相似时才强制判重；选项明显不同一律不判重。
+  if (optsA && optsB && optScore < 0.6) {
+    return { dup: false, reason: 'feature-diff', score };
+  }
+  if (score >= 0.97 && optScore >= 0.9) {
+    return { dup: true, reason: 'similar-force', score };
+  }
   return { dup: false, reason: 'feature-diff', score };
 }
 

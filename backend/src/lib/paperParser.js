@@ -35,7 +35,18 @@ const SYSTEM_PROMPT = `你是公考真题数字化专家，负责把试卷文本
 2. JSON 结构必须且只能是：{"questions":[ ... ]}
 3. 选项必须与原文一致，答案必须明确；无法确定答案的题直接跳过不输出
 4. 材料段落（passage）归到所属题目，不要重复出现在多道题中
-5. 考试说明、注意事项、页眉页脚、答案卡说明等非题目内容不要输出`;
+5. 考试说明、注意事项、页眉页脚、答案卡说明等非题目内容不要输出
+
+## 特别注意（真题 PDF 的常见坑）
+6. 题号可能单独成行（"106."），也可能跟在题干末尾（"……最恰当的一项是：106."），
+   两种都要识别；题号之后紧跟的是该题的 A/B/C/D 选项。
+7. 如果某题的选项在原文里只有 "A." "B." "C." "D." 而没有文字内容，
+   说明选项是图片（图形推理、几何图、统计图等）：
+   仍然要输出这道题，options 填 ["（图片选项）","（图片选项）","（图片选项）","（图片选项）"]，
+   stem 保留原文题干，**不要因为选项没有文字就丢掉这道题**。
+8. 如果片段开头给出了【板块共享材料】，而题目（尤其是资料分析题）依赖这段材料，
+   请把该材料原文填入这些题的 passage；不依赖材料的题 passage 留空。
+9. 材料/题干中出现的换行请保留为 "\\n"，不要合并成一段。`;
 
 const MODULE_NAMES = '常识判断|言语理解与表达|判断推理|数量关系|资料分析|政治理论|公共基础知识|申论|政治';
 
@@ -72,14 +83,21 @@ function isSectionHeading(line) {
 
 /**
  * 按段落切片：优先在分区标题与题号边界处切分，避免把一道题拆成两半。
- * @param {string} text 整卷文本
- * @param {object} opts { target, max }
- * @returns {Array<{ section: string, text: string, index: number }>}
+ *
+ * 之前这里只在「累计字数到阈值」时直接 flush，注释里写的「向后找最近的下一题起始行」
+ * 并没有实现 —— 结果一道题会被从中间劈开，模型拿到半截题目，
+ * 要么输出不成结构、要么直接丢弃，这正是「130 题只识别出 110 题」的主要成因。
+ * 现在真正按题号边界收尾：到达阈值后向后找下一个题号行，把中间内容并入本片。
+ *
+ * @param {string} text 整卷文本（应已由 lib/paperText 预处理，题号已归一化为独立成行）
+ * @param {object} opts { target, max, sections }
+ * @returns {Array<{ section: string, text: string, index: number, material?: string }>}
  */
 function splitIntoChunks(text, opts = {}) {
   const target = opts.target || 2400;
   const max = opts.max || 3400;
   const lines = String(text || '').split('\n').map((l) => l.trim()).filter(Boolean);
+  const isQuestionStart = (l) => /^\d{1,3}\s*[.、．]\s*$/.test(l);
 
   const chunks = [];
   let section = '未分区';
@@ -91,7 +109,8 @@ function splitIntoChunks(text, opts = {}) {
     buf = [];
   };
 
-  for (const line of lines) {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
     const sec = matchSection(line);
     if (sec) {
       flush();
@@ -103,7 +122,16 @@ function splitIntoChunks(text, opts = {}) {
     buf.push(line);
     const size = buf.join('\n').length;
     if (size >= target) {
-      // 尽量在题号边界收尾：向后找最近的下一题起始行
+      // 向后找最近的题号起始行，把当前题的剩余部分并入本片后再切
+      let nextQ = -1;
+      for (let k = i + 1; k < lines.length; k++) {
+        if (isQuestionStart(lines[k])) { nextQ = k; break; }
+        if (k - i > 80) break; // 连续 80 行没有题号，多半是超长材料，直接切
+      }
+      if (nextQ > i) {
+        for (let k = i + 1; k < nextQ; k++) buf.push(lines[k]);
+        i = nextQ - 1;
+      }
       flush();
     } else if (size >= max) {
       flush();
@@ -121,7 +149,16 @@ function splitIntoChunks(text, opts = {}) {
       merged.push({ ...c });
     }
   }
-  return merged.map((c, i) => ({ ...c, index: i }));
+  // 附带该分区的共享材料（资料分析等板块的材料只在板块开头出现一次）
+  const materials = new Map();
+  for (const s of opts.sections || []) {
+    if (s && s.name && s.material) materials.set(s.name, s.material);
+  }
+  return merged.map((c, i) => ({
+    ...c,
+    index: i,
+    material: materials.get(c.section) || '',
+  }));
 }
 
 /** 规范答案：从 "A"、"A."、"答案A"、"AB" 中提取字母 */
@@ -135,16 +172,56 @@ function normalizeAnswer(v, optionCount) {
   return valid.length > 0 ? valid.join('') : letters[0];
 }
 
-/** 清洗模型输出的一道题 */
-function normalizeQuestion(q) {
+/**
+ * 清洗模型输出的一道题。
+ *
+ * @param {object} q 模型输出
+ * @param {object} opts { keepIncomplete }
+ *   keepIncomplete=true（拆题阶段）：选项是图片、答案无法确定时**保留题目**并打标记，
+ *   避免整题在入库前就被丢掉 —— 这是真题「识别率不足」的另一大来源。
+ *   keepIncomplete=false（确认入库阶段）：题目表 answer 为 NOT NULL，无答案的题直接跳过。
+ */
+function normalizeQuestion(q, opts = {}) {
+  const keepIncomplete = !!opts.keepIncomplete;
   if (!q || !q.stem) return null;
   const options = (Array.isArray(q.options) ? q.options : [])
     .map((o) => String(o).replace(/^[A-D][.、．)\s]*/i, '').trim())
     .filter((o) => o.length > 0);
-  if (options.length < 2) return null;
 
   const answer = normalizeAnswer(q.answer, options.length);
-  if (!answer) return null;
+
+  if (options.length < 2) {
+    // 选项在原文中是图片（图形推理/几何图/统计图）：保留题目，选项用占位符
+    if (!keepIncomplete) return null;
+    return {
+      module: String(q.module || '').trim() || null,
+      qtype: String(q.qtype || '').trim() || '单选题',
+      difficulty: 3,
+      passage: String(q.passage || '').trim() || null,
+      stem: String(q.stem).trim().slice(0, 2000),
+      options: ['（图片选项）', '（图片选项）', '（图片选项）', '（图片选项）'],
+      answer: answer || null,
+      explanation: String(q.explanation || '').trim().slice(0, 1000) || null,
+      hasImageOptions: true,
+      needAnswer: !answer,
+    };
+  }
+
+  if (!answer) {
+    // 模型没能给出答案：拆题阶段保留（待人工补答案），入库阶段丢弃
+    if (!keepIncomplete) return null;
+    return {
+      module: String(q.module || '').trim() || null,
+      qtype: String(q.qtype || '').trim() || '单选题',
+      difficulty: 3,
+      passage: String(q.passage || '').trim() || null,
+      stem: String(q.stem).trim().slice(0, 2000),
+      options: options.slice(0, 6),
+      answer: null,
+      explanation: String(q.explanation || '').trim().slice(0, 1000) || null,
+      needAnswer: true,
+    };
+  }
 
   let difficulty = Number(q.difficulty);
   if (!Number.isFinite(difficulty) || difficulty < 1 || difficulty > 5) difficulty = 3;
@@ -182,10 +259,14 @@ async function parseChunk(chunk, opts = {}) {
   const depth = opts.depth || 0;
   const paperTitle = opts.paperTitle || '';
   const maxTokens = opts.maxTokens || 4000;
+  const material = chunk.material || opts.material || '';
 
   const user =
     `试卷标题：${paperTitle}\n` +
     `当前模块：${chunk.section}\n` +
+    (material
+      ? `【板块共享材料】（本模块所有题目共用，若题目依赖它，请填入这些题的 passage）：\n${material}\n\n`
+      : '') +
     `说明：这是试卷的一个片段，请提取其中出现的全部题目。\n\n` +
     `片段正文：\n${chunk.text}`;
 
@@ -216,7 +297,13 @@ async function parseChunk(chunk, opts = {}) {
         lastError = 'AI 输出 JSON 结构异常（缺少 questions 数组）';
         continue;
       }
-      const questions = dedupeList(raw.map(normalizeQuestion).filter(Boolean));
+      // 拆题阶段保留不完整的题目（图片选项 / 缺答案），只跳过完全无效的输出
+      const normalized = raw
+        .map((q) => normalizeQuestion(q, { keepIncomplete: true }))
+        .filter(Boolean)
+        // 材料回填：模型没填 passage 但本片有板块共享材料时补上
+        .map((q) => (q.passage || material ? q : { ...q, passage: material || null }));
+      const questions = dedupeList(normalized);
 
       // 输出被截断：切片减半递归，尽量覆盖被丢掉的题目
       if (res.truncated && depth < 2 && chunk.text.length > 1200) {
@@ -224,7 +311,7 @@ async function parseChunk(chunk, opts = {}) {
         const collected = [];
         const errors = [];
         for (let i = 0; i < halves.length; i++) {
-          const r = await parseChunk({ section: chunk.section, text: halves[i] }, { ...opts, depth: depth + 1 });
+          const r = await parseChunk({ section: chunk.section, text: halves[i], material }, { ...opts, depth: depth + 1 });
           collected.push(...r.questions);
           if (r.error) errors.push(r.error);
         }
@@ -254,7 +341,7 @@ async function parseChunk(chunk, opts = {}) {
       const collected = [];
       const errors = [];
       for (const h of halves) {
-        const r = await parseChunk({ section: chunk.section, text: h }, { ...opts, depth: depth + 1 });
+        const r = await parseChunk({ section: chunk.section, text: h, material }, { ...opts, depth: depth + 1 });
         collected.push(...r.questions);
         if (r.error) errors.push(r.error);
       }

@@ -26,6 +26,7 @@ const {
   splitIntoChunks, parseChunk, runPool, dedupeList, normalizeQuestion,
 } = require('../lib/paperParser');
 const { buildFingerprint, findDuplicate } = require('../lib/questionDedupe');
+const { preprocessPaperText } = require('../lib/paperText');
 const { safeJson } = require('../lib/json');
 
 const router = express.Router();
@@ -119,7 +120,17 @@ async function runParseJob(paperId) {
   await updateParseState(paperId, { parse_status: 'parsing', parse_error: null });
   console.log(`[exam] 开始拆题 paper=${paperId} 文本长度=${rawText.length}`);
 
-  const chunks = splitIntoChunks(rawText);
+  // 预处理：去页眉页脚、题号归一化、选项拆行、识别分区与板块材料。
+  // 必须放在拆题之前 —— 未预处理的原始文本里题号有两套排版（独立成行 / 跟在题干行尾），
+  // 切片会把题目从中间劈开，导致「130 题只识别出 110 题」。
+  const pre = preprocessPaperText(rawText, { titles: [paper.title] });
+  const expectedCount = pre.questionCount;
+  console.log(
+    `[exam] paper=${paperId} 预处理完成：原文题号 ${expectedCount} 个，` +
+    `分区 ${pre.sections.length} 个，带共享材料的分区 ${pre.sections.filter((s) => s.material).length} 个`
+  );
+
+  const chunks = splitIntoChunks(pre.text, { sections: pre.sections });
   console.log(`[exam] paper=${paperId} 切分为 ${chunks.length} 个片段`);
 
   const started = Date.now();
@@ -183,13 +194,33 @@ async function runParseJob(paperId) {
   if (deduped.length === 0) parseStatus = 'failed';
   else if (failedChunks > 0 || salvagedChunks > 0) parseStatus = 'partial';
 
+  // 题数对账：原文题号数 vs 实际拆出数。差额必须让管理员看见，
+  // 否则会出现「试卷 130 题、只识别出 110 题」却没有任何提示的情况。
+  const actualCount = deduped.length;
+  const gap = expectedCount - actualCount;
+  const noAnswer = deduped.filter((q) => !q.answer).length;
+  const imageOptions = deduped.filter((q) => q.hasImageOptions).length;
+  const account = [];
+  if (expectedCount > 0) {
+    account.push(`原文题号 ${expectedCount} 个，实际拆出 ${actualCount} 题`);
+    if (gap > 0) account.push(`差 ${gap} 题`);
+    else if (gap < 0) account.push(`多出 ${-gap} 题（可能有重复或题号识别偏差）`);
+  }
+  if (noAnswer > 0) account.push(`${noAnswer} 题缺答案待补`);
+  if (imageOptions > 0) account.push(`${imageOptions} 题选项为图片`);
+
   let parseError = null;
+  const notes = [];
   if (errors.length > 0) {
-    parseError = `共 ${chunks.length} 片，${failedChunks} 片失败、${salvagedChunks} 片降级；首条原因：${errors[0]}`;
+    notes.push(`共 ${chunks.length} 片，${failedChunks} 片失败、${salvagedChunks} 片降级；首条原因：${errors[0]}`);
   } else if (parseStatus === 'partial') {
     // 无硬错误但有片段降级（输出截断后抢救/重试），给出可读说明而非留空
-    parseError = `共 ${chunks.length} 片，其中 ${salvagedChunks} 片输出被截断后已自动降级重试，已保留完整题目；可点「重新拆题」再跑一次以补全。`;
+    notes.push(`共 ${chunks.length} 片，其中 ${salvagedChunks} 片输出被截断后已自动降级重试，已保留完整题目；可点「重新拆题」再跑一次以补全。`);
   }
+  if (account.length) notes.push(account.join('；'));
+  if (notes.length) parseError = notes.join(' | ');
+
+  if (gap > 0) parseStatus = 'partial';
 
   await updateParseState(paperId, {
     parse_status: parseStatus,

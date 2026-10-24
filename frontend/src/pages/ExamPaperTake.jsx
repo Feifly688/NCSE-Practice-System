@@ -142,31 +142,47 @@ export default function ExamPaperTake() {
     return 'unanswered';
   }
 
-  /** 答题卡网格 */
+  /** 答题卡：按板块分区显示，便于对应真题的模块结构 */
+  const renderCardGrid = (list) => (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: isMobile ? 6 : 8 }}>
+      {list.map((q) => {
+        const st = cardStatus(q.seq);
+        const c = CARD_STATUS_COLOR[st];
+        return (
+          <div
+            key={q.seq}
+            onClick={() => scrollToSeq(q.seq)}
+            style={{
+              width: isMobile ? 34 : 32, height: isMobile ? 34 : 32,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              borderRadius: 6, border: `1px solid ${c.border}`, background: c.bg, color: c.color,
+              fontSize: 13, cursor: 'pointer', fontWeight: st === 'unanswered' ? 400 : 600,
+            }}
+            title={`第 ${q.seq} 题${q.section ? '（' + q.section + '）' : ''}${marked[q.seq] ? '（已标记）' : ''}`}
+          >
+            {q.seq}
+          </div>
+        );
+      })}
+    </div>
+  );
+
   const answerSheet = (
     <div>
       <Text strong style={{ display: 'block', marginBottom: 8 }}>答题卡</Text>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: isMobile ? 6 : 8 }}>
-        {allQuestions.map((q) => {
-          const st = cardStatus(q.seq);
-          const c = CARD_STATUS_COLOR[st];
-          return (
-            <div
-              key={q.seq}
-              onClick={() => scrollToSeq(q.seq)}
-              style={{
-                width: isMobile ? 34 : 32, height: isMobile ? 34 : 32,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                borderRadius: 6, border: `1px solid ${c.border}`, background: c.bg, color: c.color,
-                fontSize: 13, cursor: 'pointer', fontWeight: st === 'unanswered' ? 400 : 600,
-              }}
-              title={`第 ${q.seq} 题${marked[q.seq] ? '（已标记）' : ''}`}
-            >
-              {q.seq}
+      {sections.length > 0 ? (
+        sections.map((s) => (
+          <div key={s.name} style={{ marginBottom: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 6 }}>
+              <Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>{s.name}</Text>
+              <Text type="secondary" style={{ fontSize: 12 }}>{s.questions.length} 题</Text>
             </div>
-          );
-        })}
-      </div>
+            {renderCardGrid(s.questions.map((q) => ({ ...q, section: s.name })))}
+          </div>
+        ))
+      ) : (
+        renderCardGrid(allQuestions)
+      )}
       <div style={{ marginTop: 12, display: 'flex', flexWrap: 'wrap', gap: 10, fontSize: 12 }}>
         {[
           { k: 'answered', t: '已答' },
@@ -359,6 +375,8 @@ export default function ExamPaperTake() {
                         const selected = myAnswer === label;
                         const isRight = res && String(res.answer || '').includes(label);
                         const isMyWrong = res && !res.correct && selected;
+                        // 选项在原 PDF 中是图片（图形推理/几何图/统计图），文本层只有占位符
+                        const isImageOption = typeof opt === 'string' && /图片选项|^[A-D]$/.test(opt.trim());
 
                         let bg = '#fff';
                         let border = '#e5e7eb';
@@ -385,7 +403,9 @@ export default function ExamPaperTake() {
                               display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                               fontSize: 12, fontWeight: 600,
                             }}>{label}</span>
-                            <span style={{ flex: 1 }}>{opt}</span>
+                            <span style={{ flex: 1 }}>
+                              {isImageOption ? '（该选项在原试卷中为图片）' : opt}
+                            </span>
                             {res && isRight && <CheckCircleOutlined style={{ color: '#52c41a', marginTop: 4 }} />}
                             {isMyWrong && <CloseCircleOutlined style={{ color: '#ff4d4f', marginTop: 4 }} />}
                           </div>
