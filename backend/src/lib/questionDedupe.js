@@ -135,13 +135,19 @@ function stemPart(text) {
 /**
  * 把 AI 拆出的题目与原文题号对齐。
  *
- * AI 拆题会有遗漏或多拆，顺序也可能错位（小模型会把相邻几题的顺序
- * 打乱，尤其中长题干题），不能直接按下标对应。
+ * AI 拆题基本按原文顺序逐题提取，但会有：遗漏（少拆）、多拆、
+ * 局部乱序、以及**改写题干**（精简/重组表述，导致 Dice 相似度
+ * 经常低于阈值——实测改写后大量题匹配不上，误判"漏题"）。
  *
- * 算法：**全局贪心**——先算所有「拆出题 × 原文题号」的相似度对
- * （两边都截取到题干部分，避免选项稀释相似度），按分数降序依次分配
- * （题与题号都未被占用才分配）。相比「逐题贪心」，全局贪心不受
- * 顺序影响，也不会因一次早期错配连锁失败。
+ * 因此不用"相似度贪心"（逐题挑最相似 / 全局按分分配），改用
+ * **序列比对（Needleman-Wunsch DP）**：
+ *   - AI 题序列 vs 原文题号序列，得分矩阵 = 题干相似度
+ *   - 允许 gap：跳过 AI 题（多拆）或跳过原文题号（漏题），
+ *     惩罚远小于"低相似度硬配"的负分
+ *   - DP 找总分最高的对齐路径，回溯得到配对
+ * 优势：顺序结构 + 容错缺口，改写导致相似度下降时宁可留空
+ * （不挂图片）也不错配；漏题在 DP 里自然体现为 gap，
+ * 后续定向补拆只补真正的缺口。
  *
  * @param {Array<{stem: string}>} questions AI 拆出的题目
  * @param {Map<number, {blockText: string}>} index 原文题号索引
@@ -152,28 +158,54 @@ function matchQuestionNumbers(questions, index, opts = {}) {
   const entries = [];
   for (const [num, info] of index) entries.push({ num, text: String(info.blockText || '') });
   entries.sort((a, b) => a.num - b.num);
+  const n = questions.length;
+  const m = entries.length;
+  const out = new Array(n).fill(null);
+  if (!n || !m) return out;
 
-  // 1) 所有超过阈值的候选对（题干 vs 题干）
-  const pairs = [];
-  for (let i = 0; i < questions.length; i++) {
+  // 相似度矩阵（题干 vs 题干，避免选项稀释）
+  const S = [];
+  for (let i = 0; i < n; i++) {
     const stem = stemPart(String(questions[i]?.stem || ''));
-    if (!stem.trim()) continue;
-    for (const e of entries) {
-      const score = diceSimilarity(stem, stemPart(e.text));
-      if (score >= threshold) pairs.push({ i, num: e.num, score });
+    S[i] = new Float64Array(m);
+    for (let j = 0; j < m; j++) S[i][j] = diceSimilarity(stem, stemPart(entries[j].text));
+  }
+
+  const GAP = -0.05;                 // 跳过一侧的惩罚（漏题/多拆）——轻，鼓励用 gap 处理缺口
+  const MISMATCH = -0.3;             // 低于阈值硬配的重罚——宁可留空也不错配
+  const STRONG = 0.7;                // 强匹配线：超过才给正分
+  const dp = Array.from({ length: n + 1 }, () => new Float64Array(m + 1));
+  const ptr = Array.from({ length: n + 1 }, () => new Int8Array(m + 1)); // 0=diag 1=up 2=left
+  for (let i = 1; i <= n; i++) { dp[i][0] = dp[i - 1][0] + GAP; ptr[i][0] = 1; }
+  for (let j = 1; j <= m; j++) { dp[0][j] = dp[0][j - 1] + GAP; ptr[0][j] = 2; }
+  for (let i = 1; i <= n; i++) {
+    for (let j = 1; j <= m; j++) {
+      const s = S[i - 1][j - 1];
+      // 得分设计：强匹配正分 / 弱相似（threshold~STRONG）中性 / 低于阈值重罚。
+      // 弱相似给中性很关键——漏题场景下相邻题相似度约 0.5，若给正分，
+      // DP 会宁愿错配（连锁错位）也不走 gap；中性 + 轻 gap 让它正确跳过。
+      const diagScore = s >= STRONG ? (s - STRONG) * 3 : (s >= threshold ? 0 : MISMATCH);
+      const diag = dp[i - 1][j - 1] + diagScore;
+      const up = dp[i - 1][j] + GAP;
+      const left = dp[i][j - 1] + GAP;
+      if (diag >= up && diag >= left) { dp[i][j] = diag; ptr[i][j] = 0; }
+      else if (up >= left) { dp[i][j] = up; ptr[i][j] = 1; }
+      else { dp[i][j] = left; ptr[i][j] = 2; }
     }
   }
 
-  // 2) 按分数降序贪心分配（全局最优近似）
-  pairs.sort((a, b) => b.score - a.score);
-  const usedQ = new Set();
-  const usedN = new Set();
-  const out = new Array(questions.length).fill(null);
-  for (const p of pairs) {
-    if (usedQ.has(p.i) || usedN.has(p.num)) continue;
-    out[p.i] = p.num;
-    usedQ.add(p.i);
-    usedN.add(p.num);
+  // 回溯对齐路径
+  let i = n;
+  let j = m;
+  while (i > 0 && j > 0) {
+    if (ptr[i][j] === 0) {
+      if (S[i - 1][j - 1] >= threshold) out[i - 1] = entries[j - 1].num;
+      i--; j--;
+    } else if (ptr[i][j] === 1) {
+      i--;
+    } else {
+      j--;
+    }
   }
   return out;
 }
