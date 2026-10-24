@@ -128,7 +128,13 @@ function findDuplicate(q, candidates, opts = {}) {
  */
 function stemPart(text) {
   const s = String(text || '');
-  const m = s.match(/(?:^|\n)\s*[A-D]\s*[.．、]/);
+  // 选项起点有两种排版：
+  //   1) 选项独立成行 —— 行首的「A.」
+  //   2) 题干与选项挤在同一行 ——「……下列说法正确的是（ ）。 A.甲自主决定…… B.乙入住……」
+  //      （实测大量真题 PDF 提取后就是这样：一份 130 题卷里 33 题因此匹配不上。
+  //      只认行首时原文侧截不断，变成「题干 vs 题干+选项」，Dice 被选项稀释到 0.2 左右。）
+  // 字母前必须有空白或句末标点做分隔，题干里出现「维生素A、B」这类字母才不会被误截。
+  const m = s.match(/(?:^|\n|[\s。；：）】])\s*[A-D]\s*[.．、]/);
   return m ? s.slice(0, m.index) : s;
 }
 
