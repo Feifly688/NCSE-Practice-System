@@ -169,11 +169,34 @@ async function runParseJob(paperId) {
 
   // 跨片合并：组合表述题的题干与残片可能被切到不同片（实测 #15），
   // parseChunk 内的 mergeFragments 只能合片内相邻的，汇总层再合一次跨片相邻的。
-  const deduped = dedupeList(mergeFragments(questions)).map((q, i) => ({
+  let deduped = dedupeList(mergeFragments(questions)).map((q, i) => ({
     ...q,
     seq: i + 1,
     section: q.module || '未分区',
   }));
+
+  // ── 定向补拆：把模型漏输出的题捡回来 ──────────────────────────
+  // 小模型（glm-4-flash）每片固定漏 1 题左右（实测资料分析 20 题漏 5、
+  // 判断推理 35 漏 4），切片再小也消除不了这个漏题率。题数对账能发现
+  // 缺口（expectedCount vs 实际拆出），这里按「未匹配上的原文题号」
+  // 构造 1-5 题的小片重拆一次——小片漏题率远低于大碎片，
+  // 从而把总题数确定性拉回接近原文。
+  const usedNums0 = new Set(matchQuestionNumbers(deduped, pre.index.byNumber).filter((n) => n != null));
+  const missingNums = pre.numbers.filter((n) => !usedNums0.has(n));
+  if (missingNums.length > 0) {
+    console.log(`[exam] paper=${paperId} 题数对账：漏 ${missingNums.length} 题（题号 ${missingNums.join(',')}），开始定向补拆`);
+    const supp = await supplementMissingQuestions(pre, missingNums, paper.title);
+    if (supp.length > 0) {
+      const merged = dedupeList(mergeFragments([...questions, ...supp]));
+      // 补拆结果按原文题号重排，保证 seq 与题号顺序一致（图片挂载依赖这个顺序）
+      const nums = matchQuestionNumbers(merged, pre.index.byNumber);
+      deduped = merged
+        .map((q, i) => ({ q, no: nums[i] }))
+        .sort((a, b) => (a.no == null ? 99999 : a.no) - (b.no == null ? 99999 : b.no))
+        .map((o, i) => ({ ...o.q, seq: i + 1, section: o.q.module || '未分区' }));
+      console.log(`[exam] paper=${paperId} 补拆合并后共 ${deduped.length} 题`);
+    }
+  }
 
   // ── 题目区域截图：把图形从原 PDF 里裁出来 ──────────────────────
   // 文本层里没有的图形（图形推理、几何图、统计图表）只能靠渲染原 PDF 取得。
@@ -303,8 +326,66 @@ async function runParseJob(paperId) {
   );
 }
 
+/**
+ * 定向补拆：对模型漏输出的题号，构造「单题/连续小组」小片重拆。
+ *
+ * 为什么需要：小模型每片固定漏 1 题左右，这是能力上限，prompt 与
+ * 切片大小都消除不了（实测资料分析切成 4-5 题/片仍漏 5 题）。
+ * 题数对账（原文题号 vs 实际拆出）能定位缺口，这里把缺的题号
+ * 按连续段分组（每组 < 900 字），各配一篇小片重拆，把漏题捡回来。
+ *
+ * @param {object} pre preprocessPaperText 的结果（含 index.byNumber / index.numAt / text）
+ * @param {number[]} missingNums 未匹配上 AI 拆题的原文题号
+ * @param {string} paperTitle 试卷标题（进 prompt）
+ * @returns {Promise<Array>} 补拆出的题目（未去重，由调用方合并）
+ */
+async function supplementMissingQuestions(pre, missingNums, paperTitle) {
+  if (!missingNums || !missingNums.length) return [];
+  const lines = pre.text.split('\n');
+  const numAt = pre.index.numAt || [];
+  const lineOf = new Map(numAt.map((m) => [m.num, m.line]));
+
+  // 连续题号归组；组内文本控制在 900 字以内（小片漏题率低）
+  const groups = [];
+  let cur = null;
+  for (const n of missingNums) {
+    const startLine = lineOf.get(n);
+    if (startLine == null) continue;
+    const q = pre.index.byNumber.get(n);
+    if (!q) continue;
+    const idx = numAt.findIndex((m) => m.num === n);
+    const endLine = idx >= 0 && idx + 1 < numAt.length ? numAt[idx + 1].line : lines.length;
+    const text = lines.slice(startLine, endLine).join('\n');
+    if (cur && n === cur.last + 1 && cur.section === q.section && (cur.text.length + text.length) < 900) {
+      cur.text += '\n' + text;
+      cur.last = n;
+    } else {
+      cur = { section: q.section, first: n, last: n, text };
+      groups.push(cur);
+    }
+  }
+
+  const tasks = groups.map((g) => async () => {
+    const q0 = pre.index.byNumber.get(g.first);
+    const material = q0 && q0.passageShared && q0.passage ? q0.passage : '';
+    const r = await parseChunk({ section: g.section, text: g.text, material }, { paperTitle });
+    return { group: g, r };
+  });
+  const results = await runPool(tasks, 3);
+
+  const out = [];
+  for (const { group, r } of results) {
+    if (r && Array.isArray(r.questions) && r.questions.length) {
+      out.push(...r.questions);
+      console.log(`[exam] 补拆 #${group.first}${group.last !== group.first ? '-#' + group.last : ''}（${group.section}）：+${r.questions.length} 题`);
+    } else if (r && r.error) {
+      console.warn(`[exam] 补拆 #${group.first} 失败：${r.error}`);
+    }
+  }
+  return out;
+}
+
 async function updateParseState(paperId, fields) {
-  const keys = Object.keys(fields);
   if (keys.length === 0) return;
   const setSql = keys.map((k) => `\`${k}\` = ?`).join(', ');
   const values = keys.map((k) => fields[k]);
