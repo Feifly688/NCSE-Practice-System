@@ -29,24 +29,57 @@ const OPTION_MARK = /([A-D])\s*[.．、]\s*/g;
 
 /**
  * 删除页眉页脚噪声。
+ *
+ * 页眉识别不能只靠调用方传标题（上传时的文件名往往是「粉笔39季模考」，
+ * 而页眉上的真实标题是「2027年国考第三十九季行测模考大赛（行政执法类）」），
+ * 漏删的页眉会插在「题号行」和「选项行」之间，让题号识别失效。
+ *
+ * 判定方式：**页眉总是紧挨着页码行**。因此先定位所有「第N页，共M页」，
+ * 再把这些行前后 2 行内、且全文重复出现 ≥3 次的短行判为页眉。
+ * 不能简单地把「全文重复 ≥3 次的行」都删掉 —— 试卷里
+ * 「从所给的四个选项中，选择最合适的一个填入问号处……」这类题干本来就重复十几次。
+ *
  * @param {string} text
- * @param {string[]} extraTitles 试卷标题片段（用于识别重复出现的页眉标题行）
+ * @param {string[]} extraTitles 额外指定的标题片段
  */
 function stripPageNoise(text, extraTitles = []) {
   const titles = extraTitles.filter((t) => t && t.length >= 6);
-  const lines = String(text || '').split('\n');
-  const kept = [];
-  for (const raw of lines) {
-    const line = raw.trim();
-    if (PAGE_NOISE.test(line)) continue;
-    if (BLANK_LINE.test(line)) { kept.push(''); continue; }
-    // 重复出现的试卷标题（每页都有）→ 只保留第一次出现的那一行
-    if (titles.some((t) => line.startsWith(t) || line.includes(t))) {
-      const firstIdx = kept.findIndex((l) => l.trim().startsWith(titles.find(t => l.trim().startsWith(t) || l.trim().includes(t)) || ''));
-      if (firstIdx >= 0 && kept.length > firstIdx + 2) continue;
-    }
-    kept.push(raw);
+  const rawLines = String(text || '').split('\n');
+
+  const counter = new Map();
+  for (const l of rawLines) {
+    const t = l.trim();
+    if (!t || t.length > 60) continue;
+    counter.set(t, (counter.get(t) || 0) + 1);
   }
+  const isRepeated = (t) => {
+    if (!t || t.length > 60) return false;
+    if ((counter.get(t) || 0) >= 3) return true;
+    return titles.some((x) => t.includes(x) || x.includes(t));
+  };
+
+  // 页码行之后出现的重复短行 = 页眉
+  // 只看页码行「之后」：PDF 文本流里页眉排在页码之后（"第 14 页，共 28 页" → 试卷标题），
+  // 而页码之前紧邻的往往是上一题的题干（如图形推理题那十几次重复的题干），
+  // 一起删会把题干删掉，导致题号行后面不再是选项行、题号反而识别不到。
+  const headerLines = new Set();
+  rawLines.forEach((l, i) => {
+    if (!PAGE_NOISE.test(l.trim())) return;
+    for (let k = i + 1; k <= Math.min(rawLines.length - 1, i + 2); k++) {
+      if (PAGE_NOISE.test(rawLines[k].trim())) continue;
+      if (isRepeated(rawLines[k].trim())) headerLines.add(k);
+    }
+  });
+
+  const kept = [];
+  rawLines.forEach((raw, i) => {
+    const line = raw.trim();
+    if (PAGE_NOISE.test(line)) return;
+    if (headerLines.has(i)) return;
+    if (BLANK_LINE.test(line)) { kept.push(''); return; }
+    kept.push(raw);
+  });
+
   // 压缩连续空行
   const out = [];
   for (const l of kept) {
