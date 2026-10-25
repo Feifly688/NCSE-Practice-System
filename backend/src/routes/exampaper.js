@@ -286,22 +286,28 @@ function reconcileQuestions(list, pre) {
   // 拆错位的题又占了别人的号，补多少都对不齐（实测判断推理连丢 4 题）。
   const assign = assignQuestionsToNumbers(list, byNumber, { minScore: 0.45 });
 
-  // 步骤 2：按题号组装成卷。指派到某题号的题里，相似度最高的那条胜出
-  // （规则兜底补的题与原文逐字一致，天然胜出 AI 改写版）；
-  // 没有被指派的题（AI 多拆/残片）一律丢弃。
+  // 步骤 2：按题号组装成卷 —— **每个原文题号恰好一题**。
+  //   · 指派到的题：取相似度最高的那条（规则兜底题与原文逐字一致，天然胜出 AI 改写版）
+  //   · 没被指派的题号：直接用原文块规则构题补齐（不调 AI，零延迟、零随机性）
+  //   · 没被指派的 AI 题（多拆/残片）：一律丢弃
+  // 兜底必须与组装在同一步完成：分两步时，"已覆盖"的题可能在后续去重里被删掉，
+  // 而兜底早已认定它覆盖过 → 题号永久空缺（实测题号 69 丢失）。
   const ordered = [];
   const numbers = [...byNumber.keys()].sort((a, b) => a - b);
   const usedIdx = new Set();
+  let ruleFilled = 0;
   for (const no of numbers) {
     const hit = assign.byNo.get(no);
-    if (!hit) continue;
-    const prev = ordered.find((o) => o.no === no);
-    if (prev) {
-      if (hit.score > prev.score) { prev.q = hit.q; prev.score = hit.score; prev.i = hit.i; }
+    if (hit) {
+      ordered.push({ no, q: hit.q, score: hit.score, i: hit.i });
+      usedIdx.add(hit.i);
       continue;
     }
-    ordered.push({ no, q: hit.q, score: hit.score, i: hit.i });
-    usedIdx.add(hit.i);
+    const rule = buildQuestionFromBlock(byNumber.get(no), no);
+    if (rule) {
+      ordered.push({ no, q: rule, score: 1, i: -1, isRule: true });
+      ruleFilled++;
+    }
   }
   // 兜底题自带题号（q.no），不参与指派，直接并入
   list.forEach((q, i) => {
@@ -316,6 +322,9 @@ function reconcileQuestions(list, pre) {
     }
   });
   ordered.sort((a, b) => a.no - b.no);
+  if (ruleFilled > 0) {
+    console.log(`[exam] 题号收口：${ruleFilled} 个题号由原文块规则兜底补齐（AI 未拆出或匹配不上）`);
+  }
 
   const dropped = list.length - ordered.length;
   if (dropped > 0) {
@@ -482,30 +491,10 @@ async function runParseJob(paperId) {
   // ── 规则兜底补漏：模型（含补拆）仍然漏掉的题，用原文块确定性构题 ────
   // 图形推理、政治理论组合表述题、大段言语填空这三类模型反复漏，
   // 而它们的题干与选项都在原文里 —— 不调 AI，零网络开销，也不会再漏。
-  {
-    // 题号是否"真的被覆盖"由全局指派给出：只有相似度达标（≥0.45）的配对才算覆盖，
-    // 没被指派的题号一律用原文块兜底补齐 —— 每个题号最终恰好一题。
-    const assign = assignQuestionsToNumbers(deduped, pre.index.byNumber, { minScore: 0.45 });
-    const stillMissing = pre.numbers.filter((n) => !assign.byNo.has(n));
-    if (stillMissing.length > 0) {
-      const built = stillMissing.map((n) => buildQuestionFromBlock(pre.index.byNumber.get(n), n)).filter(Boolean);
-      if (built.length > 0) {
-        console.log(
-          `[exam] paper=${paperId} 规则兜底补漏 ${built.length} 题` +
-          `（题号 ${stillMissing.slice(0, 30).join(',')}${stillMissing.length > 30 ? '…' : ''}）`
-        );
-        deduped = reconcileQuestions(
-          // 兜底题放前面：dedupeList 保留先出现的那条，兜底版是原文照抄、
-          // AI 版是改写版，两者相似度足以被判重 —— 必须让原文版留下，
-          // 否则保留下来的 AI 版匹配不上题号，会在收口时被整条丢弃
-          // （实测政治理论 1/9/15 三题就是这么消失的）。
-          dedupeList(mergeFragments([...built, ...deduped]), { threshold: 0.75 }),
-          pre
-        );
-        console.log(`[exam] paper=${paperId} 兜底合并后共 ${deduped.length} 题`);
-      }
-    }
-  }
+  // ── 规则兜底补漏已并入 reconcileQuestions ──────────────────────
+  // 收口阶段会为每个未被指派的题号直接用原文块构题，因此这里无需再单独兜底。
+  // （之前分两步做时，"已覆盖"的题可能在后续去重里被删掉，而兜底已认定它覆盖过，
+  //   导致题号永久空缺 —— 实测题号 69 丢失。）
 
   // ── 题目区域截图：把图形从原 PDF 里裁出来 ──────────────────────
   // 文本层里没有的图形（图形推理、几何图、统计图表）只能靠渲染原 PDF 取得。
