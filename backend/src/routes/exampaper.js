@@ -236,10 +236,12 @@ function buildQuestionFromBlock(info, num) {
 function splitMaterial(stem, passages) {
   const s = String(stem || '').trim();
   const sPart = stemPart(s);
-  // 题干末尾本身就是问句 → 这条已经是完整题目（引言+问句），既不剥离也不丢。
+  // 题干里带问句 → 这条已经是完整题目（引言+问句+编号行），既不剥离也不丢。
   // 政治理论题正是这种情况：原文索引把「引言 + 问句」整体算成了材料段，
   // 于是「材料尾部」就是问句本身，剥离后剩余为空而被误丢（实测 1/9/15 三题全灭）。
-  const tailIsQuestion = looksLikeQuestion(s.slice(-60));
+  // 注意问句可能在题干中部（题 9/15 是「下列相关表述正确的有（ ）」后面接着
+  // ①②③④ 编号行），所以要看整条而不是只看末尾。
+  const tailIsQuestion = looksLikeQuestion(s);
   for (const p of passages) {
     const pp = String(p || '').trim();
     if (pp.length < 30) continue;
