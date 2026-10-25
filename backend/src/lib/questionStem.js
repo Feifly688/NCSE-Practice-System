@@ -90,6 +90,12 @@ function normalizeQuestionStem(q) {
     return { stem: cleanHead, options: parsed, changed: true, reason: 'recovered-options' };
   }
 
+  // 情况 C：两边都是占位符（图形推理的 `A. A B. B C. C D. D` —— 选项只是图形标号，
+  // 文字层面没有任何信息），尾部的选项行纯粹是噪音，直接剥掉。
+  if (realKnown.length === 0 && parsed.length && parsed.every((o) => isPlaceholder(o))) {
+    return { stem: cleanHead, options: known, changed: true, reason: 'stripped-figure-marks' };
+  }
+
   // 情况 A：解析出的选项与已存选项对得上 → 只剥 stem
   if (realKnown.length >= 2) {
     let hit = 0;
