@@ -65,6 +65,8 @@ export default function ExamPaperTake() {
   const [activeSection, setActiveSection] = useState(null);
   // 纯文本题的原卷截图默认折叠：它的内容与题干重复，展开才加载
   const [shotOpen, setShotOpen] = useState({});
+  // 截图大图：在当前页面内放大查看。不另开标签页、也不跳转 —— 跳走会丢掉作答进度
+  const [previewImg, setPreviewImg] = useState(null);
 
   const qRefs = useRef({});
 
@@ -76,6 +78,14 @@ export default function ExamPaperTake() {
     const t = setInterval(() => setElapsed((v) => v + 1), 1000);
     return () => clearInterval(t);
   }, [result]);
+
+  // 大图预览：ESC 关闭
+  useEffect(() => {
+    if (!previewImg) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') setPreviewImg(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [previewImg]);
 
   async function loadPaper() {
     setLoading(true);
@@ -394,7 +404,7 @@ export default function ExamPaperTake() {
                               src={url}
                               alt="原卷题目截图"
                               loading="lazy"
-                              onClick={() => window.open(url, '_blank')}
+                              onClick={() => setPreviewImg(url)}
                               style={{
                                 width: '100%', maxWidth: '100%', border: '1px solid #f0f0f0',
                                 borderRadius: 8, background: '#fff', cursor: 'zoom-in', display: 'block',
@@ -552,6 +562,43 @@ export default function ExamPaperTake() {
             </Button>
           </div>
         </>
+      )}
+
+      {/* 截图大图：在当前页面内放大查看（不另开标签页，避免丢失作答进度） */}
+      {previewImg && (
+        <div
+          onClick={() => setPreviewImg(null)}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.75)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: 16, cursor: 'zoom-out',
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, maxHeight: '100%' }}
+          >
+            <img
+              src={previewImg}
+              alt="原卷截图大图"
+              style={{
+                maxWidth: '100%', maxHeight: 'calc(100vh - 110px)', objectFit: 'contain',
+                background: '#fff', borderRadius: 8, display: 'block', cursor: 'default',
+              }}
+            />
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+              <a
+                href={previewImg}
+                target="_blank"
+                rel="noreferrer"
+                style={{ color: '#fff', fontSize: 13, textDecoration: 'underline' }}
+              >
+                在新标签页打开
+              </a>
+              <Button size="small" onClick={() => setPreviewImg(null)}>关闭</Button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

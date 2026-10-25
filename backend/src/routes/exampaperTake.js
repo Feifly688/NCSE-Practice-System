@@ -96,39 +96,66 @@ router.get('/:id', asyncHandler(async (req, res) => {
   if (!data) return res.status(404).json({ error: '试卷不存在' });
   if (data.forbidden) return res.status(400).json({ error: '该试卷尚未完成拆题，暂不可作答', parse_status: data.parse_status });
 
-  // 按分区聚合，保持原卷顺序
+  // 按分区聚合，保持原卷顺序。
+  // 共享材料（资料分析一篇材料一串题、言语理解一篇文段多题）：材料正文与材料图
+  // 只在**本组第一题**下发一次，后续题只带自己的题干和选项，避免整页反复重印同一段材料。
   const sectionMap = new Map();
+  let lastMaterialKey = null;
   for (const q of data.questions) {
     const name = q.section || '未分区';
     if (!sectionMap.has(name)) sectionMap.set(name, []);
     // 题目区域截图（原 PDF 裁剪），多张用逗号分隔。
     // 路径不带 /api 前缀：前端会拼上 axios 的 baseURL，避免出现 /api/api/...
     const files = String(q.image_url || '').split(',').filter(Boolean);
+    // `-m.` 前缀的是所属材料段的共享图（统计图表），其余是本题自身的区域截图
+    const matFiles = files.filter((f) => /-m\./.test(f));
+    const ownFiles = files.filter((f) => !/-m\./.test(f));
     const rawOpts = safeJson(q.options_json, []);
     // 部分题（规则兜底构题的那批）题干里还粘着 A./B./C./D. 选项行：
     // 页面会「题干读一遍、下面又渲染一遍」。这里在读取时剥离；若已存选项是占位符，
     // 则把题干里解析出的真实选项补上，避免用户看到四个无意义的占位符。
     const fixed = normalizeQuestionStem({ stem: q.stem, options: rawOpts });
     const opts = fixed.options;
+    const passage = String(q.passage || '').trim();
+
+    // 同一段材料的连续题判定：材料正文相同，且共享同一份材料图
+    const materialKey = [passage.length >= 20 ? passage : '', matFiles.join('|')].join('#');
+    const isSameMaterial = materialKey !== '#' && materialKey === lastMaterialKey;
+    lastMaterialKey = materialKey !== '#' ? materialKey : null;
+
+    const showPassage = passage && !isSameMaterial ? passage : null;
+    const showMatFiles = isSameMaterial ? [] : matFiles;
+
     // 不是每题都需要配图：纯文本题的区域截图只是把题干重拍一遍，
     // 前端已用文本渲染同样内容，再插图既冗余又拖慢加载。
     // 判定详见 lib/questionImage.js（仅影响显示，不删除资源）。
+    // 共享材料组内的题：题干和选项已是文字，自身区域截图同样重复 —— 一律折叠，
+    // 除非这题的选项本身就是图形（image-options）或标准图形句式（figure-stem）。
+    // 材料组的图表由本组第一题统一展示一次。
     const need = classifyImageNeed(
-      { section: name, stem: fixed.stem, options: opts, passage: q.passage },
-      files
+      { section: name, stem: fixed.stem, options: opts, passage: showPassage },
+      ownFiles
     );
+    const inMaterialGroup = passage.length >= 20;
+    const keepOwn = ['image-options', 'figure-stem'].includes(need.reason);
+    const ownNeeded = need.needed && !(inMaterialGroup && !keepOwn);
+    const outFiles = [...ownFiles, ...showMatFiles];
     sectionMap.get(name).push({
       seq: q.seq,
       id: q.id,
       qtype: q.qtype,
       difficulty: q.difficulty,
-      passage: q.passage || null,
+      passage: showPassage,
+      // 同一材料的后续题保留一个引用标记，前端可据此提示「承接上文材料」
+      materialFirst: Boolean(showPassage),
       stem: fixed.stem,
       options: opts,
-      images: files.map((f) => `/exam-papers/images/${data.paper.id}/${f}`),
+      images: outFiles.map((f) => `/exam-papers/images/${data.paper.id}/${f}`),
       // true → 内联展示；false → 折叠在「查看原卷截图」里
-      imageNeeded: need.needed,
-      imageReason: need.reason,
+      imageNeeded: ownNeeded || showMatFiles.length > 0,
+      imageReason: showMatFiles.length > 0
+        ? 'material-figure'
+        : (ownNeeded ? need.reason : 'material-group'),
     });
   }
   const sections = Array.from(sectionMap.entries()).map(([name, questions]) => ({
