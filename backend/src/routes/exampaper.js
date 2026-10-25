@@ -124,6 +124,83 @@ async function crawlText(url) {
 const ASK_RE = /[？?]|多少|哪项|哪些|正确的是|错误的是|的是|推出|约是|比重|排名|趋势|反映|属于|符合|不可能/;
 
 /**
+ * 把一段文本切成「题干 + 选项序列」。
+ *
+ * 选项序列必须**从 A 开始且 B/C/D 连续**，否则视为题干里恰好出现的字母
+ * （如「维生素A.」「PM2.5」），不切分。字母前还要求有空白/换行/左括号
+ * 做分隔，进一步降低误判。
+ *
+ * @returns {{stem: string, options: string[]}}
+ */
+function splitOptionSequence(text) {
+  const s = String(text || '');
+  const hits = [];
+  const re = /([A-D])\s*[.．、]/g;
+  let m;
+  while ((m = re.exec(s))) {
+    if (m.index > 0 && !/[\s\n（(（]/.test(s[m.index - 1])) continue;
+    hits.push({ letter: m[1], at: m.index, after: re.lastIndex });
+  }
+  for (let i = 0; i < hits.length; i++) {
+    if (hits[i].letter !== 'A') continue;
+    const seq = [hits[i]];
+    for (let k = i + 1; k < hits.length && hits[k].letter === String.fromCharCode(65 + seq.length); k++) {
+      seq.push(hits[k]);
+    }
+    if (seq.length < 2) continue;
+    const options = seq.map((h, idx) => {
+      const end = seq[idx + 1] ? seq[idx + 1].at : s.length;
+      return s.slice(h.after, end).replace(/\s+/g, ' ').trim();
+    });
+    // 选项内容为空、或只有单个字母 —— 原文里这些位置是图形（图形推理/立体/统计图）
+    if (options.every((o) => !o || /^[A-Da-d]$/.test(o))) {
+      return { stem: s.slice(0, seq[0].at), options: ['（图片选项）', '（图片选项）', '（图片选项）', '（图片选项）'] };
+    }
+    return { stem: s.slice(0, seq[0].at), options };
+  }
+  return { stem: s, options: [] };
+}
+
+/**
+ * 规则兜底构题：从原文题号块直接提取题目（不调 AI）。
+ *
+ * 为什么需要：模型对三类题持续漏拆，且补拆也补不回来 ——
+ *   ① 图形推理/立体图形/分类（块长 59-89 字，选项只有 "A. A B. B C. C D. D"）
+ *   ② 政治理论组合表述题（①②③ 编号行 + "A. 1项 B. 2项" 选项）
+ *   ③ 大段言语填空/篇章理解（实测一次漏掉 45-56 连续 12 题）
+ * 这些题的题干和选项本来就在原文里，规则提取的确定性远高于反复调模型。
+ *
+ * @param {object} info 原文题号索引里的块信息（blockText / section / passage）
+ * @returns {object|null} 结构同 AI 输出的题；块无效时返回 null
+ */
+function buildQuestionFromBlock(info) {
+  const raw = String((info && info.blockText) || '').trim();
+  if (raw.length < 10) return null;
+  const text = raw.replace(/^\s*\d{1,3}\s*[.、．]\s*/, '');
+  const { stem, options } = splitOptionSequence(text);
+  const passage = String(info.passage || '').trim();
+  let finalStem = String(stem || '').trim();
+  // 资料分析：题干开头可能带着整段共享材料，剥掉（与 splitMaterial 同思路）
+  if (passage && finalStem.startsWith(passage.slice(0, 24))) {
+    const tail = passage.slice(-24);
+    const at = finalStem.indexOf(tail);
+    if (at >= 0) finalStem = finalStem.slice(at + tail.length).replace(/^[\s。、，,；;]*/, '').trim();
+  }
+  if (finalStem.length < 5) return null;
+  return {
+    module: info.section || '未分区',
+    qtype: '单选题',
+    passage,
+    stem: finalStem.slice(0, 2000),
+    options: options.length ? options : ['（图片选项）', '（图片选项）', '（图片选项）', '（图片选项）'],
+    answer: '',
+    explanation: '',
+    // 标记来源：mergeFragments 不能把它当"残片"合并掉，reconcile 时也不与 AI 题互换
+    fromRule: true,
+  };
+}
+
+/**
  * 剥离题干开头被误并入的共享材料。
  *
  * 资料分析一篇材料带 5 题，模型偶发把整段材料当成一道题输出（实测一份卷子
@@ -367,6 +444,28 @@ async function runParseJob(paperId) {
       const merged = dedupeList(mergeFragments([...questions, ...supp]), { threshold: 0.75 });
       deduped = reconcileQuestions(merged, pre);
       console.log(`[exam] paper=${paperId} 补拆合并后共 ${deduped.length} 题`);
+    }
+  }
+
+  // ── 规则兜底补漏：模型（含补拆）仍然漏掉的题，用原文块确定性构题 ────
+  // 图形推理、政治理论组合表述题、大段言语填空这三类模型反复漏，
+  // 而它们的题干与选项都在原文里 —— 不调 AI，零网络开销，也不会再漏。
+  {
+    const used = new Set(matchQuestionNumbers(deduped, pre.index.byNumber).filter((x) => x != null));
+    const stillMissing = pre.numbers.filter((n) => !used.has(n));
+    if (stillMissing.length > 0) {
+      const built = stillMissing.map((n) => buildQuestionFromBlock(pre.index.byNumber.get(n))).filter(Boolean);
+      if (built.length > 0) {
+        console.log(
+          `[exam] paper=${paperId} 规则兜底补漏 ${built.length} 题` +
+          `（题号 ${stillMissing.slice(0, 30).join(',')}${stillMissing.length > 30 ? '…' : ''}）`
+        );
+        deduped = reconcileQuestions(
+          dedupeList(mergeFragments([...deduped, ...built]), { threshold: 0.75 }),
+          pre
+        );
+        console.log(`[exam] paper=${paperId} 兜底合并后共 ${deduped.length} 题`);
+      }
     }
   }
 

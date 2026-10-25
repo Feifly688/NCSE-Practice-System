@@ -384,12 +384,15 @@ function mergeFragments(list) {
   const out = [];
   for (const q of list) {
     const prev = out[out.length - 1];
+    // 规则兜底补漏的题（fromRule）是确定性的原文提取，既不能把它当"残片"
+    // 并进上一题，也不能让它把别人的残片吞掉
+    const ruleInvolved = !!(q && q.fromRule) || !!(prev && prev.fromRule);
     const qNoQuestion = !QUESTION_MARKERS.test(q.stem) && !/[？?]/.test(String(q.stem || ''));
     const prevHasQuestion = prev && (QUESTION_MARKERS.test(prev.stem) || /[？?]/.test(String(prev.stem || '')));
     const sameModule = prev && q.module && prev.module && String(q.module) === String(prev.module);
     const notStandardStem = !STANDARD_STEM.test(String(q.stem || ''));
     const fragOptions = isCombinationOptions(q.options) || isImagePlaceholderOptions(q.options);
-    if (prev && qNoQuestion && notStandardStem && fragOptions && prevHasQuestion && sameModule) {
+    if (prev && !ruleInvolved && qNoQuestion && notStandardStem && fragOptions && prevHasQuestion && sameModule) {
       // 残片题干里常混入选项行（"A. ①②③"），合并前剥掉，避免 stem 冗余
       const fragStem = String(q.stem || '')
         .replace(/(?:^|\n)\s*[A-D]\s*[.．、]\s*[①②③④⑤⑥⑦⑧⑨⑩]+/g, '')
