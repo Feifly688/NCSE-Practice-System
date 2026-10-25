@@ -70,6 +70,15 @@ function stemFingerprint(q) {
  * @returns {{ dup: boolean, reason: string, score: number }}
  */
 function judgeDuplicate(a, b, threshold = 0.9) {
+  // 选项是「图片占位」时没有任何区分度：图形推理/立体/分类题成批出现，
+  // 题干逐字相同（"从所给的四个选项中，选择最合适的一个填入问号处……"），
+  // 指纹和相似度都会判成同一题，于是整片被判重复删掉（实测 130 题卷里
+  // 5 道图形推理全灭，只拆出 110+ 题）。这类题只能靠题号区分，
+  // 因此这里完全退出判重（由调用方的题号对账保证不重复）。
+  const imgOpts = (o) => Array.isArray(o) && o.length >= 2 && o.every((x) => String(x).trim() === '（图片选项）');
+  if (imgOpts(a.options) || imgOpts(b.options)) {
+    return { dup: false, reason: 'image-options', score: 0 };
+  }
   if (buildFingerprint(a) === buildFingerprint(b)) {
     return { dup: true, reason: 'exact', score: 1 };
   }
