@@ -463,7 +463,11 @@ async function runParseJob(paperId) {
           `（题号 ${stillMissing.slice(0, 30).join(',')}${stillMissing.length > 30 ? '…' : ''}）`
         );
         deduped = reconcileQuestions(
-          dedupeList(mergeFragments([...deduped, ...built]), { threshold: 0.75 }),
+          // 兜底题放前面：dedupeList 保留先出现的那条，兜底版是原文照抄、
+          // AI 版是改写版，两者相似度足以被判重 —— 必须让原文版留下，
+          // 否则保留下来的 AI 版匹配不上题号，会在收口时被整条丢弃
+          // （实测政治理论 1/9/15 三题就是这么消失的）。
+          dedupeList(mergeFragments([...built, ...deduped]), { threshold: 0.75 }),
           pre
         );
         console.log(`[exam] paper=${paperId} 兜底合并后共 ${deduped.length} 题`);

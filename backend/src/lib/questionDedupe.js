@@ -93,6 +93,13 @@ function judgeDuplicate(a, b, threshold = 0.9) {
   const sameAnswer = !b.answer || !a.answer || String(a.answer).trim().toUpperCase() === String(b.answer).trim().toUpperCase();
 
   if (sameQtype && sameAnswer && optScore >= 0.6) {
+    // 题干几乎逐字相同时（如"把下面的六个图形分为两类，使每一类图形都有各自的
+    // 共同特征或规律，分类正确的一项是："），两道题的选项集合其实不同
+    // （实测 #83/#84 就是这样，一道题只被整片误杀）。这种"题干相同、选项不同"
+    // 是公考常见写法，必须要求选项也几乎一致才算重复。
+    if (score >= 0.97 && optScore < 0.9) {
+      return { dup: false, reason: 'stem-same-opt-diff', score };
+    }
     return { dup: true, reason: 'similar', score };
   }
   // 「题干相同、选项不同」是公考常见写法：填空题（"依次填入画横线部分最恰当的一项是："）、
