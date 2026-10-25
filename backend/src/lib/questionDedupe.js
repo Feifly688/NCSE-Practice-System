@@ -256,6 +256,112 @@ function matchQuestionNumbers(questions, index, opts = {}) {
   return out;
 }
 
+/**
+ * 匈牙利算法（O(n^3)）求解最小费用指派。
+ * @param {number[][]} cost 代价矩阵，cost[i][j] 为行 i 分配到列 j 的代价
+ * @param {number} n 行数（题号数）
+ * @param {number} m 列数（AI 拆出的题数，调用方保证 m' ≥ n）
+ * @returns {Int32Array} 每行分配到的列索引，未分配为 -1
+ */
+function hungarian(cost, n, m) {
+  const INF = Infinity;
+  const u = new Float64Array(n + 1);
+  const v = new Float64Array(m + 1);
+  const p = new Int32Array(m + 1);   // p[j] = 分配到列 j 的行号
+  const way = new Int32Array(m + 1);
+  for (let i = 1; i <= n; i++) {
+    p[0] = i;
+    let j0 = 0;
+    const minv = new Float64Array(m + 1).fill(INF);
+    const used = new Uint8Array(m + 1);
+    do {
+      used[j0] = 1;
+      const i0 = p[j0];
+      let delta = INF;
+      let j1 = -1;
+      for (let j = 1; j <= m; j++) {
+        if (used[j]) continue;
+        const cur = cost[i0 - 1][j - 1] - u[i0] - v[j];
+        if (cur < minv[j]) { minv[j] = cur; way[j] = j0; }
+        if (minv[j] < delta) { delta = minv[j]; j1 = j; }
+      }
+      if (j1 < 0) break;
+      for (let j = 0; j <= m; j++) {
+        if (used[j]) { u[p[j]] += delta; v[j] -= delta; }
+        else if (j > 0) minv[j] -= delta;
+      }
+      j0 = j1;
+    } while (p[j0] !== 0);
+    do {
+      const j1 = way[j0];
+      p[j0] = p[j1];
+      j0 = j1;
+    } while (j0);
+  }
+  const res = new Int32Array(n).fill(-1);
+  for (let j = 1; j <= m; j++) if (p[j] > 0) res[p[j] - 1] = j - 1;
+  return res;
+}
+
+/**
+ * 全局指派：把原文题号与 AI 拆出的题一一对应（最大权二分图匹配）。
+ *
+ * 为什么不用序列比对（DP）：DP 遇到连续漏题时会把后面的题整体左移（错位），
+ * 于是真正没拆出来的题号被"占用"、拆错位的题又占了别人的号，
+ * 补多少都对不齐（实测判断推理连丢 4 题定义判断）。指派算法是全局最优的
+ * 一一对应，没有顺序假设，因此不会错位。
+ *
+ * 权 = 题干相似度（题干 vs 题干，避免选项稀释）。低于 minScore 的配对视为
+ * 「没有对应」，由调用方用原文块兜底补齐 —— 最终每个题号恰好一题。
+ *
+ * @param {Array<{stem: string}>} questions AI 拆出的题
+ * @param {Map<number, {blockText: string}>} index 原文题号索引
+ * @param {object} opts { minScore }
+ * @returns {{byNo: Map<number, {q: object, i: number, score: number}>, assigned: number[]}}
+ */
+function assignQuestionsToNumbers(questions, index, opts = {}) {
+  const minScore = opts.minScore ?? 0.45;
+  const entries = [];
+  for (const [num, info] of index) entries.push({ num, text: String(info.blockText || '') });
+  entries.sort((a, b) => a.num - b.num);
+  const n = entries.length;          // 行：题号
+  const m = questions.length;        // 列：AI 题
+  const out = { byNo: new Map(), assigned: [] };
+  if (!n || !m) return out;
+
+  // 相似度矩阵
+  const S = [];
+  for (let i = 0; i < m; i++) {
+    const stem = stemPart(String(questions[i]?.stem || ''));
+    const row = new Float64Array(n);
+    for (let j = 0; j < n; j++) row[j] = diceSimilarity(stem, stemPart(entries[j].text));
+    S.push(row);
+  }
+
+  // 代价矩阵：高分 → 负代价（最小化），低分 → 大代价（尽量不选）
+  const BIG = 1000;
+  const cols = Math.max(n, m);
+  const cost = [];
+  for (let i = 0; i < n; i++) {
+    const row = new Float64Array(cols);
+    for (let j = 0; j < cols; j++) {
+      const s = j < m ? S[j][i] : 0;
+      row[j] = s >= minScore ? -s : BIG;
+    }
+    cost.push(row);
+  }
+  const assign = hungarian(cost, n, cols);
+  for (let j = 0; j < n; j++) {
+    const col = assign[j];
+    if (col < 0 || col >= m) continue;
+    const score = S[col][j];
+    if (score < minScore) continue;
+    out.byNo.set(entries[j].num, { q: questions[col], i: col, score });
+    out.assigned.push(col);
+  }
+  return out;
+}
+
 module.exports = {
   normalizeText,
   bigrams,
@@ -266,5 +372,6 @@ module.exports = {
   judgeDuplicate,
   findDuplicate,
   matchQuestionNumbers,
+  assignQuestionsToNumbers,
   stemPart,
 };

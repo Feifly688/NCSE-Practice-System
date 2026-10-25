@@ -25,7 +25,7 @@ const { callChat } = require('../lib/aiClient');
 const {
   splitIntoChunks, parseChunk, runPool, dedupeList, normalizeQuestion, mergeFragments, STANDARD_STEM,
 } = require('../lib/paperParser');
-const { buildFingerprint, findDuplicate, matchQuestionNumbers, diceSimilarity, stemPart } = require('../lib/questionDedupe');
+const { buildFingerprint, findDuplicate, matchQuestionNumbers, assignQuestionsToNumbers, diceSimilarity, stemPart } = require('../lib/questionDedupe');
 const { preprocessPaperText } = require('../lib/paperText');
 const { safeJson } = require('../lib/json');
 const { extractQuestionImages } = require('../lib/pdfRegions');
@@ -263,9 +263,8 @@ function splitMaterial(stem, passages) {
 
 function reconcileQuestions(list, pre) {
   const byNumber = pre.index.byNumber;
-  let nums = matchQuestionNumbers(list, byNumber);
 
-  // 步骤 0：清掉「材料被当成题」的条目，并重算题号对齐
+  // 步骤 0：清掉「材料被当成题」的条目
   const passageSet = new Set();
   for (const v of byNumber.values()) if (v.passage && v.passage.length >= 30) passageSet.add(v.passage);
   for (const s of pre.sections || []) if (s.material && s.material.length >= 30) passageSet.add(s.material);
@@ -279,46 +278,54 @@ function reconcileQuestions(list, pre) {
   if (cleaned.length !== list.length) {
     console.log(`[exam] 清除「材料被当成题」的条目：${list.length} → ${cleaned.length} 题`);
     list = cleaned;
-    nums = matchQuestionNumbers(list, byNumber);
   }
 
-  // 规则 1：同一原文题号只留最像的一条
-  const best = new Map();
-  const unmatched = [];
+  // 步骤 1：全局指派 —— 每个原文题号对应最像它的那道题。
+  // 用匈牙利算法（最大权二分图匹配）而不是序列比对（DP）：DP 遇到连续漏题
+  // 会把后面的题整体左移（错位），导致真正没拆出来的题号被"占用"、
+  // 拆错位的题又占了别人的号，补多少都对不齐（实测判断推理连丢 4 题）。
+  const assign = assignQuestionsToNumbers(list, byNumber, { minScore: 0.45 });
+
+  // 步骤 2：按题号组装成卷。指派到某题号的题里，相似度最高的那条胜出
+  // （规则兜底补的题与原文逐字一致，天然胜出 AI 改写版）；
+  // 没有被指派的题（AI 多拆/残片）一律丢弃。
+  const ordered = [];
+  const numbers = [...byNumber.keys()].sort((a, b) => a - b);
+  const usedIdx = new Set();
+  for (const no of numbers) {
+    const hit = assign.byNo.get(no);
+    if (!hit) continue;
+    const prev = ordered.find((o) => o.no === no);
+    if (prev) {
+      if (hit.score > prev.score) { prev.q = hit.q; prev.score = hit.score; prev.i = hit.i; }
+      continue;
+    }
+    ordered.push({ no, q: hit.q, score: hit.score, i: hit.i });
+    usedIdx.add(hit.i);
+  }
+  // 兜底题自带题号（q.no），不参与指派，直接并入
   list.forEach((q, i) => {
-    // 规则兜底补的题自带题号（来自原文块），优先用它；其余走序列比对匹配。
-    // 兜底题若也交给 DP 匹配，会因为它插在列表末尾、对应题号已被前面的题占用
-    // 而走 gap，最终被当成「匹配不到题号」丢掉（实测 130 题卷只剩 112 题）。
-    const no = q.no != null ? q.no : nums[i];
-    if (no == null) { unmatched.push(i); return; }
-    const block = byNumber.get(no);
-    const score = diceSimilarity(
-      stemPart(String(q.stem || '')),
-      stemPart(String((block && block.blockText) || ''))
-    );
-    const prev = best.get(no);
-    if (!prev || score > prev.score) best.set(no, { i, q, no, score });
+    if (q.no == null || usedIdx.has(i)) return;
+    const prev = ordered.find((o) => o.no === q.no);
+    if (prev) {
+      const score = diceSimilarity(stemPart(String(q.stem || '')), stemPart(String(byNumber.get(q.no).blockText || '')));
+      if (score > prev.score) { prev.q = q; prev.score = score; prev.i = i; }
+    } else {
+      ordered.push({ no: q.no, q, score: 1, i });
+      usedIdx.add(i);
+    }
   });
-  const kept = [...best.values()];
+  ordered.sort((a, b) => a.no - b.no);
 
-  // 规则 2：匹配不到题号的题一律丢弃。
-  // 这些题的内容必然对应某个原文块，只有两种可能：
-  //   a) 该块已被匹配题覆盖 → 它是重复（AI 改写题干导致匹配失败）
-  //   b) 该块没被覆盖 → 属于漏题，由调用方的规则兜底从原文块重新构题补回
-  // 无论哪种，留着它都只会和兜底题撞车（实测 130 题卷补出 140，多出的全是这类）。
-  const droppedUnmatched = unmatched.length;
-
-  // 规则 3：卷序按题号 + 模块以原文分区为准（kept 全部有题号，天然有序）
-  const ordered = kept.sort((a, b) => a.no - b.no);
   const dropped = list.length - ordered.length;
   if (dropped > 0) {
     console.log(
       `[exam] 题号对账收口：${list.length} → ${ordered.length} 题` +
-      `（同题号重复 ${list.length - unmatched.length - ordered.length} 条、匹配不到题号 ${droppedUnmatched} 条）`
+      `（丢弃 ${dropped} 条：多拆/残片或与已指派的题重复）`
     );
   }
   return ordered.map((o, i) => {
-    const src = o.no != null ? byNumber.get(o.no) : null;
+    const src = byNumber.get(o.no);
     return {
       ...o.q,
       seq: i + 1,
@@ -476,26 +483,11 @@ async function runParseJob(paperId) {
   // 图形推理、政治理论组合表述题、大段言语填空这三类模型反复漏，
   // 而它们的题干与选项都在原文里 —— 不调 AI，零网络开销，也不会再漏。
   {
-    // 题号是否"真的被覆盖"要看两件事：有没有题匹配到它，以及**匹配到的题
-    // 是否真的像这一题的原文**。序列比对遇到连续漏题时会把后面的题整体左移
-    // （错位），于是 86-89 这些真正没拆出来的题号被"占用"，兜底以为它们已覆盖
-    // 而不再补（实测判断推理连丢 4 题定义判断）。
-    const numsNow = matchQuestionNumbers(deduped, pre.index.byNumber);
-    const covered = new Map();
-    deduped.forEach((q, i) => {
-      const no = q.no != null ? q.no : numsNow[i];
-      if (no != null && !covered.has(no)) covered.set(no, q);
-    });
-    const stillMissing = pre.numbers.filter((n) => {
-      const q = covered.get(n);
-      if (!q) return true;
-      const blockStem = stemPart(String((pre.index.byNumber.get(n) || {}).blockText || ''));
-      if (blockStem.length < 10) return false;
-      return diceSimilarity(stemPart(String(q.stem || '')), blockStem) < 0.5;
-    });
+    // 题号是否"真的被覆盖"由全局指派给出：只有相似度达标（≥0.45）的配对才算覆盖，
+    // 没被指派的题号一律用原文块兜底补齐 —— 每个题号最终恰好一题。
+    const assign = assignQuestionsToNumbers(deduped, pre.index.byNumber, { minScore: 0.45 });
+    const stillMissing = pre.numbers.filter((n) => !assign.byNo.has(n));
     if (stillMissing.length > 0) {
-      // 收口已丢弃所有匹配不到题号的题，所以这里不需要「补前过滤」：
-      // 这些题号对应的内容确实还缺（无论 AI 拆过没有），一律用原文块确定性补回。
       const built = stillMissing.map((n) => buildQuestionFromBlock(pre.index.byNumber.get(n), n)).filter(Boolean);
       if (built.length > 0) {
         console.log(
