@@ -588,4 +588,5 @@ module.exports = {
   runPool,
   isSectionHeading,
   matchSection,
+  STANDARD_STEM,
 };

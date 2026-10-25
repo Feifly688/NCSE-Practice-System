@@ -23,7 +23,7 @@ const { withConnection } = require('../db');
 const { extractPdfText } = require('../lib/pdfText');
 const { callChat } = require('../lib/aiClient');
 const {
-  splitIntoChunks, parseChunk, runPool, dedupeList, normalizeQuestion, mergeFragments,
+  splitIntoChunks, parseChunk, runPool, dedupeList, normalizeQuestion, mergeFragments, STANDARD_STEM,
 } = require('../lib/paperParser');
 const { buildFingerprint, findDuplicate, matchQuestionNumbers, diceSimilarity, stemPart } = require('../lib/questionDedupe');
 const { preprocessPaperText } = require('../lib/paperText');
@@ -134,7 +134,11 @@ const BLANK_BLANKET_RE = /[（(]\s*[）)]/;
 /** 判断一段文字是不是问题（而不是材料残片） */
 function looksLikeQuestion(text) {
   const s = String(text || '');
-  return ASK_RE.test(s) || BLANK_BLANKET_RE.test(s);
+  if (ASK_RE.test(s) || BLANK_BLANKET_RE.test(s)) return true;
+  // 图形推理/立体/分类/数字推理的标准题干句式：本身没有问号也没有空括号
+  // （"从所给的四个选项中，选择最合适的一个填入问号处，使之呈现一定的规律性："），
+  // 但它们是完整题干，必须和资料分析那种纯数据材料区分开
+  return STANDARD_STEM.test(s);
 }
 
 /**
