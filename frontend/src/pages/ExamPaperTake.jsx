@@ -63,6 +63,8 @@ export default function ExamPaperTake() {
   const [submitting, setSubmitting] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [activeSection, setActiveSection] = useState(null);
+  // 纯文本题的原卷截图默认折叠：它的内容与题干重复，展开才加载
+  const [shotOpen, setShotOpen] = useState({});
 
   const qRefs = useRef({});
 
@@ -379,8 +381,10 @@ export default function ExamPaperTake() {
                       </Paragraph>
                     )}
 
-                    {/* 原卷区域截图：图形推理/几何图/统计图表在文本层里没有，只能看图 */}
-                    {(q.images || []).length > 0 && (
+                    {/* 原卷区域截图：图形推理/几何图/统计图表在文本层里没有，只能看图。
+                        纯文本题的区域截图只是把题干重拍一遍，与上面的文字重复，
+                        默认折叠，需要核对原卷时再展开（懒加载）。 */}
+                    {(q.images || []).length > 0 && q.imageNeeded !== false && (
                       <div style={{ marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
                         {q.images.map((src) => {
                           const url = paperImageUrl(src);
@@ -398,6 +402,37 @@ export default function ExamPaperTake() {
                             />
                           );
                         })}
+                      </div>
+                    )}
+
+                    {(q.images || []).length > 0 && q.imageNeeded === false && (
+                      <div style={{ marginBottom: 12 }}>
+                        <a
+                          onClick={() => setShotOpen((s) => ({ ...s, [q.seq]: !s[q.seq] }))}
+                          style={{ fontSize: 13, color: '#8c8c8c', cursor: 'pointer', userSelect: 'none' }}
+                        >
+                          {shotOpen[q.seq] ? '收起' : '查看'}原卷截图
+                        </a>
+                        {shotOpen[q.seq] && (
+                          <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            {q.images.map((src) => {
+                              const url = paperImageUrl(src);
+                              return (
+                                <img
+                                  key={src}
+                                  src={url}
+                                  alt="原卷题目截图"
+                                  loading="lazy"
+                                  onClick={() => window.open(url, '_blank')}
+                                  style={{
+                                    width: '100%', maxWidth: '100%', border: '1px solid #f0f0f0',
+                                    borderRadius: 8, background: '#fff', cursor: 'zoom-in', display: 'block',
+                                  }}
+                                />
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
                     )}
 
