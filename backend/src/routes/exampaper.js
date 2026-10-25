@@ -25,6 +25,7 @@ const { callChat } = require('../lib/aiClient');
 const {
   splitIntoChunks, parseChunk, runPool, dedupeList, normalizeQuestion, mergeFragments, STANDARD_STEM,
 } = require('../lib/paperParser');
+const { normalizeQuestionStem } = require('../lib/questionStem');
 const { buildFingerprint, findDuplicate, matchQuestionNumbers, assignQuestionsToNumbers, diceSimilarity, stemPart } = require('../lib/questionDedupe');
 const { preprocessPaperText } = require('../lib/paperText');
 const { safeJson } = require('../lib/json');
@@ -206,14 +207,15 @@ function buildQuestionFromBlock(info, num) {
     if (at >= 0) finalStem = finalStem.slice(at + tail.length).replace(/^[\s。、，,；;]*/, '').trim();
   }
   if (finalStem.length < 5) return null;
-  const finalOptions = options.length ? options : ['（图片选项）', '（图片选项）', '（图片选项）', '（图片选项）'];
+  const combo = normalizeQuestionStem({ stem: finalStem, options: options.length ? options : [] });
+  const finalOptions = combo.options.length ? combo.options : ['（图片选项）', '（图片选项）', '（图片选项）', '（图片选项）'];
   // 组合表述题的选项是 ①②③ 这类圈号（政治理论常见），按多选计
   const isCombo = finalOptions.some((o) => /[①②③④⑤⑥⑦⑧⑨⑩]/.test(String(o)));
   return {
     module: info.section || '未分区',
     qtype: isCombo ? '多选题' : '单选题',
     passage,
-    stem: finalStem.slice(0, 2000),
+    stem: combo.stem.slice(0, 2000),
     options: finalOptions,
     answer: '',
     explanation: '',
@@ -905,10 +907,10 @@ router.get('/:id/questions', asyncHandler(async (req, res) => {
      FROM exam_paper_question WHERE exam_paper_id = ? ORDER BY seq`,
     [req.params.id]
   ));
-  const questions = rows.map((r) => ({
-    ...r,
-    options: safeJson(r.options_json, []),
-  }));
+  const questions = rows.map((r) => {
+    const fixed = normalizeQuestionStem({ stem: r.stem, options: safeJson(r.options_json, []) });
+    return { ...r, stem: fixed.stem, options: fixed.options };
+  });
   return res.json({ paperId: Number(req.params.id), questions, total: questions.length });
 }));
 
