@@ -120,8 +120,22 @@ async function crawlText(url) {
  * @param {object} pre preprocessPaperText 的结果
  * @returns {Array} 带 seq / section 的成卷题目
  */
-/** 问句特征：用于判断一段文字是不是「问题」（而不是材料残片） */
-const ASK_RE = /[？?]|多少|哪项|哪些|正确的是|错误的是|的是|推出|约是|比重|排名|趋势|反映|属于|符合|不可能/;
+/**
+ * 问句特征：用于判断一段文字是不是「问题」（而不是材料残片）。
+ * 必须覆盖政治理论/常识的标准写法 ——「这段话体现的哲学原理**不包括**（ ）」、
+ * 「下列相关表述**正确的有**（ ）」这类问句**不含问号**，只靠「？」会全部漏判，
+ * 结果整道题被当成材料丢弃（实测政治理论 1/9/15 三题全灭）。
+ */
+const ASK_RE = /[？?]|多少|哪项|哪些|正确的是|错误的是|的是|推出|约是|比重|排名|趋势|反映|属于|符合|不可能|下列|以下|这段话|表述|不包括|正确的有/;
+
+/** 公考选择题的题干几乎都带「（ ）」空括号，也是可靠的问句信号 */
+const BLANK_BLANKET_RE = /[（(]\s*[）)]/;
+
+/** 判断一段文字是不是问题（而不是材料残片） */
+function looksLikeQuestion(text) {
+  const s = String(text || '');
+  return ASK_RE.test(s) || BLANK_BLANKET_RE.test(s);
+}
 
 /**
  * 把一段文本切成「题干 + 选项序列」。
@@ -230,7 +244,7 @@ function splitMaterial(stem, passages) {
     const at = s.indexOf(tail);
     if (at < 0) continue; // 不是逐字复制，放过
     const rest = s.slice(at + tail.length).replace(/^[\s。、，,；;]*/, '').trim();
-    if (rest.length >= 8 && ASK_RE.test(rest)) return { stem: rest, hit: true };
+    if (rest.length >= 8 && looksLikeQuestion(rest)) return { stem: rest, hit: true };
     return { stem: null, hit: true }; // 剥不出问题 → 整条是材料
   }
   return { stem: s, hit: false };
