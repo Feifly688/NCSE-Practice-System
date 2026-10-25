@@ -476,8 +476,23 @@ async function runParseJob(paperId) {
   // 图形推理、政治理论组合表述题、大段言语填空这三类模型反复漏，
   // 而它们的题干与选项都在原文里 —— 不调 AI，零网络开销，也不会再漏。
   {
-    const used = new Set(matchQuestionNumbers(deduped, pre.index.byNumber).filter((x) => x != null));
-    const stillMissing = pre.numbers.filter((n) => !used.has(n));
+    // 题号是否"真的被覆盖"要看两件事：有没有题匹配到它，以及**匹配到的题
+    // 是否真的像这一题的原文**。序列比对遇到连续漏题时会把后面的题整体左移
+    // （错位），于是 86-89 这些真正没拆出来的题号被"占用"，兜底以为它们已覆盖
+    // 而不再补（实测判断推理连丢 4 题定义判断）。
+    const numsNow = matchQuestionNumbers(deduped, pre.index.byNumber);
+    const covered = new Map();
+    deduped.forEach((q, i) => {
+      const no = q.no != null ? q.no : numsNow[i];
+      if (no != null && !covered.has(no)) covered.set(no, q);
+    });
+    const stillMissing = pre.numbers.filter((n) => {
+      const q = covered.get(n);
+      if (!q) return true;
+      const blockStem = stemPart(String((pre.index.byNumber.get(n) || {}).blockText || ''));
+      if (blockStem.length < 10) return false;
+      return diceSimilarity(stemPart(String(q.stem || '')), blockStem) < 0.5;
+    });
     if (stillMissing.length > 0) {
       // 收口已丢弃所有匹配不到题号的题，所以这里不需要「补前过滤」：
       // 这些题号对应的内容确实还缺（无论 AI 拆过没有），一律用原文块确定性补回。
