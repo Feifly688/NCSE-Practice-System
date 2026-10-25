@@ -271,26 +271,21 @@ function reconcileQuestions(list, pre) {
   });
   const kept = [...best.values()];
 
-  // 规则 2：未匹配题与已保留题重复则丢弃
-  const extra = [];
-  for (const i of unmatched) {
-    const s = stemPart(String(list[i].stem || ''));
-    const dup = kept.some((k) => diceSimilarity(stemPart(String(k.q.stem || '')), s) >= 0.5);
-    if (!dup) extra.push({ i, q: list[i], no: null });
-  }
+  // 规则 2：匹配不到题号的题一律丢弃。
+  // 这些题的内容必然对应某个原文块，只有两种可能：
+  //   a) 该块已被匹配题覆盖 → 它是重复（AI 改写题干导致匹配失败）
+  //   b) 该块没被覆盖 → 属于漏题，由调用方的规则兜底从原文块重新构题补回
+  // 无论哪种，留着它都只会和兜底题撞车（实测 130 题卷补出 140，多出的全是这类）。
+  const droppedUnmatched = unmatched.length;
 
-  // 规则 3：卷序（题号优先，无题号继承前一题 +0.5）+ 模块以原文分区为准
-  const ordered = [...kept, ...extra].sort((a, b) => a.i - b.i);
-  let lastKey = -0.5;
-  for (const o of ordered) {
-    if (o.no != null) { o.key = o.no; lastKey = o.no; }
-    else { o.key = lastKey + 0.5; lastKey = o.key; }
-  }
-  ordered.sort((a, b) => a.key - b.key || a.i - b.i);
-
+  // 规则 3：卷序按题号 + 模块以原文分区为准（kept 全部有题号，天然有序）
+  const ordered = kept.sort((a, b) => a.no - b.no);
   const dropped = list.length - ordered.length;
   if (dropped > 0) {
-    console.log(`[exam] 题号对账收口：${list.length} → ${ordered.length} 题（去掉 ${dropped} 条同题号/相似重复）`);
+    console.log(
+      `[exam] 题号对账收口：${list.length} → ${ordered.length} 题` +
+      `（同题号重复 ${list.length - unmatched.length - ordered.length} 条、匹配不到题号 ${droppedUnmatched} 条）`
+    );
   }
   return ordered.map((o, i) => {
     const src = o.no != null ? byNumber.get(o.no) : null;
@@ -454,19 +449,9 @@ async function runParseJob(paperId) {
     const used = new Set(matchQuestionNumbers(deduped, pre.index.byNumber).filter((x) => x != null));
     const stillMissing = pre.numbers.filter((n) => !used.has(n));
     if (stillMissing.length > 0) {
-      // 「没匹配上题号」不等于「没拆出来」：这些题 AI 可能已经拆了，只是题干被
-      // 改写导致匹配失败。补前先按题干相似度过滤（0.45，与收口去重的 0.5 衔接），
-      // 否则兜底会再造出一批重复题（实测 133 → 140，多出 10 题全是这类）。
-      const built = stillMissing
-        .map((n) => {
-          const info = pre.index.byNumber.get(n);
-          const blockStem = stemPart(String((info && info.blockText) || ''));
-          const already = deduped.some(
-            (q) => diceSimilarity(stemPart(String(q.stem || '')), blockStem) >= 0.45
-          );
-          return already ? null : buildQuestionFromBlock(info);
-        })
-        .filter(Boolean);
+      // 收口已丢弃所有匹配不到题号的题，所以这里不需要「补前过滤」：
+      // 这些题号对应的内容确实还缺（无论 AI 拆过没有），一律用原文块确定性补回。
+      const built = stillMissing.map((n) => buildQuestionFromBlock(pre.index.byNumber.get(n))).filter(Boolean);
       if (built.length > 0) {
         console.log(
           `[exam] paper=${paperId} 规则兜底补漏 ${built.length} 题` +
@@ -477,8 +462,6 @@ async function runParseJob(paperId) {
           pre
         );
         console.log(`[exam] paper=${paperId} 兜底合并后共 ${deduped.length} 题`);
-      } else {
-        console.log(`[exam] paper=${paperId} 规则兜底：${stillMissing.length} 个未匹配题号均已拆出（仅匹配失败），无需补漏`);
       }
     }
   }
