@@ -13,6 +13,7 @@ const { requireAuth, requireAuthOrToken } = require('../middleware/auth');
 const { asyncHandler } = require('../middleware/asyncHandler');
 const { withConnection } = require('../db');
 const { safeJson } = require('../lib/json');
+const { classifyImageNeed } = require('../lib/questionImage');
 
 const router = express.Router();
 
@@ -99,6 +100,17 @@ router.get('/:id', asyncHandler(async (req, res) => {
   for (const q of data.questions) {
     const name = q.section || '未分区';
     if (!sectionMap.has(name)) sectionMap.set(name, []);
+    // 题目区域截图（原 PDF 裁剪），多张用逗号分隔。
+    // 路径不带 /api 前缀：前端会拼上 axios 的 baseURL，避免出现 /api/api/...
+    const files = String(q.image_url || '').split(',').filter(Boolean);
+    const opts = safeJson(q.options_json, []);
+    // 不是每题都需要配图：纯文本题的区域截图只是把题干重拍一遍，
+    // 前端已用文本渲染同样内容，再插图既冗余又拖慢加载。
+    // 判定详见 lib/questionImage.js（仅影响显示，不删除资源）。
+    const need = classifyImageNeed(
+      { section: name, stem: q.stem, options: opts, passage: q.passage },
+      files
+    );
     sectionMap.get(name).push({
       seq: q.seq,
       id: q.id,
@@ -106,12 +118,11 @@ router.get('/:id', asyncHandler(async (req, res) => {
       difficulty: q.difficulty,
       passage: q.passage || null,
       stem: q.stem,
-      options: safeJson(q.options_json, []),
-      // 题目区域截图（原 PDF 裁剪），多张用逗号分隔。
-      // 路径不带 /api 前缀：前端会拼上 axios 的 baseURL，避免出现 /api/api/...
-      images: q.image_url
-        ? String(q.image_url).split(',').filter(Boolean).map((f) => `/exam-papers/images/${data.paper.id}/${f}`)
-        : [],
+      options: opts,
+      images: files.map((f) => `/exam-papers/images/${data.paper.id}/${f}`),
+      // true → 内联展示；false → 折叠在「查看原卷截图」里
+      imageNeeded: need.needed,
+      imageReason: need.reason,
     });
   }
   const sections = Array.from(sectionMap.entries()).map(([name, questions]) => ({
