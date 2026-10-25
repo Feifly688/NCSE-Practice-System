@@ -206,12 +206,15 @@ function buildQuestionFromBlock(info, num) {
     if (at >= 0) finalStem = finalStem.slice(at + tail.length).replace(/^[\s。、，,；;]*/, '').trim();
   }
   if (finalStem.length < 5) return null;
+  const finalOptions = options.length ? options : ['（图片选项）', '（图片选项）', '（图片选项）', '（图片选项）'];
+  // 组合表述题的选项是 ①②③ 这类圈号（政治理论常见），按多选计
+  const isCombo = finalOptions.some((o) => /[①②③④⑤⑥⑦⑧⑨⑩]/.test(String(o)));
   return {
     module: info.section || '未分区',
-    qtype: '单选题',
+    qtype: isCombo ? '多选题' : '单选题',
     passage,
     stem: finalStem.slice(0, 2000),
-    options: options.length ? options : ['（图片选项）', '（图片选项）', '（图片选项）', '（图片选项）'],
+    options: finalOptions,
     answer: '',
     explanation: '',
     // 标记来源：mergeFragments 不能把它当"残片"合并掉；no 已确定，reconcile 直接用
