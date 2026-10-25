@@ -236,6 +236,10 @@ function buildQuestionFromBlock(info, num) {
 function splitMaterial(stem, passages) {
   const s = String(stem || '').trim();
   const sPart = stemPart(s);
+  // 题干末尾本身就是问句 → 这条已经是完整题目（引言+问句），既不剥离也不丢。
+  // 政治理论题正是这种情况：原文索引把「引言 + 问句」整体算成了材料段，
+  // 于是「材料尾部」就是问句本身，剥离后剩余为空而被误丢（实测 1/9/15 三题全灭）。
+  const tailIsQuestion = looksLikeQuestion(s.slice(-60));
   for (const p of passages) {
     const pp = String(p || '').trim();
     if (pp.length < 30) continue;
@@ -245,6 +249,7 @@ function splitMaterial(stem, passages) {
     if (at < 0) continue; // 不是逐字复制，放过
     const rest = s.slice(at + tail.length).replace(/^[\s。、，,；;]*/, '').trim();
     if (rest.length >= 8 && looksLikeQuestion(rest)) return { stem: rest, hit: true };
+    if (tailIsQuestion) return { stem: s, hit: false };
     return { stem: null, hit: true }; // 剥不出问题 → 整条是材料
   }
   return { stem: s, hit: false };
