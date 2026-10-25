@@ -171,9 +171,10 @@ function splitOptionSequence(text) {
  * 这些题的题干和选项本来就在原文里，规则提取的确定性远高于反复调模型。
  *
  * @param {object} info 原文题号索引里的块信息（blockText / section / passage）
+ * @param {number} num 该块的原文题号（直接写进题里，避免再走一次匹配）
  * @returns {object|null} 结构同 AI 输出的题；块无效时返回 null
  */
-function buildQuestionFromBlock(info) {
+function buildQuestionFromBlock(info, num) {
   const raw = String((info && info.blockText) || '').trim();
   if (raw.length < 10) return null;
   const text = raw.replace(/^\s*\d{1,3}\s*[.、．]\s*/, '');
@@ -195,7 +196,8 @@ function buildQuestionFromBlock(info) {
     options: options.length ? options : ['（图片选项）', '（图片选项）', '（图片选项）', '（图片选项）'],
     answer: '',
     explanation: '',
-    // 标记来源：mergeFragments 不能把它当"残片"合并掉，reconcile 时也不与 AI 题互换
+    // 标记来源：mergeFragments 不能把它当"残片"合并掉；no 已确定，reconcile 直接用
+    no: num,
     fromRule: true,
   };
 }
@@ -259,7 +261,10 @@ function reconcileQuestions(list, pre) {
   const best = new Map();
   const unmatched = [];
   list.forEach((q, i) => {
-    const no = nums[i];
+    // 规则兜底补的题自带题号（来自原文块），优先用它；其余走序列比对匹配。
+    // 兜底题若也交给 DP 匹配，会因为它插在列表末尾、对应题号已被前面的题占用
+    // 而走 gap，最终被当成「匹配不到题号」丢掉（实测 130 题卷只剩 112 题）。
+    const no = q.no != null ? q.no : nums[i];
     if (no == null) { unmatched.push(i); return; }
     const block = byNumber.get(no);
     const score = diceSimilarity(
@@ -451,7 +456,7 @@ async function runParseJob(paperId) {
     if (stillMissing.length > 0) {
       // 收口已丢弃所有匹配不到题号的题，所以这里不需要「补前过滤」：
       // 这些题号对应的内容确实还缺（无论 AI 拆过没有），一律用原文块确定性补回。
-      const built = stillMissing.map((n) => buildQuestionFromBlock(pre.index.byNumber.get(n))).filter(Boolean);
+      const built = stillMissing.map((n) => buildQuestionFromBlock(pre.index.byNumber.get(n), n)).filter(Boolean);
       if (built.length > 0) {
         console.log(
           `[exam] paper=${paperId} 规则兜底补漏 ${built.length} 题` +
