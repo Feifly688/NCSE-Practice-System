@@ -67,6 +67,8 @@ export default function ExamPaperTake() {
   const [shotOpen, setShotOpen] = useState({});
   // 截图大图：在当前页面内放大查看。不另开标签页、也不跳转 —— 跳走会丢掉作答进度
   const [previewImg, setPreviewImg] = useState(null);
+  // 共享材料的折叠引用（同上资料的第 2 题起，默认收起不占版面）
+  const [matOpen, setMatOpen] = useState({});
 
   const qRefs = useRef({});
 
@@ -389,6 +391,47 @@ export default function ExamPaperTake() {
                       }}>
                         {q.passage}
                       </Paragraph>
+                    )}
+
+                    {/* 同一材料的后续题：材料正文与图表已在本组第一题展示过，这里默认不重复渲染，
+                        只在需要时折叠展开（用答题卡跳到组内第 3 题时也查得到原资料） */}
+                    {q.materialRef && (q.materialRef.passage || (q.materialRef.images || []).length > 0) && (
+                      <div style={{ marginBottom: 12 }}>
+                        <a
+                          onClick={() => setMatOpen((s) => ({ ...s, [q.seq]: !s[q.seq] }))}
+                          style={{ fontSize: 13, color: '#1D4ED8', cursor: 'pointer', userSelect: 'none' }}
+                        >
+                          {matOpen[q.seq] ? '收起' : '查看'}本篇资料（见第 {q.materialRef.seq} 题）
+                        </a>
+                        {matOpen[q.seq] && (
+                          <div style={{ marginTop: 8 }}>
+                            {q.materialRef.passage && (
+                              <Paragraph style={{
+                                background: '#fafafa', border: '1px solid #f0f0f0', borderRadius: 8,
+                                padding: 12, marginBottom: 8, fontSize: 14, lineHeight: 1.8, whiteSpace: 'pre-wrap',
+                              }}>
+                                {q.materialRef.passage}
+                              </Paragraph>
+                            )}
+                            {(q.materialRef.images || []).map((src) => {
+                              const url = paperImageUrl(src);
+                              return (
+                                <img
+                                  key={src}
+                                  src={url}
+                                  alt="资料图表"
+                                  loading="lazy"
+                                  onClick={() => setPreviewImg(url)}
+                                  style={{
+                                    width: '100%', maxWidth: '100%', border: '1px solid #f0f0f0',
+                                    borderRadius: 8, background: '#fff', cursor: 'zoom-in', display: 'block',
+                                  }}
+                                />
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
                     )}
 
                     {/* 原卷区域截图：图形推理/几何图/统计图表在文本层里没有，只能看图。

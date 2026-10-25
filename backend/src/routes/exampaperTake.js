@@ -101,6 +101,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
   // 只在**本组第一题**下发一次，后续题只带自己的题干和选项，避免整页反复重印同一段材料。
   const sectionMap = new Map();
   let lastMaterialKey = null;
+  let currentHead = null;
   for (const q of data.questions) {
     const name = q.section || '未分区';
     if (!sectionMap.has(name)) sectionMap.set(name, []);
@@ -125,6 +126,19 @@ router.get('/:id', asyncHandler(async (req, res) => {
 
     const showPassage = passage && !isSameMaterial ? passage : null;
     const showMatFiles = isSameMaterial ? [] : matFiles;
+    // 本组首题记下来：续题要靠 materialRef 引用它（用答题卡跳到组内第 3 题时
+    // 上方图表可能不在视野内，折叠引用保证随时能查到，又不占版面）
+    const paperId = data.paper.id;
+    if (showPassage || showMatFiles.length) {
+      currentHead = {
+        seq: q.seq,
+        passage: showPassage || '',
+        images: showMatFiles.map((f) => `/exam-papers/images/${paperId}/${f}`),
+      };
+    }
+    const materialRef = (isSameMaterial && currentHead)
+      ? { seq: currentHead.seq, passage: currentHead.passage, images: currentHead.images }
+      : null;
 
     // 不是每题都需要配图：纯文本题的区域截图只是把题干重拍一遍，
     // 前端已用文本渲染同样内容，再插图既冗余又拖慢加载。
@@ -146,8 +160,8 @@ router.get('/:id', asyncHandler(async (req, res) => {
       qtype: q.qtype,
       difficulty: q.difficulty,
       passage: showPassage,
-      // 同一材料的后续题保留一个引用标记，前端可据此提示「承接上文材料」
-      materialFirst: Boolean(showPassage),
+      // 同一材料的后续题保留材料引用，前端折叠展示（默认不占版面）
+      materialRef,
       stem: fixed.stem,
       options: opts,
       images: outFiles.map((f) => `/exam-papers/images/${data.paper.id}/${f}`),
