@@ -1050,3 +1050,5 @@ module.exports = router;
 // 运维入口：允许在服务器上直接触发拆题（node scripts/reparse-paper.js <试卷ID>），
 // 用于不便走管理端接口时（如接口鉴权异常）重跑拆题任务
 module.exports.runParseJob = runParseJob;
+// 调试用：把收口相关的内部函数暴露出来，便于在服务器上复现某一步的取舍
+module.exports.__debug = { reconcileQuestions, buildQuestionFromBlock, splitMaterial, splitOptionSequence };
