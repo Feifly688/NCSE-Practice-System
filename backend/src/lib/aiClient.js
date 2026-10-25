@@ -1,75 +1,200 @@
 /**
- * AI 客户端：统一封装 chat / vision 调用，内置重试、超时与「AI 输出 → JSON」的健壮解析。
+ * AI 客户端：统一封装 chat / vision / image 调用，内置多供应商路由、
+ * 并发闸门、限流退避重试与「AI 输出 → JSON」的健壮解析。
  *
- * 背景：拆题曾稳定失败，根因是整卷一次性输出超过模型输出上限（glm-4-flash
- * completion_tokens 打满 1024）导致 JSON 被截断，且返回被 ```json 代码块包裹，
- * JSON.parse 直接失败、正则兜底也失败。因此这里提供：
- *   - 显式 max_tokens，避免静默打满上限
- *   - finish_reason 检测（length = 被截断），交由上层降级处理（缩小批次重试）
- *   - extractJson：剥离代码块、剔除前后说明文字、平衡扫描「挽救」被截断的
- *     JSON（保留已完整输出的题目），而不是整批丢弃
- *   - 网络/5xx/429 自动重试（指数退避）
+ * ── 为什么改成多供应商 ────────────────────────────────────────────
+ * 实测两个服务特性完全不同：
+ *   · 智谱 glm-4-flash：并发 3 稳定，但单次响应慢（整卷拆题单片 45-100s）
+ *   · Agnes  agnes-3.0-flash：单次快得多（同一片段 15s），但免费额度对**瞬时并发**
+ *     很敏感（并发 5 成功 3/5、并发 10 成功 1/10、并发 20 全部 429）
+ * 所以策略是：**Agnes 当主力 + 智谱兜底**，并且用「并发闸门」把每个供应商的
+ * 实际在途请求数压到它能承受的范围 —— 429 随之消失，而不是靠事后重试硬扛。
+ *
+ * ── 视觉模型说明 ──────────────────────────────────────────────────
+ * · 智谱 glm-4v-flash：视觉理解
+ * · Agnes agnes-3.0-flash：也支持 image_url 输入，实测 16s 准确读出图形题内容，
+ *   可作 OCR 主力
+ * · Agnes agnes-image-2.5-flash：**图像生成**模型（服务端会拒绝 image_url 理解
+ *   请求，要求走 /v1/images/generations），与"看图"是两回事，不能当视觉模型用
  */
 const axios = require('axios');
 
-const API_KEY = process.env.API_KEY;
-const BASE_URL = process.env.BASE_URL;
-const MODEL = process.env.MODEL;
-const VISION_MODEL = process.env.VISION_MODEL || 'glm-4v-flash';
+const CHAT_TIMEOUT_MS = Number(process.env.AI_CHAT_TIMEOUT_MS || 90000);
+
+/** 供应商配置：每个供应商有自己的 baseUrl / key / 模型 / 并发上限 */
+function buildProviders() {
+  const list = [];
+  const agnesKey = process.env.AGNES_API_KEY;
+  if (agnesKey) {
+    list.push({
+      name: 'agnes',
+      baseUrl: (process.env.AGNES_BASE_URL || 'https://apihub.agnes-ai.com/v1').replace(/\/+$/, ''),
+      apiKey: agnesKey,
+      model: process.env.AGNES_MODEL || 'agnes-3.0-flash',
+      imageModel: process.env.AGNES_IMAGE_MODEL || 'agnes-image-2.5-flash',
+      // agnes-3.0-flash 官方支持 image_url 输入，可作视觉模型（实测 16s 读图准确）
+      supportsVision: true,
+      limit: Math.max(1, Number(process.env.AGNES_CONCURRENCY || 3)),
+    });
+  }
+  if (process.env.API_KEY && process.env.BASE_URL) {
+    list.push({
+      name: 'bigmodel',
+      baseUrl: process.env.BASE_URL.replace(/\/+$/, ''),
+      apiKey: process.env.API_KEY,
+      model: process.env.MODEL || 'glm-4-flash',
+      visionModel: process.env.VISION_MODEL || 'glm-4v-flash',
+      supportsVision: true,
+      limit: Math.max(1, Number(process.env.BIGMODEL_CONCURRENCY || 2)),
+    });
+  }
+  return list;
+}
+
+const PROVIDERS = buildProviders();
+const PROVIDER_ORDER = (process.env.AI_PROVIDER_ORDER || 'agnes,bigmodel')
+  .split(',').map((s) => s.trim()).filter(Boolean);
+
+/** 并发闸门：把在途请求数限制在供应商能承受的范围（避免 429 的根本手段） */
+function createGate(limit) {
+  let active = 0;
+  const waiters = [];
+  const run = async (fn) => {
+    if (active >= limit) {
+      await new Promise((resolve) => waiters.push(resolve));
+    }
+    active++;
+    try {
+      return await fn();
+    } finally {
+      active--;
+      const next = waiters.shift();
+      if (next) next();
+    }
+  };
+  run.limit = limit;
+  run.isFree = () => active < limit;
+  run.active = () => active;
+  return run;
+}
+
+const gates = new Map();
+for (const p of PROVIDERS) gates.set(p.name, createGate(p.limit));
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+function getProvider(name) {
+  const p = PROVIDERS.find((x) => x.name === name);
+  if (!p) throw new Error(`未知的 AI 供应商：${name}`);
+  return p;
+}
+
 function ensureConfigured() {
-  if (!API_KEY || !BASE_URL) throw new Error('AI 服务未配置（API_KEY / BASE_URL）');
+  if (!PROVIDERS.length) throw new Error('AI 服务未配置（AGNES_API_KEY 或 API_KEY / BASE_URL）');
+}
+
+/** 429（限流）与 5xx 值得重试；4xx 其他错误直接失败 */
+function isRetryable(status) {
+  return !status || status >= 500 || status === 429;
 }
 
 /**
- * 调用 chat 接口。
- * @returns {{ content: string, finishReason: string|null, usage: object, truncated: boolean }}
+ * 对单个供应商发一次请求。
+ * @returns {{content: string, finishReason: string|null, usage: object, truncated: boolean}}
  */
-// 单次请求超时：默认 90s。原来 300s + 重试 2 次意味着最坏一片要等 15 分钟，
-// 整卷拆题会「卡住」——单片超时后 parseChunk 会切片减半重试，比原地干等快得多。
-const CHAT_TIMEOUT_MS = Number(process.env.AI_CHAT_TIMEOUT_MS || 90000);
+async function requestOnce(provider, { model, messages, maxTokens, temperature, timeout }) {
+  const res = await axios.post(
+    provider.baseUrl + '/chat/completions',
+    {
+      model,
+      messages,
+      temperature,
+      max_tokens: maxTokens,
+    },
+    {
+      headers: { Authorization: 'Bearer ' + provider.apiKey, 'Content-Type': 'application/json' },
+      timeout,
+    }
+  );
+  const choice = (res.data && res.data.choices && res.data.choices[0]) || {};
+  const content = String((choice.message && choice.message.content) || '');
+  const finishReason = choice.finish_reason || null;
+  return {
+    content,
+    finishReason,
+    usage: res.data.usage || {},
+    // length = 打满 max_tokens，说明输出不完整
+    truncated: finishReason === 'length',
+    provider: provider.name,
+    model,
+  };
+}
 
-async function callChat({ system, user, maxTokens = 4000, temperature = 0.2, timeout = CHAT_TIMEOUT_MS, retries = 1 }) {
+/**
+ * 选一个「当前有空位」的供应商。
+ * 不能只按固定顺序取第一个 —— 主力供应商（Agnes）并发满时，固定顺序会让请求
+ * 全部堵在它的闸门里，而闲置的智谱闲着。这里按「谁有空位用谁」，全忙时才排队。
+ */
+function pickProvider(chain) {
+  for (const p of chain) {
+    if (gates.get(p.name).isFree()) return p;
+  }
+  return chain[0];
+}
+
+/**
+ * 调用 chat 接口（多供应商路由 + 限流退避）。
+ *
+ * @param {object} p
+ * @param {string} [p.provider] 指定供应商；不传则按 AI_PROVIDER_ORDER 依次尝试
+ * @param {number} [p.retries] 单个供应商内的重试次数（429 退避）
+ * @returns {{content: string, finishReason: string|null, usage: object, truncated: boolean, provider: string}}
+ */
+async function callChat({ system, user, maxTokens = 4000, temperature = 0.2, timeout = CHAT_TIMEOUT_MS, retries = 2, provider }) {
   ensureConfigured();
+  const chain = provider
+    ? [getProvider(provider)]
+    : (PROVIDER_ORDER.length ? PROVIDER_ORDER.map(getProvider) : PROVIDERS);
+
   let lastErr = null;
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    try {
-      const res = await axios.post(
-        BASE_URL + '/chat/completions',
-        {
-          model: MODEL,
+  const tried = new Set();
+  // 每个供应商最多尝试 retries+1 次；某个供应商彻底失败（重试用尽）才换下一个
+  for (let round = 0; round < chain.length; round++) {
+    const p = pickProvider(chain.filter((x) => !tried.has(x.name)));
+    if (!p) break;
+    const gate = gates.get(p.name);
+    let attempt = 0;
+    let failed = false;
+    while (attempt <= retries) {
+      try {
+        const out = await gate(() => requestOnce(p, {
+          model: p.model,
           messages: [
             { role: 'system', content: system },
             { role: 'user', content: user },
           ],
+          maxTokens,
           temperature,
-          max_tokens: maxTokens,
-        },
-        {
-          headers: { Authorization: 'Bearer ' + API_KEY, 'Content-Type': 'application/json' },
           timeout,
-        }
-      );
-      const choice = (res.data && res.data.choices && res.data.choices[0]) || {};
-      const content = String((choice.message && choice.message.content) || '');
-      const finishReason = choice.finish_reason || null;
-      return {
-        content,
-        finishReason,
-        usage: res.data.usage || {},
-        // length/tool_calls 都说明输出不完整（多数模型 length = 打满 max_tokens）
-        truncated: finishReason === 'length',
-      };
-    } catch (err) {
-      lastErr = err;
-      const status = err.response?.status;
-      const retryable = !status || status >= 500 || status === 429;
-      console.error(`[ai] chat 调用失败(第 ${attempt + 1} 次): ${err.message}${status ? ' status=' + status : ''}`);
-      if (!retryable || attempt === retries) break;
-      await sleep(1000 * Math.pow(2, attempt));
+        }));
+        if (attempt > 0) console.log(`[ai] ${p.name} 重试第 ${attempt} 次成功`);
+        return out;
+      } catch (err) {
+        lastErr = err;
+        const status = err.response?.status;
+        const retryable = isRetryable(status);
+        const detail = err.response?.data?.error?.message || err.message || '';
+        console.error(
+          `[ai] ${p.name} 调用失败(第 ${attempt + 1}/${retries + 1} 次): ${String(detail).slice(0, 120)}` +
+          (status ? ` status=${status}` : '')
+        );
+        if (!retryable || attempt === retries) { failed = true; break; }
+        // 限流退避：1s → 2s → 4s（Agnes 免费额度对瞬时并发敏感，退避比硬撞更快恢复）
+        await sleep(700 * Math.pow(2, attempt) + Math.floor(Math.random() * 400));
+        attempt++;
+      }
     }
+    if (failed) tried.add(p.name);
   }
   const status = lastErr?.response?.status;
   const detail = lastErr?.response?.data
@@ -79,37 +204,114 @@ async function callChat({ system, user, maxTokens = 4000, temperature = 0.2, tim
 }
 
 /**
- * 视觉模型识别（用于扫描件/图片型 PDF 的 OCR 降级）。
+ * 视觉模型识别（用于扫描件/图片型 PDF 的 OCR 降级、图形题内容识别）。
+ *
  * @param {string} imageBase64 PNG 图片的 base64
+ * @param {string} [p.provider] 指定供应商
  */
-async function callVision({ imageBase64, prompt, maxTokens = 4000, timeout = 180000 }) {
+async function callVision({ imageBase64, prompt, maxTokens = 4000, timeout = 180000, provider, retries = 2 }) {
   ensureConfigured();
-  const res = await axios.post(
-    BASE_URL + '/chat/completions',
-    {
-      model: VISION_MODEL,
-      messages: [
-        {
-          role: 'user',
-          content: [
-            { type: 'image_url', image_url: { url: `data:image/png;base64,${imageBase64}` } },
-            { type: 'text', text: prompt },
-          ],
-        },
-      ],
-      temperature: 0.1,
-      max_tokens: maxTokens,
-    },
-    {
-      headers: { Authorization: 'Bearer ' + API_KEY, 'Content-Type': 'application/json' },
-      timeout,
+  const all = provider
+    ? [getProvider(provider)]
+    : (PROVIDER_ORDER.length ? PROVIDER_ORDER.map(getProvider) : PROVIDERS);
+  const chain = all.filter((p) => p.supportsVision);
+  if (!chain.length) throw new Error('没有可用的视觉模型供应商');
+
+  let lastErr = null;
+  const tried = new Set();
+  for (let round = 0; round < chain.length; round++) {
+    const p = pickProvider(chain.filter((x) => !tried.has(x.name)));
+    if (!p) break;
+    const model = p.visionModel || p.model; // Agnes 无独立视觉模型，文本模型即可看图
+    const gate = gates.get(p.name);
+    let attempt = 0;
+    let failed = false;
+    while (attempt <= retries) {
+      try {
+        const out = await gate(() => requestOnce(p, {
+          model,
+          messages: [{
+            role: 'user',
+            content: [
+              { type: 'image_url', image_url: { url: `data:image/png;base64,${imageBase64}` } },
+              { type: 'text', text: prompt },
+            ],
+          }],
+          maxTokens,
+          temperature: 0.1,
+          timeout,
+        }));
+        return out;
+      } catch (err) {
+        lastErr = err;
+        const status = err.response?.status;
+        console.error(
+          `[ai] ${p.name} 视觉调用失败(第 ${attempt + 1}/${retries + 1} 次): ` +
+          String(err.response?.data?.error?.message || err.message).slice(0, 120)
+        );
+        if (!isRetryable(status) || attempt === retries) { failed = true; break; }
+        await sleep(700 * Math.pow(2, attempt) + Math.floor(Math.random() * 400));
+        attempt++;
+      }
     }
+    if (failed) tried.add(p.name);
+  }
+  const status = lastErr?.response?.status;
+  throw new Error(
+    `视觉调用失败${status ? '(HTTP ' + status + ')' : ''}: ` +
+    String(lastErr?.response?.data?.error?.message || lastErr?.message || '').slice(0, 200)
   );
-  const choice = (res.data && res.data.choices && res.data.choices[0]) || {};
-  return {
-    content: String((choice.message && choice.message.content) || ''),
-    truncated: choice.finish_reason === 'length',
-  };
+}
+
+/**
+ * 图像生成（agnes-image-2.5-flash 等）。
+ *
+ * 注意：这是**生成**模型，不是"看图"模型 —— 不能用于识别/OCR。
+ * 端点为 /v1/images/generations，返回图片 URL。
+ *
+ * @returns {{url: string, revisedPrompt: string}}
+ */
+async function generateImage({ prompt, size, model, provider = 'agnes', timeout = 120000, retries = 1 }) {
+  const p = getProvider(provider);
+  const imageModel = model || p.imageModel;
+  if (!imageModel) throw new Error(`供应商 ${provider} 未配置图像模型`);
+  const gate = gates.get(p.name);
+  let attempt = 0;
+  let lastErr = null;
+  while (attempt <= retries) {
+    try {
+      const body = { model: imageModel, prompt, n: 1 };
+      if (size) body.size = size;
+      const res = await axios.post(p.baseUrl + '/images/generations', body, {
+        headers: { Authorization: 'Bearer ' + p.apiKey, 'Content-Type': 'application/json' },
+        timeout,
+      });
+      const item = (res.data && res.data.data && res.data.data[0]) || {};
+      const url = item.url || (item.b64_json ? `data:image/png;base64,${item.b64_json}` : null);
+      if (!url) throw new Error('图像生成返回为空');
+      return { url, revisedPrompt: item.revised_prompt || '' };
+    } catch (err) {
+      lastErr = err;
+      const status = err.response?.status;
+      console.error(`[ai] ${p.name} 图像生成失败(第 ${attempt + 1} 次): ` +
+        String(err.response?.data?.error?.message || err.message).slice(0, 120));
+      if (!isRetryable(status) || attempt === retries) break;
+      await sleep(800 * Math.pow(2, attempt));
+      attempt++;
+    }
+  }
+  throw new Error('图像生成失败: ' + String(lastErr?.response?.data?.error?.message || lastErr?.message).slice(0, 200));
+}
+
+/** 供应商健康信息（管理端可见） */
+function listProviders() {
+  return PROVIDERS.map((p) => ({
+    name: p.name,
+    model: p.model,
+    visionModel: p.visionModel || p.model,
+    imageModel: p.imageModel || null,
+    concurrency: p.limit,
+  }));
 }
 
 /** 剥离 ```json 代码块与前后说明文字 */
@@ -198,4 +400,12 @@ function extractJson(raw) {
   }
 }
 
-module.exports = { callChat, callVision, extractJson, stripFences, salvageTruncated };
+module.exports = {
+  callChat,
+  callVision,
+  generateImage,
+  listProviders,
+  extractJson,
+  stripFences,
+  salvageTruncated,
+};

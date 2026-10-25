@@ -358,12 +358,12 @@ function hasAnswerSection(text) {
 }
 
 /**
- * 拆题并发数。
- * 原来是 3：一份 130 题的卷子切 20 片、每片 60-150s，串行下来整卷 9-12 分钟，
- * 用户体验就是「点了拆题一直转圈」。单片耗时几乎全在等模型，并发提到 5 后
- * 整卷可压到 3-4 分钟。可调 PARSE_CONCURRENCY 覆盖（模型侧有限流时调小）。
+ * 拆题并发数（总在途请求数）。
+ * 供应商各自还有一道闸门（Agnes 3 / 智谱 2），这里取两者之和，
+ * 让两个供应商能同时跑满 —— 主力供应商并发满时请求会自动溢出到另一个，
+ * 不会全部堵在闸门里。
  */
-const PARSE_CONCURRENCY = Math.max(1, Number(process.env.PARSE_CONCURRENCY || 3));
+const PARSE_CONCURRENCY = Math.max(1, Number(process.env.PARSE_CONCURRENCY || 5));
 
 /** 整卷拆题预算：超时则保留已拆出的题目落库，不让用户无限等 */
 const PARSE_BUDGET_MS = Number(process.env.PARSE_BUDGET_MS || 15 * 60 * 1000);
