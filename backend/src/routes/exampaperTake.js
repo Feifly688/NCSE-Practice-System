@@ -14,6 +14,7 @@ const { asyncHandler } = require('../middleware/asyncHandler');
 const { withConnection } = require('../db');
 const { safeJson } = require('../lib/json');
 const { classifyImageNeed } = require('../lib/questionImage');
+const { normalizeQuestionStem } = require('../lib/questionStem');
 
 const router = express.Router();
 
@@ -103,12 +104,17 @@ router.get('/:id', asyncHandler(async (req, res) => {
     // 题目区域截图（原 PDF 裁剪），多张用逗号分隔。
     // 路径不带 /api 前缀：前端会拼上 axios 的 baseURL，避免出现 /api/api/...
     const files = String(q.image_url || '').split(',').filter(Boolean);
-    const opts = safeJson(q.options_json, []);
+    const rawOpts = safeJson(q.options_json, []);
+    // 部分题（规则兜底构题的那批）题干里还粘着 A./B./C./D. 选项行：
+    // 页面会「题干读一遍、下面又渲染一遍」。这里在读取时剥离；若已存选项是占位符，
+    // 则把题干里解析出的真实选项补上，避免用户看到四个无意义的占位符。
+    const fixed = normalizeQuestionStem({ stem: q.stem, options: rawOpts });
+    const opts = fixed.options;
     // 不是每题都需要配图：纯文本题的区域截图只是把题干重拍一遍，
     // 前端已用文本渲染同样内容，再插图既冗余又拖慢加载。
     // 判定详见 lib/questionImage.js（仅影响显示，不删除资源）。
     const need = classifyImageNeed(
-      { section: name, stem: q.stem, options: opts, passage: q.passage },
+      { section: name, stem: fixed.stem, options: opts, passage: q.passage },
       files
     );
     sectionMap.get(name).push({
@@ -117,7 +123,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
       qtype: q.qtype,
       difficulty: q.difficulty,
       passage: q.passage || null,
-      stem: q.stem,
+      stem: fixed.stem,
       options: opts,
       images: files.map((f) => `/exam-papers/images/${data.paper.id}/${f}`),
       // true → 内联展示；false → 折叠在「查看原卷截图」里
