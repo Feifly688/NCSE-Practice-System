@@ -92,6 +92,12 @@ function parseBBox(xml) {
     }
     pages.push({ page: pageNo, width, height, lines });
   }
+  // bbox 的 <line> 是**文档流顺序**，不是视觉顺序（同一页里选项行可能排在题干行之后）。
+  // 统一按 (y, x) 排序：后续所有"行序 = 阅读序"的假设（题号检测、视觉行聚合、
+  // 区间裁剪）才成立。排序是稳定排序，同 y 的行按 x 从左到右。
+  for (const pg of pages) {
+    pg.lines.sort((a, b) => (a.yMin - b.yMin) || (a.xMin - b.xMin));
+  }
   return pages;
 }
 
