@@ -239,6 +239,56 @@ function detectTailMaterial(pg, fromLine) {
 }
 
 /**
+ * 检测「下一页顶部的续接区」—— 上一题的图形/选项跨到了下一页。
+ *
+ * 实测（粉笔 2027 国考第 40 季 34 页卷）：
+ *   第 19 页底部是 77 题的题干（y=684），它的图形在页面底部，
+ *   而**选项行 "A.A B.B C.C D.D" 落在第 20 页顶部**（y=251-263）。
+ *   按"题号区间到本页页底"裁剪，77 题只能截到一片空白 + 页脚，看不到任何图形。
+ *
+ * 判定"下一页顶部属于上一题"的条件（必须同时满足，避免把资料分析的材料误吞）：
+ *   1. 该区间内几乎没有文字（图形区没有文字，< 40 字）
+ *   2. 区间内有选项行（上一题的选项跨页）——这是最强的信号
+ *   3. 区间纵向跨度够大（> 40pt），排除"页眉与首题之间本来就没内容"的情况
+ *   4. 区间内不含数据特征词（否则那是资料分析的统计材料，交给材料段逻辑处理）
+ *
+ * @param {object} nextPg 下一页
+ * @param {Array} nextMarks 下一页的题号列表
+ * @returns {{xMin,xMax,yTop,yBottom}|null}
+ */
+function detectNextPageContinuation(nextPg, nextMarks) {
+  if (!nextPg || !nextMarks || !nextMarks.length) return null;
+  const first = nextMarks[0];
+  // 首题的题干行（题号独立成行时上一行才是题干）
+  let stemIdx = first.lineIndex;
+  if (first.kind === 'A' && stemIdx > 0 && !OPTION_LINE.test(nextPg.lines[stemIdx - 1].text)) stemIdx -= 1;
+  const stemLine = nextPg.lines[stemIdx];
+  if (!stemLine) return null;
+  const yBottom = stemLine.yMin;
+
+  // 区间上界：页眉下沿（页眉固定在 y≈50-62）
+  let yTop = 70;
+  for (const l of nextPg.lines) {
+    if (l.yMax < 80) yTop = Math.max(yTop, l.yMax + 6);
+  }
+  if (yBottom - yTop < 40) return null;
+
+  const seg = nextPg.lines.filter((l) => l.yMin >= yTop - 1 && l.yMax <= yBottom + 1);
+  const text = seg.map((l) => l.text).join('').trim();
+  const hasOption = seg.some((l) => OPTION_LINE.test(l.text));
+  // 文字多 = 那是新一篇材料/新内容，不是上一题的图形
+  if (text.length > 40) return null;
+  if (DATA_MARKERS.test(text)) return null;
+  if (!hasOption && text.length > 0) return null; // 有文字但没有选项行 → 未必是续接
+  if (!hasOption && text.length === 0) {
+    // 纯图形区：允许，但要求区间足够高
+    if (yBottom - yTop < 80) return null;
+  }
+  // 图形/选项横向排布，整页宽裁剪
+  return { xMin: 0, xMax: nextPg.width, yTop, yBottom };
+}
+
+/**
  * 把一页按题号切成「题目区间」。
  * 区间上边界 = 题干行顶部；下边界 = 下一个题号行顶部（这样选项里的图形也落在区间内）。
  *
@@ -278,6 +328,11 @@ function buildRegions(pages) {
         yBottom = Math.min(pg.lines[nIdx].yMin, pg.height);
       }
       if (yBottom - yTop < 4) yBottom = Math.min(yTop + 40, pg.height);
+      // 下边界到页底时，剔除页脚（"第 19 页，共 34 页"）——它不属于任何一题
+      if (!next && yBottom >= pg.height - 1) {
+        const foot = pg.lines.filter((l) => /^\s*第\s*\d{1,4}\s*页/.test(l.text.trim()));
+        if (foot.length) yBottom = Math.min(yBottom, Math.min(...foot.map((l) => l.yMin)) - 4);
+      }
 
       // 本题区间内的行
       const segLines = pg.lines.filter((l) => l.yMin >= yTop - 1 && l.yMax <= yBottom + 1);
@@ -290,11 +345,11 @@ function buildRegions(pages) {
 
       // 普通题按文字范围裁剪（紧凑）；图形题强制整页宽 —— 图形推理的选项图
       // 横向排在文字右侧，只按文字宽度裁会把图切掉
-      const xMin = graphic ? 0 : Math.max(0, textMinX - 16);
-      const xMax = graphic ? pg.width : Math.min(pg.width, textMaxX + 16);
+      let xMin = graphic ? 0 : Math.max(0, textMinX - 16);
+      let xMax = graphic ? pg.width : Math.min(pg.width, textMaxX + 16);
 
       if (!regions.has(mk.num)) regions.set(mk.num, []);
-      regions.get(mk.num).push({
+      const region = {
         page: pg.page,
         pageWidth: pg.width,
         pageHeight: pg.height,
@@ -303,7 +358,30 @@ function buildRegions(pages) {
         yTop,
         yBottom,
         graphic,
-      });
+      };
+      regions.get(mk.num).push(region);
+
+      // ── 跨页续接：本题是本页最后一个题号，而它的图形/选项落在下一页顶部 ──
+      // 此时本页区间要整页宽裁（图形横向排布），并额外追加下一页顶部的续接区。
+      if (!next && p + 1 < pages.length) {
+        const cont = detectNextPageContinuation(pages[p + 1], pageMarks[p + 1]);
+        if (cont) {
+          region.xMin = 0;
+          region.xMax = pg.width;
+          region.graphic = true;
+          regions.get(mk.num).push({
+            page: pages[p + 1].page,
+            pageWidth: pages[p + 1].width,
+            pageHeight: pages[p + 1].height,
+            xMin: cont.xMin,
+            xMax: cont.xMax,
+            yTop: cont.yTop,
+            yBottom: cont.yBottom,
+            graphic: true,
+            continuation: true,
+          });
+        }
+      }
 
       // ── 材料段：篇首题号上方的长数据段（资料分析的统计图表在这里）─────
       // 跨页材料要截两段：本篇首页内的后半段 + 上一页尾部的前半段。
