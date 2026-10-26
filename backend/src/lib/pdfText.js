@@ -76,12 +76,19 @@ function execFileAsync(cmd, args, opts = {}) {
 }
 
 /**
- * 用 poppler 的 pdftotext -layout 提取文本（阅读顺序）。
+ * 用 poppler 的 pdftotext 提取文本。
  *
- * -layout 保留版面缩进（多栏对齐），选项行会变成 "A.7.2   B.10.8   C.13.9"，
- * 由下游 splitMergedOptions 拆行；行首缩进由 normalizeText 清除。
+ * 两种取文本的方式：
+ *   1. `pdftotext -bbox-layout` 重建（**优先**）
+ *      - 按坐标重建 = **视觉阅读顺序**。`-layout` 保留的是 PDF 文本流顺序，
+ *        同一页里选项块可能排在题干块之前（实测第 10 页 y=237 的提示行
+ *        排在 y=114 的选项行之前），与排版不一致。
+ *      - 顺带把选词填空的**下划线空**标成 `____`：下划线在文本层没有字符，
+ *        但会在行内留下一个 2 字宽的间隙（实测 23.7pt），据此可精确定位。
+ *   2. `pdftotext -layout` 兜底
+ *      重建结果的题号特征若明显少于 -layout（罕见），退回 -layout 保证题号不丢。
  *
- * @returns {Promise<{text: string, pages: number}>} pages 由分页符 \f 计数得到
+ * @returns {Promise<{text: string, pages: number, method: string, blanks: number}>}
  */
 async function extractByPdftotext(buffer) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'eppdftxt-'));
@@ -91,7 +98,29 @@ async function extractByPdftotext(buffer) {
     const { stdout } = await execFileAsync('pdftotext', ['-layout', '-enc', 'UTF-8', pdfPath, '-']);
     const raw = String(stdout || '');
     const pages = (raw.match(/\f/g) || []).length;
-    return { text: normalizeText(raw), pages };
+    const layoutText = normalizeText(raw);
+
+    // ── 尝试用 bbox 重建（视觉顺序 + 填空位标注）──────────────────
+    try {
+      const { stdout: bboxOut } = await execFileAsync('pdftotext', ['-bbox-layout', '-enc', 'UTF-8', pdfPath, '-']);
+      const { parseBBox } = require('./pdfRegions');
+      const { rebuildTextFromBBox } = require('./pdfBlanks');
+      const rb = rebuildTextFromBBox(parseBBox(String(bboxOut || '')));
+      const rebuilt = normalizeText(rb.text);
+      const qLayout = assessTextQuality(layoutText);
+      const qRebuilt = assessTextQuality(rebuilt);
+      // 题号特征明显更少时退回 -layout（题号丢失的代价远大于空位缺失）
+      if (qRebuilt.markers >= Math.max(3, qLayout.markers - 2)) {
+        return { text: rebuilt, pages, method: 'pdftotext-bbox', blanks: rb.blankCount };
+      }
+      console.warn(
+        `[pdf] bbox 重建文本题号特征偏少（rebuilt=${qRebuilt.markers} layout=${qLayout.markers}），退回 -layout`
+      );
+    } catch (err) {
+      console.warn('[pdf] bbox 重建失败，改用 -layout：' + err.message);
+    }
+
+    return { text: layoutText, pages, method: 'pdftotext-layout', blanks: 0 };
   } finally {
     try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* ignore */ }
   }
@@ -164,13 +193,13 @@ async function extractPdfText(buffer) {
   const poppler = await hasPoppler();
   if (poppler) {
     try {
-      const { text, pages } = await extractByPdftotext(buffer);
+      const { text, pages, method, blanks } = await extractByPdftotext(buffer);
       const quality = assessTextQuality(text);
       if (quality.usable && quality.markers >= 3) {
         if (quality.markers < 10) {
-          return { ok: true, text, pages, method: 'pdftotext-layout', quality, warning: '题号特征较少（' + quality.markers + ' 处），AI 拆题结果请人工核对' };
+          return { ok: true, text, pages, method, quality, warning: '题号特征较少（' + quality.markers + ' 处），AI 拆题结果请人工核对' };
         }
-        return { ok: true, text, pages, method: 'pdftotext-layout', quality };
+        return { ok: true, text, pages, method, quality, blanks };
       }
       console.warn(`[pdf] pdftotext -layout 质量不足（chars=${quality.chars} markers=${quality.markers}），回退 pdf-parse`);
     } catch (err) {

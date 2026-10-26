@@ -17,14 +17,19 @@
  * 本模块从 bbox 重建整卷文本，并在空位插入 `____`。
  */
 
-/** 行内间隙宽度下限（pt）—— 小于此值视为普通词间距 */
-const GAP_MIN = 12;
-/** 行内间隙宽度上限（pt）—— 大于此值视为版面留白（选项列/表格列），不是填空 */
-const GAP_MAX = 34;
+/** 行内间隙宽度下限（以字宽为单位）—— 排版空格只有 1 字宽，填空下划线是 2 字宽起 */
+const GAP_MIN_RATIO = 1.9;
+/** 行内间隙宽度上限（以字宽为单位）—— 再宽就是版面留白（选项列/表格列） */
+const GAP_MAX_RATIO = 3.0;
+/** 兜底绝对值（pt） */
+const GAP_MIN = 16;
+const GAP_MAX = 36;
 /** 元素文本以选项标记开头 → 该间隙是选项列间隔，不是填空 */
 const OPTION_START = /^\s*[A-D]\s*[.\uFF0E\u3001]/;
 /** 一行里出现 2 个以上选项标记 → 这是选项行，整体跳过 */
 const OPTION_ROW = /(^|[\s\u3000])[A-D]\s*[.\uFF0E\u3001]/g;
+/** 填空标记：插入文本时保留一个前导空格，兼容「题号 + 空格 + 正文」的识别规则 */
+const BLANK_MARK = '____';
 
 /** 选项标记（用于判定"这一行是选项行"） */
 function countOptionMarkers(text) {
@@ -86,8 +91,8 @@ function rebuildTextFromBBox(pages, opts = {}) {
   for (const pg of pages || []) {
     const rows = buildVisualRows(pg);
     const charW = estimateCharWidth(rows);
-    const lo = Math.max(GAP_MIN, charW * 1.2);
-    const hi = Math.min(GAP_MAX, charW * 2.8);
+    const lo = Math.max(GAP_MIN, charW * GAP_MIN_RATIO);
+    const hi = Math.min(GAP_MAX, charW * GAP_MAX_RATIO);
     const lines = [];
 
     for (const r of rows) {
@@ -103,7 +108,9 @@ function rebuildTextFromBBox(pages, opts = {}) {
           const leftIsOpt = OPTION_START.test(String(prev.text || ''));
           const rightIsOpt = OPTION_START.test(String(cur.text || ''));
           if (markBlanks && !isOptionRow && gap >= lo && gap <= hi && !leftIsOpt && !rightIsOpt) {
-            s += '____';
+            // 前导空格：题号后紧跟空位时（"51.____。"）会让题号识别失败，
+            // 因为题号规则要求「题号 + 空格 + 正文」。留一个空格两边都兼容。
+            s += /\s$/.test(s) ? BLANK_MARK : ' ' + BLANK_MARK;
             blankCount++;
           } else if (gap > 1.5) {
             s += ' ';
