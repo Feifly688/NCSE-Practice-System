@@ -411,6 +411,21 @@ function buildRegions(pages) {
       }
     }
   }
+  // 同一题号在多页被识别到 → 后出现的视为误识别（题号正则偶尔会把正文里的
+  // "57." 之类当成题号），只保留首次出现的那一段及其跨页续接段。
+  for (const [num, list] of regions) {
+    if (list.length <= 1) continue;
+    const firstIdx = list.findIndex((r) => !r.continuation);
+    if (firstIdx < 0) continue;
+    const keep = [list[firstIdx]];
+    for (const r of list) {
+      if (r.continuation && r.page === list[firstIdx].page + 1) keep.push(r);
+    }
+    if (keep.length !== list.length) {
+      console.warn(`[pdfRegions] 题号 ${num} 在多页被识别，丢弃 ${list.length - keep.length} 段重复区间`);
+      regions.set(num, keep);
+    }
+  }
   return { regions, materials };
 }
 
