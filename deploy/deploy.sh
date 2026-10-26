@@ -24,6 +24,31 @@ FRONTEND_DIR="$PROJECT_DIR/frontend"
 # .env 必须放在仓库根目录：backend/src/server.js 与 scripts/*.js 都从根目录读取
 ENV_FILE="$PROJECT_DIR/.env"
 
+# ============ sync-backend: 仅拉取最新代码并热更新后端（日常同步用） ============
+# 用法: bash deploy.sh sync-backend
+# 仅做三件事：git pull --ff-only（拒绝分叉/覆盖）→ 安装生产依赖 → pm2 重启。
+# 全量部署（建库/装前端/nginx/管理员）仍用无参数的 `bash deploy.sh`。
+sync_backend() {
+  info "同步后端到最新提交（仅 fast-forward，拒绝分叉/覆盖）..."
+  cd "$PROJECT_DIR"
+  git pull --ff-only
+
+  info "安装生产依赖（仅在依赖变化时需要）..."
+  cd "$BACKEND_DIR"
+  npm install --omit=dev
+
+  info "重启后端服务..."
+  pm2 restart ncse-backend
+
+  info "后端已同步并重启完成 ($(git rev-parse --short HEAD))"
+  exit 0
+}
+
+# 子命令分发：sync-backend 走轻量同步，其余（含无参数）走全量部署
+if [ "${1:-}" = "sync-backend" ]; then
+  sync_backend
+fi
+
 info "项目路径: $PROJECT_DIR"
 
 # ============ 1. 检查环境 ============

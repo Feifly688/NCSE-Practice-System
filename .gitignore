@@ -18,3 +18,6 @@ AGENTS.md
 
 # 真题原卷 PDF 与题目区域截图（运行时生成，不入库）
 backend/uploads/
+
+# 真题拆题调试脚本（本地复现/排错用，非生产必需，不入库）
+backend/scripts/_*.js
