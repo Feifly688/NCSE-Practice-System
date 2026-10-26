@@ -104,12 +104,17 @@ router.get('/:id', asyncHandler(async (req, res) => {
   // 关键约束：**组内至少 2 题**才算材料组。单题的 passage 视为上游误挂（题干的片段），
   // 若当成材料会在页面上凭空多出一栏"本篇资料"，把题干重复显示一遍。
   const MIN_PASSAGE_CHARS = 60;
+  // 同材料判定用**前缀**而不是全文相等：同一篇材料在数据库里落库时，
+  // 靠前的题会多带上几个字（材料尾 + 该题题干开头），实测 111/112 的 passage
+  // 比 113-115 多 9 个字符，全文比较会把一篇材料切成两组。
+  const PASSAGE_PREFIX = 80;
   const rawGroups = new Map();   // 组首题号 → { id, passage, seqs:Set, images:Set }
   let curGroup = null;
   for (const q of data.questions) {
     const p = String(q.passage || '').trim();
     if (p.length >= MIN_PASSAGE_CHARS) {
-      if (curGroup && curGroup.passage === p) {
+      const same = curGroup && p.slice(0, PASSAGE_PREFIX) === curGroup.passage.slice(0, PASSAGE_PREFIX);
+      if (same) {
         curGroup.seqs.add(q.seq);
       } else {
         curGroup = { id: q.seq, passage: p, seqs: new Set([q.seq]), images: new Set() };
