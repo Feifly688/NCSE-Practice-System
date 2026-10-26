@@ -96,12 +96,49 @@ router.get('/:id', asyncHandler(async (req, res) => {
   if (!data) return res.status(404).json({ error: '试卷不存在' });
   if (data.forbidden) return res.status(400).json({ error: '该试卷尚未完成拆题，暂不可作答', parse_status: data.parse_status });
 
+  // ── 材料分组：先扫一遍，把「一篇材料带一串题」识别出来 ──────────────
+  // 判据：**连续**的题 + **passage 文本完全相同**且足够长。
+  //   · 资料分析：111-115 共用"2023年，我国水利建设完成投资…"（524 字）→ 一组
+  //   · 逻辑判断：106-110 共用"某公司计划在周一到周五…"（228 字）→ 一组
+  //   · 言语理解的选词填空：每题 passage 是自己题干的一小段，**各不相同** → 不会成组
+  // 关键约束：**组内至少 2 题**才算材料组。单题的 passage 视为上游误挂（题干的片段），
+  // 若当成材料会在页面上凭空多出一栏"本篇资料"，把题干重复显示一遍。
+  const MIN_PASSAGE_CHARS = 60;
+  const rawGroups = new Map();   // 组首题号 → { id, passage, seqs:Set, images:Set }
+  let curGroup = null;
+  for (const q of data.questions) {
+    const p = String(q.passage || '').trim();
+    if (p.length >= MIN_PASSAGE_CHARS) {
+      if (curGroup && curGroup.passage === p) {
+        curGroup.seqs.add(q.seq);
+      } else {
+        curGroup = { id: q.seq, passage: p, seqs: new Set([q.seq]), images: new Set() };
+        rawGroups.set(q.seq, curGroup);
+      }
+    } else {
+      curGroup = null;
+    }
+  }
+  // 组内只有 1 题 → 不是材料组，丢弃
+  for (const [id, g] of [...rawGroups]) {
+    if (g.seqs.size < 2) rawGroups.delete(id);
+  }
+  // 把材料图（-m.*.png）归到所属组
+  const groupOfSeq = new Map();
+  for (const g of rawGroups.values()) for (const s of g.seqs) groupOfSeq.set(s, g);
+  for (const q of data.questions) {
+    const g = groupOfSeq.get(q.seq);
+    if (!g) continue;
+    for (const f of String(q.image_url || '').split(',').filter(Boolean)) {
+      if (/-m\./.test(f)) g.images.add(f);
+    }
+  }
+  const paperId = data.paper.id;
+
   // 按分区聚合，保持原卷顺序。
-  // 共享材料（资料分析一篇材料一串题、言语理解一篇文段多题）：材料正文与材料图
+  // 共享材料（资料分析一篇材料一串题、逻辑判断一组共用题干）：材料正文与材料图
   // 只在**本组第一题**下发一次，后续题只带自己的题干和选项，避免整页反复重印同一段材料。
   const sectionMap = new Map();
-  let lastMaterialKey = null;
-  let currentHead = null;
   for (const q of data.questions) {
     const name = q.section || '未分区';
     if (!sectionMap.has(name)) sectionMap.set(name, []);
@@ -119,29 +156,21 @@ router.get('/:id', asyncHandler(async (req, res) => {
     const opts = fixed.options;
     const passage = String(q.passage || '').trim();
 
-    // 同一段材料的连续题判定：材料正文相同，且共享同一份材料图
-    const materialKey = [passage.length >= 20 ? passage : '', matFiles.join('|')].join('#');
-    const isSameMaterial = materialKey !== '#' && materialKey === lastMaterialKey;
-    lastMaterialKey = materialKey !== '#' ? materialKey : null;
-
-    const showPassage = passage && !isSameMaterial ? passage : null;
-    const showMatFiles = isSameMaterial ? [] : matFiles;
-    // 本组首题记下来：续题要靠 materialRef 引用它（用答题卡跳到组内第 3 题时
-    // 上方图表可能不在视野内，折叠引用保证随时能查到，又不占版面）
-    const paperId = data.paper.id;
-    if (showPassage || showMatFiles.length) {
-      currentHead = {
-        seq: q.seq,
-        passage: showPassage || '',
-        images: showMatFiles.map((f) => `/exam-papers/images/${paperId}/${f}`),
-      };
-    }
-    const materialRef = (isSameMaterial && currentHead)
-      ? { seq: currentHead.seq, passage: currentHead.passage, images: currentHead.images }
+    const group = groupOfSeq.get(q.seq) || null;
+    const isGroupHead = group && group.id === q.seq;
+    // 组首题展示材料正文与材料图；续题不重复展示，但要能折叠引用
+    const showPassage = group && isGroupHead ? group.passage : null;
+    const showMatFiles = group && isGroupHead
+      ? [...group.images]
+      : (group ? [] : matFiles);
+    const materialRef = group && !isGroupHead
+      ? {
+        seq: group.id,
+        passage: group.passage,
+        images: [...group.images].map((f) => `/exam-papers/images/${paperId}/${f}`),
+      }
       : null;
-    // 材料组标识：同一组共享同一个 id（= 组首题号），前端据此把「一篇材料 + 该篇题目」
-    // 渲染成左材料 / 右题目列表的两栏布局
-    const groupId = (passage.length >= 20 || matFiles.length) && currentHead ? currentHead.seq : null;
+    const groupId = group ? group.id : null;
 
     // 不是每题都需要配图：纯文本题的区域截图只是把题干重拍一遍，
     // 前端已用文本渲染同样内容，再插图既冗余又拖慢加载。
@@ -153,7 +182,9 @@ router.get('/:id', asyncHandler(async (req, res) => {
       { section: name, stem: fixed.stem, options: opts, passage: showPassage },
       ownFiles
     );
-    const inMaterialGroup = passage.length >= 20;
+    // 真正属于材料组的题（组内 ≥2 题）才折叠自身截图；
+    // 单题被上游误挂的 passage 不算材料组，它的截图仍按普通规则处理。
+    const inMaterialGroup = Boolean(group);
     const keepOwn = ['image-options', 'figure-stem'].includes(need.reason);
     const ownNeeded = need.needed && !(inMaterialGroup && !keepOwn);
     const outFiles = [...ownFiles, ...showMatFiles];

@@ -49,19 +49,23 @@ function groupSectionQuestions(questions) {
       last.questions.push(q);
       continue;
     }
+    // 组首题带 passage 与材料图；续题通过 materialRef 引用组首
+    const head = q;
     out.push({
       id: `grp-${gid}`,
       materialGroup: gid,
-      passage: q.passage || (q.materialRef && q.materialRef.passage) || '',
-      images: (q.materialRef && q.materialRef.images) || (q.images || []).filter((x) => /-m\./.test(x)),
+      passage: head.passage || (head.materialRef && head.materialRef.passage) || '',
+      images: (head.images || []).filter((x) => /-m\./.test(x)),
       questions: [q],
     });
   }
-  // 组首题的材料图也补进来（组首题没有 materialRef，它自己带材料图）
+  // 组首题若被上游误挂导致没有材料图，从续题的 materialRef 里补
   for (const g of out) {
-    if (!g.materialGroup) continue;
-    const head = g.questions.find((q) => q.seq === g.materialGroup) || g.questions[0];
-    if (!g.images.length) g.images = (head.images || []).filter((x) => /-m\./.test(x));
+    if (!g.materialGroup || g.images.length) continue;
+    for (const q of g.questions) {
+      const imgs = (q.materialRef && q.materialRef.images) || [];
+      if (imgs.length) { g.images = imgs; break; }
+    }
   }
   return out;
 }
@@ -274,8 +278,9 @@ export default function ExamPaperTake() {
     return <Empty description="该试卷暂无可作答的题目" />;
   }
 
-  /** 单题卡片（资料分析的两栏布局里会复用） */
-  const renderQuestionCard = (q) => {
+  /** 单题卡片（资料分析的两栏布局里会复用）
+   *  opts.hidePassage：材料已在左栏展示时，题干区不再重复渲染一遍 */
+  const renderQuestionCard = (q, opts = {}) => {
     const myAnswer = answers[q.seq];
     const res = resultMap[q.seq];
     const isWrong = res && !res.correct;
@@ -314,7 +319,7 @@ export default function ExamPaperTake() {
           </span>
         </div>
 
-        {q.passage && (
+        {q.passage && !opts.hidePassage && (
           <Paragraph style={{
             background: '#fafafa', border: '1px solid #f0f0f0', borderRadius: 8,
             padding: 12, marginBottom: 12, fontSize: 14, lineHeight: 1.8, whiteSpace: 'pre-wrap',
@@ -643,7 +648,7 @@ export default function ExamPaperTake() {
                           })}
                         </Card>
                       )}
-                      {grp.questions.map(renderQuestionCard)}
+                      {grp.questions.map((q) => renderQuestionCard(q, { hidePassage: true }))}
                     </div>
                   </div>
                 ) : (
