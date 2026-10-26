@@ -96,48 +96,73 @@ router.get('/:id', asyncHandler(async (req, res) => {
   if (!data) return res.status(404).json({ error: '试卷不存在' });
   if (data.forbidden) return res.status(400).json({ error: '该试卷尚未完成拆题，暂不可作答', parse_status: data.parse_status });
 
-  // ── 材料分组：先扫一遍，把「一篇材料带一串题」识别出来 ──────────────
-  // 判据：**连续**的题 + **passage 文本完全相同**且足够长。
-  //   · 资料分析：111-115 共用"2023年，我国水利建设完成投资…"（524 字）→ 一组
-  //   · 逻辑判断：106-110 共用"某公司计划在周一到周五…"（228 字）→ 一组
-  //   · 言语理解的选词填空：每题 passage 是自己题干的一小段，**各不相同** → 不会成组
-  // 关键约束：**组内至少 2 题**才算材料组。单题的 passage 视为上游误挂（题干的片段），
-  // 若当成材料会在页面上凭空多出一栏"本篇资料"，把题干重复显示一遍。
+  // ── 材料分组：把「一篇材料带一串题」识别出来 ──────────────────────────
+  //
+  // 第一优先级：**材料图归属**。材料图文件名 `q<篇首题号>-m*.png` 里的题号就是
+  // 这篇材料的篇首，篇首之后到下一个篇首之前的题都属于这一篇。
+  //   实测（粉笔第 40 季 34 页卷）p29 水利→111-115、p31 数字阅读→116-125、
+  //   p33 城市供水→126-130，与 PDF 实际排版一致。
+  // 为什么必须以材料图为准：上游 passage 抽取会串篇 —— 118-125 的 passage
+  // 实际是「答题说明 + 上一篇水利材料」，用它分组会把材料显示错。
+  //
+  // 第二优先级：**passage 前缀**（给没有材料图的文字材料用，如逻辑判断
+  // 106-110 共用同一段题干）。比较前抹掉空白：111/112 的 passage 带换行符而
+  // 113-115 不带，不归一化前 80 字仍不相等。
   const MIN_PASSAGE_CHARS = 60;
-  // 同材料判定用**前缀**而不是全文相等：同一篇材料在数据库里落库时，
-  // 靠前的题会多带上几个字（材料尾 + 该题题干开头），实测 111/112 的 passage
-  // 比 113-115 多 9 个字符，全文比较会把一篇材料切成两组。
   const PASSAGE_PREFIX = 80;
-  const rawGroups = new Map();   // 组首题号 → { id, passage, seqs:Set, images:Set }
+  const normPrefix = (s) => String(s || '').replace(/\s+/g, '').slice(0, PASSAGE_PREFIX);
+
+  const groups = new Map();   // 组首题号 → { id, seqs:Set, images:Set, passage }
+  const ensureGroup = (id) => {
+    if (!groups.has(id)) groups.set(id, { id, seqs: new Set(), images: new Set(), passage: '' });
+    return groups.get(id);
+  };
+
+  // ① 材料图分组
+  let curMatHead = null;
+  for (const q of data.questions) {
+    const files = String(q.image_url || '').split(',').filter(Boolean);
+    const matFiles = files.filter((f) => /-m/.test(f));
+    if (matFiles.length) {
+      const m = matFiles[0].match(/^q(\d+)-m/);
+      if (m) curMatHead = Number(m[1]);
+    }
+    if (curMatHead == null) continue;
+    const g = ensureGroup(curMatHead);
+    g.seqs.add(q.seq);
+    for (const f of matFiles) g.images.add(f);
+  }
+  // 组内第一道有 passage 的题，其 passage 作为该篇的材料正文
+  for (const q of data.questions) {
+    for (const g of groups.values()) {
+      if (!g.seqs.has(q.seq) || g.passage) continue;
+      const p = String(q.passage || '').trim();
+      if (p.length >= MIN_PASSAGE_CHARS) g.passage = p;
+    }
+  }
+
+  // ② 文字材料分组：连续 + passage 前缀相同（未被材料图分组的题）
   let curGroup = null;
   for (const q of data.questions) {
     const p = String(q.passage || '').trim();
-    if (p.length >= MIN_PASSAGE_CHARS) {
-      const same = curGroup && p.slice(0, PASSAGE_PREFIX) === curGroup.passage.slice(0, PASSAGE_PREFIX);
-      if (same) {
-        curGroup.seqs.add(q.seq);
-      } else {
-        curGroup = { id: q.seq, passage: p, seqs: new Set([q.seq]), images: new Set() };
-        rawGroups.set(q.seq, curGroup);
-      }
+    if (p.length < MIN_PASSAGE_CHARS) { curGroup = null; continue; }
+    const inMatGroup = [...groups.values()].some((g) => g.seqs.has(q.seq));
+    if (inMatGroup) { curGroup = null; continue; }
+    if (curGroup && normPrefix(p) === normPrefix(curGroup.passage)) {
+      curGroup.seqs.add(q.seq);
     } else {
-      curGroup = null;
+      curGroup = { id: q.seq, passage: p, seqs: new Set([q.seq]), images: new Set() };
+      groups.set(q.seq, curGroup);
     }
   }
-  // 组内只有 1 题 → 不是材料组，丢弃
-  for (const [id, g] of [...rawGroups]) {
-    if (g.seqs.size < 2) rawGroups.delete(id);
+
+  // 组内只有 1 题 → 不是材料组（passage 多半是上游误挂的题干片段）
+  for (const [id, g] of [...groups]) {
+    if (g.seqs.size < 2) groups.delete(id);
   }
-  // 把材料图（-m.*.png）归到所属组
+
   const groupOfSeq = new Map();
-  for (const g of rawGroups.values()) for (const s of g.seqs) groupOfSeq.set(s, g);
-  for (const q of data.questions) {
-    const g = groupOfSeq.get(q.seq);
-    if (!g) continue;
-    for (const f of String(q.image_url || '').split(',').filter(Boolean)) {
-      if (/-m\./.test(f)) g.images.add(f);
-    }
-  }
+  for (const g of groups.values()) for (const s of g.seqs) groupOfSeq.set(s, g);
   const paperId = data.paper.id;
 
   // 按分区聚合，保持原卷顺序。
