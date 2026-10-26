@@ -139,6 +139,9 @@ router.get('/:id', asyncHandler(async (req, res) => {
     const materialRef = (isSameMaterial && currentHead)
       ? { seq: currentHead.seq, passage: currentHead.passage, images: currentHead.images }
       : null;
+    // 材料组标识：同一组共享同一个 id（= 组首题号），前端据此把「一篇材料 + 该篇题目」
+    // 渲染成左材料 / 右题目列表的两栏布局
+    const groupId = (passage.length >= 20 || matFiles.length) && currentHead ? currentHead.seq : null;
 
     // 不是每题都需要配图：纯文本题的区域截图只是把题干重拍一遍，
     // 前端已用文本渲染同样内容，再插图既冗余又拖慢加载。
@@ -162,6 +165,8 @@ router.get('/:id', asyncHandler(async (req, res) => {
       passage: showPassage,
       // 同一材料的后续题保留材料引用，前端折叠展示（默认不占版面）
       materialRef,
+      // 材料组 id（组首题号）；null 表示该题不属于任何材料组
+      materialGroup: groupId,
       stem: fixed.stem,
       options: opts,
       images: outFiles.map((f) => `/exam-papers/images/${data.paper.id}/${f}`),

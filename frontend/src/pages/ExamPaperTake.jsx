@@ -29,9 +29,45 @@ function paperImageUrl(src) {
   return `${base}${src}${sep}t=${encodeURIComponent(token)}`;
 }
 
+/**
+ * 把一个分区的题目按「材料组」归拢。
+ *
+ * 资料分析一篇材料带一串题：同组的题共享 materialGroup（= 组首题号），
+ * 组首题带材料正文与材料图。渲染时把整组并成「左材料 / 右题目列表」两栏。
+ * 不属于任何材料组的题（言语、图形推理等）保持原来的单列列表。
+ */
+function groupSectionQuestions(questions) {
+  const out = [];
+  for (const q of questions || []) {
+    const gid = q.materialGroup;
+    if (gid == null) {
+      out.push({ id: `single-${q.seq}`, materialGroup: null, questions: [q] });
+      continue;
+    }
+    const last = out[out.length - 1];
+    if (last && last.materialGroup === gid) {
+      last.questions.push(q);
+      continue;
+    }
+    out.push({
+      id: `grp-${gid}`,
+      materialGroup: gid,
+      passage: q.passage || (q.materialRef && q.materialRef.passage) || '',
+      images: (q.materialRef && q.materialRef.images) || (q.images || []).filter((x) => /-m\./.test(x)),
+      questions: [q],
+    });
+  }
+  // 组首题的材料图也补进来（组首题没有 materialRef，它自己带材料图）
+  for (const g of out) {
+    if (!g.materialGroup) continue;
+    const head = g.questions.find((q) => q.seq === g.materialGroup) || g.questions[0];
+    if (!g.images.length) g.images = (head.images || []).filter((x) => /-m\./.test(x));
+  }
+  return out;
+}
+
 /** 秒 → mm:ss */
-function fmtTime(sec) {
-  const m = Math.floor(sec / 60);
+function fmtTime(sec) {  const m = Math.floor(sec / 60);
   const s = sec % 60;
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
@@ -238,6 +274,224 @@ export default function ExamPaperTake() {
     return <Empty description="该试卷暂无可作答的题目" />;
   }
 
+  /** 单题卡片（资料分析的两栏布局里会复用） */
+  const renderQuestionCard = (q) => {
+    const myAnswer = answers[q.seq];
+    const res = resultMap[q.seq];
+    const isWrong = res && !res.correct;
+    return (
+      <Card
+        key={q.seq}
+        size="small"
+        style={{
+          marginBottom: 14, borderRadius: 10, scrollMarginTop: 90,
+          borderColor: isWrong ? '#ffccc7' : undefined,
+        }}
+        styles={{ body: { padding: isMobile ? '12px 14px' : '16px 20px' } }}
+      >
+        <div ref={(el) => { qRefs.current[q.seq] = el; }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+          <span style={{
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            width: 24, height: 24, borderRadius: '50%', background: '#1D4ED8',
+            color: '#fff', fontSize: 13, fontWeight: 600,
+          }}>{q.seq}</span>
+          <Tag color="purple">{q.qtype || '单选题'}</Tag>
+          <Tag color={q.difficulty <= 2 ? 'green' : q.difficulty <= 4 ? 'orange' : 'red'}>
+            难度 {q.difficulty || 3}
+          </Tag>
+          {res && (
+            res.correct
+              ? <Tag icon={<CheckCircleOutlined />} color="success">答对</Tag>
+              : <Tag icon={<CloseCircleOutlined />} color="error">答错</Tag>
+          )}
+          <span
+            onClick={() => toggleMark(q.seq)}
+            style={{ marginLeft: 'auto', cursor: 'pointer', color: marked[q.seq] ? '#fa8c16' : '#bfbfbf' }}
+            title="标记此题"
+          >
+            {marked[q.seq] ? <FlagFilled /> : <FlagOutlined />}
+          </span>
+        </div>
+
+        {q.passage && (
+          <Paragraph style={{
+            background: '#fafafa', border: '1px solid #f0f0f0', borderRadius: 8,
+            padding: 12, marginBottom: 12, fontSize: 14, lineHeight: 1.8, whiteSpace: 'pre-wrap',
+          }}>
+            {q.passage}
+          </Paragraph>
+        )}
+
+        {/* 同一材料的后续题：材料正文与图表已在本组第一题展示过，这里默认不重复渲染，
+            只在需要时折叠展开（用答题卡跳到组内第 3 题时也查得到原资料） */}
+        {q.materialRef && (q.materialRef.passage || (q.materialRef.images || []).length > 0) && (
+          <div style={{ marginBottom: 12 }}>
+            <a
+              onClick={() => setMatOpen((s) => ({ ...s, [q.seq]: !s[q.seq] }))}
+              style={{ fontSize: 13, color: '#1D4ED8', cursor: 'pointer', userSelect: 'none' }}
+            >
+              {matOpen[q.seq] ? '收起' : '查看'}本篇资料（见第 {q.materialRef.seq} 题）
+            </a>
+            {matOpen[q.seq] && (
+              <div style={{ marginTop: 8 }}>
+                {q.materialRef.passage && (
+                  <Paragraph style={{
+                    background: '#fafafa', border: '1px solid #f0f0f0', borderRadius: 8,
+                    padding: 12, marginBottom: 8, fontSize: 14, lineHeight: 1.8, whiteSpace: 'pre-wrap',
+                  }}>
+                    {q.materialRef.passage}
+                  </Paragraph>
+                )}
+                {(q.materialRef.images || []).map((src) => {
+                  const url = paperImageUrl(src);
+                  return (
+                    <img
+                      key={src}
+                      src={url}
+                      alt="资料图表"
+                      loading="lazy"
+                      onClick={() => setPreviewImg(url)}
+                      style={{
+                        width: '100%', maxWidth: '100%', border: '1px solid #f0f0f0',
+                        borderRadius: 8, background: '#fff', cursor: 'zoom-in', display: 'block',
+                      }}
+                    />
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 原卷区域截图：图形推理/几何图/统计图表在文本层里没有，只能看图。
+            纯文本题的区域截图只是把题干重拍一遍，与上面的文字重复，
+            默认折叠，需要核对原卷时再展开（懒加载）。 */}
+        {(q.images || []).length > 0 && q.imageNeeded !== false && (
+          <div style={{ marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {q.images.map((src) => {
+              const url = paperImageUrl(src);
+              return (
+                <img
+                  key={src}
+                  src={url}
+                  alt="原卷题目截图"
+                  loading="lazy"
+                  onClick={() => setPreviewImg(url)}
+                  style={{
+                    width: '100%', maxWidth: '100%', border: '1px solid #f0f0f0',
+                    borderRadius: 8, background: '#fff', cursor: 'zoom-in', display: 'block',
+                  }}
+                />
+              );
+            })}
+          </div>
+        )}
+
+        {(q.images || []).length > 0 && q.imageNeeded === false && (
+          <div style={{ marginBottom: 12 }}>
+            <a
+              onClick={() => setShotOpen((s) => ({ ...s, [q.seq]: !s[q.seq] }))}
+              style={{ fontSize: 13, color: '#8c8c8c', cursor: 'pointer', userSelect: 'none' }}
+            >
+              {shotOpen[q.seq] ? '收起' : '查看'}原卷截图
+            </a>
+            {shotOpen[q.seq] && (
+              <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {q.images.map((src) => {
+                  const url = paperImageUrl(src);
+                  return (
+                    <img
+                      key={src}
+                      src={url}
+                      alt="原卷题目截图"
+                      loading="lazy"
+                      onClick={() => setPreviewImg(url)}
+                      style={{
+                        width: '100%', maxWidth: '100%', border: '1px solid #f0f0f0',
+                        borderRadius: 8, background: '#fff', cursor: 'zoom-in', display: 'block',
+                      }}
+                    />
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        <div style={{ fontSize: isMobile ? 14 : 15, lineHeight: 1.8, marginBottom: 12, whiteSpace: 'pre-wrap' }}>
+          {q.stem}
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {(q.options || []).map((opt, i) => {
+            const label = OPTION_LABELS[i] || String(i);
+            const selected = myAnswer === label;
+            const isRight = res && String(res.answer || '').includes(label);
+            const isMyWrong = res && !res.correct && selected;
+            // 选项在原 PDF 中是图片（图形推理/几何图/统计图），文本层只有占位符。
+            // 这类选项只显示原卷的标号（A/B/C/D），不写「该选项在原试卷中为图片」这种废话。
+            const isImageOption = typeof opt === 'string' && /图片选项|^[A-D]$/.test(opt.trim());
+            const optText = isImageOption
+              ? (/^[A-Da-d]$/.test(opt.trim()) ? opt.trim() : label)
+              : opt;
+
+            let bg = '#fff';
+            let border = '#e5e7eb';
+            if (res) {
+              if (isRight) { bg = '#f6ffed'; border = '#b7eb8f'; }
+              if (isMyWrong) { bg = '#fff2f0'; border = '#ffccc7'; }
+            } else if (selected) { bg = '#eff6ff'; border = '#1D4ED8'; }
+
+            return (
+              <div
+                key={label}
+                onClick={() => selectOption(q.seq, label)}
+                style={{
+                  display: 'flex', gap: 10, alignItems: 'flex-start', cursor: result ? 'default' : 'pointer',
+                  padding: '10px 12px', borderRadius: 8, border: `1px solid ${border}`, background: bg,
+                  fontSize: isMobile ? 14 : 15, lineHeight: 1.7, transition: 'all .15s',
+                }}
+              >
+                <span style={{
+                  flexShrink: 0, width: 22, height: 22, borderRadius: '50%',
+                  border: `1px solid ${selected || isRight ? border : '#d9d9d9'}`,
+                  background: selected || isRight ? border : '#fff',
+                  color: selected || isRight ? '#fff' : '#666',
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 12, fontWeight: 600,
+                }}>{label}</span>
+                <span style={{ flex: 1 }}>
+                  {optText}
+                </span>
+                {res && isRight && <CheckCircleOutlined style={{ color: '#52c41a', marginTop: 4 }} />}
+                {isMyWrong && <CloseCircleOutlined style={{ color: '#ff4d4f', marginTop: 4 }} />}
+              </div>
+            );
+          })}
+        </div>
+
+        {res && (
+          <div style={{
+            marginTop: 12, padding: 12, borderRadius: 8,
+            background: res.correct ? '#f6ffed' : '#fff7e6',
+            border: `1px solid ${res.correct ? '#b7eb8f' : '#ffd591'}`,
+          }}>
+            <Space size={12} wrap>
+              <Text strong>答案：{res.answer}</Text>
+              <Text type="secondary">你的作答：{res.yourAnswer || '未作答'}</Text>
+            </Space>
+            {res.explanation && (
+              <div style={{ marginTop: 6, fontSize: 13, lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>
+                <Text strong>解析：</Text>{res.explanation}
+              </div>
+            )}
+          </div>
+        )}
+      </Card>
+    );
+  };
+
   return (
     <div style={{ paddingBottom: isMobile ? 80 : 24 }}>
       {/* 顶部信息栏 */}
@@ -345,218 +599,57 @@ export default function ExamPaperTake() {
                 </Text>
               </div>
 
-              {s.questions.map((q) => {
-                const myAnswer = answers[q.seq];
-                const res = resultMap[q.seq];
-                const isWrong = res && !res.correct;
-                return (
-                  <Card
-                    key={q.seq}
-                    size="small"
-                    style={{
-                      marginBottom: 14, borderRadius: 10, scrollMarginTop: 90,
-                      borderColor: isWrong ? '#ffccc7' : undefined,
-                    }}
-                    styles={{ body: { padding: isMobile ? '12px 14px' : '16px 20px' } }}
-                  >
-                    <div ref={(el) => { qRefs.current[q.seq] = el; }} />
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
-                      <span style={{
-                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                        width: 24, height: 24, borderRadius: '50%', background: '#1D4ED8',
-                        color: '#fff', fontSize: 13, fontWeight: 600,
-                      }}>{q.seq}</span>
-                      <Tag color="purple">{q.qtype || '单选题'}</Tag>
-                      <Tag color={q.difficulty <= 2 ? 'green' : q.difficulty <= 4 ? 'orange' : 'red'}>
-                        难度 {q.difficulty || 3}
-                      </Tag>
-                      {res && (
-                        res.correct
-                          ? <Tag icon={<CheckCircleOutlined />} color="success">答对</Tag>
-                          : <Tag icon={<CloseCircleOutlined />} color="error">答错</Tag>
+              {groupSectionQuestions(s.questions).map((grp) => (
+                grp.materialGroup ? (
+                  <div key={`grp-${grp.id}`} style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+                    {/* 左栏：本篇材料（题干 + 图表），随页面滚动固定可见 */}
+                    {!isMobile && (
+                      <div style={{ width: 380, flexShrink: 0, position: 'sticky', top: 80 }}>
+                        <Card size="small" style={{ borderRadius: 10 }} styles={{ body: { padding: 14 } }}>
+                          <div style={{ fontSize: 13, color: '#8c8c8c', marginBottom: 8 }}>本篇资料</div>
+                          {grp.passage && (
+                            <Paragraph style={{ fontSize: 13, lineHeight: 1.8, whiteSpace: 'pre-wrap', marginBottom: 8 }}>
+                              {grp.passage}
+                            </Paragraph>
+                          )}
+                          {grp.images.map((src) => {
+                            const url = paperImageUrl(src);
+                            return (
+                              <img
+                                key={src}
+                                src={url}
+                                alt="资料图表"
+                                loading="lazy"
+                                onClick={() => setPreviewImg(url)}
+                                style={{ width: '100%', border: '1px solid #f0f0f0', borderRadius: 8, background: '#fff', cursor: 'zoom-in', display: 'block', marginBottom: 8 }}
+                              />
+                            );
+                          })}
+                        </Card>
+                      </div>
+                    )}
+                    {/* 右栏：该篇的题目列表 */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      {isMobile && grp.passage && (
+                        <Card size="small" style={{ borderRadius: 10, marginBottom: 12 }} styles={{ body: { padding: 12 } }}>
+                          <div style={{ fontSize: 13, color: '#8c8c8c', marginBottom: 6 }}>本篇资料</div>
+                          <Paragraph style={{ fontSize: 13, lineHeight: 1.8, whiteSpace: 'pre-wrap', marginBottom: 8 }}>{grp.passage}</Paragraph>
+                          {grp.images.map((src) => {
+                            const url = paperImageUrl(src);
+                            return (
+                              <img key={src} src={url} alt="资料图表" loading="lazy" onClick={() => setPreviewImg(url)}
+                                style={{ width: '100%', border: '1px solid #f0f0f0', borderRadius: 8, background: '#fff', cursor: 'zoom-in', display: 'block', marginBottom: 8 }} />
+                            );
+                          })}
+                        </Card>
                       )}
-                      <span
-                        onClick={() => toggleMark(q.seq)}
-                        style={{ marginLeft: 'auto', cursor: 'pointer', color: marked[q.seq] ? '#fa8c16' : '#bfbfbf' }}
-                        title="标记此题"
-                      >
-                        {marked[q.seq] ? <FlagFilled /> : <FlagOutlined />}
-                      </span>
+                      {grp.questions.map(renderQuestionCard)}
                     </div>
-
-                    {q.passage && (
-                      <Paragraph style={{
-                        background: '#fafafa', border: '1px solid #f0f0f0', borderRadius: 8,
-                        padding: 12, marginBottom: 12, fontSize: 14, lineHeight: 1.8, whiteSpace: 'pre-wrap',
-                      }}>
-                        {q.passage}
-                      </Paragraph>
-                    )}
-
-                    {/* 同一材料的后续题：材料正文与图表已在本组第一题展示过，这里默认不重复渲染，
-                        只在需要时折叠展开（用答题卡跳到组内第 3 题时也查得到原资料） */}
-                    {q.materialRef && (q.materialRef.passage || (q.materialRef.images || []).length > 0) && (
-                      <div style={{ marginBottom: 12 }}>
-                        <a
-                          onClick={() => setMatOpen((s) => ({ ...s, [q.seq]: !s[q.seq] }))}
-                          style={{ fontSize: 13, color: '#1D4ED8', cursor: 'pointer', userSelect: 'none' }}
-                        >
-                          {matOpen[q.seq] ? '收起' : '查看'}本篇资料（见第 {q.materialRef.seq} 题）
-                        </a>
-                        {matOpen[q.seq] && (
-                          <div style={{ marginTop: 8 }}>
-                            {q.materialRef.passage && (
-                              <Paragraph style={{
-                                background: '#fafafa', border: '1px solid #f0f0f0', borderRadius: 8,
-                                padding: 12, marginBottom: 8, fontSize: 14, lineHeight: 1.8, whiteSpace: 'pre-wrap',
-                              }}>
-                                {q.materialRef.passage}
-                              </Paragraph>
-                            )}
-                            {(q.materialRef.images || []).map((src) => {
-                              const url = paperImageUrl(src);
-                              return (
-                                <img
-                                  key={src}
-                                  src={url}
-                                  alt="资料图表"
-                                  loading="lazy"
-                                  onClick={() => setPreviewImg(url)}
-                                  style={{
-                                    width: '100%', maxWidth: '100%', border: '1px solid #f0f0f0',
-                                    borderRadius: 8, background: '#fff', cursor: 'zoom-in', display: 'block',
-                                  }}
-                                />
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* 原卷区域截图：图形推理/几何图/统计图表在文本层里没有，只能看图。
-                        纯文本题的区域截图只是把题干重拍一遍，与上面的文字重复，
-                        默认折叠，需要核对原卷时再展开（懒加载）。 */}
-                    {(q.images || []).length > 0 && q.imageNeeded !== false && (
-                      <div style={{ marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        {q.images.map((src) => {
-                          const url = paperImageUrl(src);
-                          return (
-                            <img
-                              key={src}
-                              src={url}
-                              alt="原卷题目截图"
-                              loading="lazy"
-                              onClick={() => setPreviewImg(url)}
-                              style={{
-                                width: '100%', maxWidth: '100%', border: '1px solid #f0f0f0',
-                                borderRadius: 8, background: '#fff', cursor: 'zoom-in', display: 'block',
-                              }}
-                            />
-                          );
-                        })}
-                      </div>
-                    )}
-
-                    {(q.images || []).length > 0 && q.imageNeeded === false && (
-                      <div style={{ marginBottom: 12 }}>
-                        <a
-                          onClick={() => setShotOpen((s) => ({ ...s, [q.seq]: !s[q.seq] }))}
-                          style={{ fontSize: 13, color: '#8c8c8c', cursor: 'pointer', userSelect: 'none' }}
-                        >
-                          {shotOpen[q.seq] ? '收起' : '查看'}原卷截图
-                        </a>
-                        {shotOpen[q.seq] && (
-                          <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                            {q.images.map((src) => {
-                              const url = paperImageUrl(src);
-                              return (
-                                <img
-                                  key={src}
-                                  src={url}
-                                  alt="原卷题目截图"
-                                  loading="lazy"
-                                  onClick={() => window.open(url, '_blank')}
-                                  style={{
-                                    width: '100%', maxWidth: '100%', border: '1px solid #f0f0f0',
-                                    borderRadius: 8, background: '#fff', cursor: 'zoom-in', display: 'block',
-                                  }}
-                                />
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    <div style={{ fontSize: isMobile ? 14 : 15, lineHeight: 1.8, marginBottom: 12, whiteSpace: 'pre-wrap' }}>
-                      {q.stem}
-                    </div>
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      {(q.options || []).map((opt, i) => {
-                        const label = OPTION_LABELS[i] || String(i);
-                        const selected = myAnswer === label;
-                        const isRight = res && String(res.answer || '').includes(label);
-                        const isMyWrong = res && !res.correct && selected;
-                        // 选项在原 PDF 中是图片（图形推理/几何图/统计图），文本层只有占位符
-                        const isImageOption = typeof opt === 'string' && /图片选项|^[A-D]$/.test(opt.trim());
-
-                        let bg = '#fff';
-                        let border = '#e5e7eb';
-                        if (res) {
-                          if (isRight) { bg = '#f6ffed'; border = '#b7eb8f'; }
-                          if (isMyWrong) { bg = '#fff2f0'; border = '#ffccc7'; }
-                        } else if (selected) { bg = '#eff6ff'; border = '#1D4ED8'; }
-
-                        return (
-                          <div
-                            key={label}
-                            onClick={() => selectOption(q.seq, label)}
-                            style={{
-                              display: 'flex', gap: 10, alignItems: 'flex-start', cursor: result ? 'default' : 'pointer',
-                              padding: '10px 12px', borderRadius: 8, border: `1px solid ${border}`, background: bg,
-                              fontSize: isMobile ? 14 : 15, lineHeight: 1.7, transition: 'all .15s',
-                            }}
-                          >
-                            <span style={{
-                              flexShrink: 0, width: 22, height: 22, borderRadius: '50%',
-                              border: `1px solid ${selected || isRight ? border : '#d9d9d9'}`,
-                              background: selected || isRight ? border : '#fff',
-                              color: selected || isRight ? '#fff' : '#666',
-                              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                              fontSize: 12, fontWeight: 600,
-                            }}>{label}</span>
-                            <span style={{ flex: 1 }}>
-                              {isImageOption ? '（该选项在原试卷中为图片）' : opt}
-                            </span>
-                            {res && isRight && <CheckCircleOutlined style={{ color: '#52c41a', marginTop: 4 }} />}
-                            {isMyWrong && <CloseCircleOutlined style={{ color: '#ff4d4f', marginTop: 4 }} />}
-                          </div>
-                        );
-                      })}
-                    </div>
-
-                    {res && (
-                      <div style={{
-                        marginTop: 12, padding: 12, borderRadius: 8,
-                        background: res.correct ? '#f6ffed' : '#fff7e6',
-                        border: `1px solid ${res.correct ? '#b7eb8f' : '#ffd591'}`,
-                      }}>
-                        <Space size={12} wrap>
-                          <Text strong>答案：{res.answer}</Text>
-                          <Text type="secondary">你的作答：{res.yourAnswer || '未作答'}</Text>
-                        </Space>
-                        {res.explanation && (
-                          <div style={{ marginTop: 6, fontSize: 13, lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>
-                            <Text strong>解析：</Text>{res.explanation}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </Card>
-                );
-              })}
+                  </div>
+                ) : (
+                  grp.questions.map(renderQuestionCard)
+                )
+              ))}
             </div>
           ))}
         </div>
