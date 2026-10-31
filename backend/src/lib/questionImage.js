@@ -42,7 +42,7 @@ const STANDARD_FIGURE_STEM = /从所给的四个选项|选择最合适的一个|
 
 /**
  * @param {object} q 题目行（需 section / stem / options 或 options_json / passage）
- * @param {string[]} [files] 该题已挂载的截图文件名；含 `-m.` 的视为共享材料图
+ * @param {string[]} [files] 该题已挂载的截图文件名；含 `-m` / `-m-2` 之类后缀的视为共享材料图
  * @returns {{needed: boolean, reason: string}}
  */
 function classifyImageNeed(q, files = []) {
@@ -66,7 +66,7 @@ function classifyImageNeed(q, files = []) {
   }
 
   // 2) 挂载了共享材料图（统计图表常年是材料段截图）
-  if (files.some((f) => /-m\./.test(f))) {
+  if (files.some((f) => /-m(-\d+)?\./.test(f))) {
     return { needed: true, reason: 'material-figure' };
   }
 

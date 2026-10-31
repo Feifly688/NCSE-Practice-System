@@ -2,7 +2,10 @@ const path = require('path');
 require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
 const express = require('express');
 const cors = require('cors');
+const cookieParser = require('cookie-parser');
 const { withConnection, closePool } = require('./db');
+const { getAllowedOrigins } = require('./lib/corsConfig');
+const { csrfGuard } = require('./middleware/csrf');
 const authRoutes = require('./routes/auth');
 const questionRoutes = require('./routes/questions');
 const practiceRoutes = require('./routes/practice');
@@ -24,10 +27,8 @@ const isProd = process.env.NODE_ENV === 'production';
 app.set('trust proxy', 1);
 
 // CORS：开发环境允许 localhost:5173；生产环境由 CORS_ORIGIN 指定（前后端不同域时必填）
-const allowedOrigins = (process.env.CORS_ORIGIN || '')
-  .split(',')
-  .map((o) => o.trim())
-  .filter(Boolean);
+// 白名单与 CSRF 校验共用 lib/corsConfig.js，避免两处不一致
+const allowedOrigins = getAllowedOrigins();
 
 if (isProd && allowedOrigins.length === 0) {
   console.warn('WARNING: NODE_ENV=production but CORS_ORIGIN is not set, cross-origin requests will be blocked');
@@ -35,12 +36,18 @@ if (isProd && allowedOrigins.length === 0) {
 
 app.use(
   cors({
-    origin: isProd ? allowedOrigins : ['http://localhost:5173', 'http://127.0.0.1:5173'],
-    credentials: true
+    origin: allowedOrigins,
+    credentials: true // 允许携带 Cookie（跨站部署时 SameSite=None 的 cookie 需要）
   })
 );
 
 app.use(express.json({ limit: '2mb' }));
+
+// Cookie 解析：token 走 httpOnly Cookie（前端 JS 读不到，防 XSS 窃取）
+app.use(cookieParser());
+
+// CSRF 防护：只拦状态变更方法；用 Bearer 头的 API 客户端豁免
+app.use(csrfGuard);
 
 // 请求日志
 app.use((req, _res, next) => {
