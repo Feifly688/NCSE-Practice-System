@@ -30,6 +30,7 @@ JWT_SECRET=<openssl rand -hex 32 生成的随机值>
 JWT_EXPIRES_IN=7d            # 勾选「记住我」时的 token 有效期
 JWT_EXPIRES_SHORT=2h         # 未勾选时的短有效期（公共设备）
 CORS_ORIGIN=https://<前端域名>
+COOKIE_SAMESITE=none          # ★ 前后端不同域时必须 none，同源部署可留 lax
 ADMIN_USERNAME=<管理员用户名>
 ADMIN_PASSWORD=<至少12位随机强密码>
 ```
@@ -38,16 +39,65 @@ ADMIN_PASSWORD=<至少12位随机强密码>
 
 未勾选「记住我」时使用短有效期，登录 2 小时后需重新登录——这是共享电脑场景下的预期行为。
 
-「记住我」同时控制服务端有效期与前端存储位置，二者需一致才形成闭环：
+「记住我」同时控制服务端有效期与 Cookie 属性，二者需一致才形成闭环：
 
-| 登录选择 | 服务端 token 有效期 | 前端存储 | 关闭浏览器后 |
+| 登录选择 | 服务端 token 有效期 | Cookie 属性 | 关闭浏览器后 |
 |---|---|---|---|
-| 勾选「记住我」 | `JWT_EXPIRES_IN`（7d） | `localStorage` | 仍保持登录 |
-| 未勾选 | `JWT_EXPIRES_SHORT`（2h） | `sessionStorage` | 失效，需重新登录 |
+| 勾选「记住我」 | `JWT_EXPIRES_IN`（7d） | 带 `Max-Age` 的持久 Cookie | 仍保持登录 |
+| 未勾选 | `JWT_EXPIRES_SHORT`（2h） | 会话 Cookie（无 `Max-Age`） | 失效，需重新登录 |
 
-前端存储行为集中在 `frontend/src/services/authStorage.js`，所有读写 token 的代码都必须经过该模块，不要再直接操作 `localStorage`/`sessionStorage`。
+### 登录凭据存放方式（重要）
+
+token 保存在服务端下发的 **httpOnly Cookie**（`ncse_token`）里，前端 JS 读不到。
+页面里任何一处 XSS 都偷不走 token——这是从 localStorage 迁到 Cookie 的主要目的。
+前端本地只保存昵称、角色、到期时间等展示信息，**不保存任何凭据**。
+
+由此带来的两个必配项：
+
+- `JWT_SECRET` 必须 ≥32 字符。新版后端启动时强校验，不满足会**直接退出并拒绝启动**
+  （弱密钥可被离线爆破，进而伪造任意用户甚至管理员的 token）。
+  生成方式：`openssl rand -hex 32`。更换密钥会让所有已登录用户需要重新登录。
+- `COOKIE_SAMESITE=none`（前后端不同域时）。`SameSite=Lax` 下浏览器对 `<img>` 这类
+  **跨站子资源请求不会带 Cookie**，表现为「登录后立刻掉线」「题目截图全部 404/401」。
+  `SameSite=none` 强制要求 Secure，生产环境（`NODE_ENV=production`）会自动开启。
+  同源部署保持默认 `lax` 即可，安全性最好。
+
+### CSRF 防护
+
+状态变更接口（POST/PUT/PATCH/DELETE）会校验请求来源：
+
+- 带 `Authorization: Bearer` 头的请求豁免（API 客户端、curl、脚本不受影响）
+- 浏览器请求按 `Origin` 白名单（与 `CORS_ORIGIN` 同一份列表）+ `Sec-Fetch-Site` 判定
+
+默认拒绝「既没有 Origin 也没有 Sec-Fetch-Site」的请求。若客户端很老、不发这两个头，
+可设 `CSRF_TRUST_MISSING_ORIGIN=true` 放行（会略微降低防护强度）。
 
 管理员可改用 `ADMIN_EMAIL`，但 `ADMIN_USERNAME` 与 `ADMIN_EMAIL` 至少需要配置一个。AI 功能需要额外设置 `API_KEY`、`BASE_URL` 和 `MODEL`。
+
+## 日常同步（后端热更新）
+
+代码有更新时，在服务器上执行：
+
+```bash
+cd <项目目录>
+bash deploy/deploy.sh sync-backend
+```
+
+该子命令会依次完成：拉取代码（仅 fast-forward）→ 安装生产依赖 →
+**环境变量体检**（JWT_SECRET 强度、跨站部署的 COOKIE_SAMESITE）→
+**执行数据库迁移**（幂等）→ 重启 PM2 → 检查进程是否 online。
+
+环境变量体检会在配置有问题时**主动中止**并给出修复指引，
+避免出现「服务起不来」或「登录后立刻掉线」这类难排查的现象。
+
+### 数据库迁移
+
+```bash
+cd backend && npm run db:migrate
+```
+
+按文件名顺序执行 `db/migrations/*.sql`，只做增量语句，重复执行安全。
+**切勿在有数据的库上执行 `npm run db:init`**（它会先 DROP DATABASE 清空数据）。
 
 ## 前端配置
 

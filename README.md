@@ -184,7 +184,7 @@ node scripts/hash_password.js '新密码' --apply 用户名或邮箱
 
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
-| `VITE_API_BASE_URL` | API 请求前缀。同源部署用 `/api`；前后端不同域（如 Cloudflare Pages + 独立后端）填后端完整地址，如 `https://api.你的域名` | `/api` |
+| `VITE_API_BASE_URL` | API 请求前缀。同源部署用 `/api`；前后端不同域（如 Cloudflare Pages + 独立后端）填后端完整地址**并带 `/api`**，如 `https://api.你的域名/api` | `/api` |
 
 开发环境通过 Vite 代理转发到 `http://localhost:4000`（在 `vite.config.js` 中配置）。
 
@@ -279,8 +279,9 @@ Cloudflare 的代理层会在远小于此的时间内掐断连接，导致生题
    前提是站点走 HTTPS（Cloudflare Pages 默认就是）。
 4. Cloudflare Pages 项目设置环境变量，然后重新部署：
    ```
-   VITE_API_BASE_URL=https://api.你的域名
+   VITE_API_BASE_URL=https://api.你的域名/api
    ```
+   > ⚠️ 必须带 `/api`。后端所有路由都挂在 `/api/*` 下，漏掉会直接 404。
 
 防火墙建议只开放 22 端口，4000/3306 都不需要对公网开放（Tunnel 走本地回环）。
 

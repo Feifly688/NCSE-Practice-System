@@ -8,6 +8,7 @@
     "dev": "node --watch src/server.js",
     "db:ping": "node scripts/db_ping.js",
     "db:init": "node scripts/db_init.js",
+    "db:migrate": "node scripts/migrate.js",
     "seed:admin": "node scripts/seed_admin.js"
   },
   "dependencies": {

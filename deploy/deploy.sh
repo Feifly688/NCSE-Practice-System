@@ -24,9 +24,8 @@ FRONTEND_DIR="$PROJECT_DIR/frontend"
 # .env 必须放在仓库根目录：backend/src/server.js 与 scripts/*.js 都从根目录读取
 ENV_FILE="$PROJECT_DIR/.env"
 
-# ============ sync-backend: 仅拉取最新代码并热更新后端（日常同步用） ============
+# ============ sync-backend: 拉取最新代码并热更新后端（日常同步用） ============
 # 用法: bash deploy.sh sync-backend
-# 仅做三件事：git pull --ff-only（拒绝分叉/覆盖）→ 安装生产依赖 → pm2 重启。
 # 全量部署（建库/装前端/nginx/管理员）仍用无参数的 `bash deploy.sh`。
 sync_backend() {
   info "同步后端到最新提交（仅 fast-forward，拒绝分叉/覆盖）..."
@@ -37,10 +36,50 @@ sync_backend() {
   cd "$BACKEND_DIR"
   npm install --omit=dev
 
+  # ── 环境变量体检 ─────────────────────────────────────
+  # 新版后端启动时强校验 JWT_SECRET（<32 字符直接退出），
+  # 且登录凭据改用 httpOnly Cookie，跨站部署必须设 COOKIE_SAMESITE=none。
+  # 这两项配错会导致「服务起不来」或「登录后立刻掉线」，在这里提前拦截并给出明确指引。
+  if [ ! -f "$ENV_FILE" ]; then
+    error ".env 不存在：$ENV_FILE（.env 必须放在仓库根目录）"
+  fi
+  # shellcheck disable=SC1090
+  set -a; . "$ENV_FILE"; set +a
+
+  JWT_LEN=${#JWT_SECRET}
+  if [ "$JWT_LEN" -lt 32 ]; then
+    error "JWT_SECRET 强度不足（当前 $JWT_LEN 字符，要求 >=32）。
+       新版后端会拒绝启动。请执行：
+         openssl rand -hex 32
+       然后把结果写入 $ENV_FILE 的 JWT_SECRET= 行。
+       注意：更换密钥会让所有已登录用户需要重新登录。"
+  fi
+
+  # 跨站部署（前端域名与后端域名不同）时必须 SameSite=none，
+  # 否则浏览器对 <img> 等跨站子资源请求不带 Cookie → 登录态失效、题目截图全 401。
+  if [ -n "$CORS_ORIGIN" ] && [ "${COOKIE_SAMESITE:-lax}" != "none" ]; then
+    warn "检测到 CORS_ORIGIN 已配置（跨站部署），但 COOKIE_SAMESITE=${COOKIE_SAMESITE:-lax}"
+    warn "跨站部署必须设为 none，否则浏览器不会带 Cookie，登录态会立刻失效。"
+    warn "请在 $ENV_FILE 中设置：COOKIE_SAMESITE=none"
+    error "为安全起见已中止同步。请修正后重试。"
+  fi
+
+  # ── 数据库迁移 ───────────────────────────────────────
+  # 新增了性能索引等迁移，必须执行；脚本幂等，重复跑安全。
+  info "执行数据库迁移（幂等）..."
+  npm run db:migrate
+
   info "重启后端服务..."
   pm2 restart ncse-backend
 
-  info "后端已同步并重启完成 ($(git rev-parse --short HEAD))"
+  # ── 健康检查 ─────────────────────────────────────────
+  # 重启后等 PM2 起来再探活，避免"重启成功但进程立刻崩溃"被当成成功。
+  sleep 3
+  if pm2 describe ncse-backend 2>/dev/null | grep -q "status *│ *online"; then
+    info "后端已同步并重启完成 ($(git rev-parse --short HEAD))"
+  else
+    error "后端进程未处于 online 状态，请查看日志：pm2 logs ncse-backend --lines 50"
+  fi
   exit 0
 }
 
