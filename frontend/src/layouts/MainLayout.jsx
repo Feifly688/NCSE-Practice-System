@@ -24,9 +24,12 @@ export default function MainLayout() {
   // 路由变化时关闭移动端抽屉
   useEffect(() => { setDrawerOpen(false); }, [location.pathname]);
 
-  const menuItems = [
-    { key: '/', icon: <HomeOutlined />, label: '首页' },
-  ];
+  const menuItems = [];
+  // 「首页」是访客落地页（含登录/注册卡片），登录后由 GuestRoute 守卫重定向到仪表盘，
+  // 此时导航里再放一个「首页」只会让人多点一次再被弹回来 —— 因此仅未登录时显示。
+  if (!isAuthenticated) {
+    menuItems.push({ key: '/', icon: <HomeOutlined />, label: '首页' });
+  }
   if (isAuthenticated) {
     menuItems.push(
       { key: '/dashboard', icon: <DashboardOutlined />, label: '仪表盘' },
@@ -117,7 +120,7 @@ export default function MainLayout() {
             letterSpacing: '0.03em',
             flexShrink: 0,
           }}
-          onClick={() => navigate('/')}
+          onClick={() => navigate(isAuthenticated ? '/dashboard' : '/')}
         >
           {isMobile ? 'NCSE' : 'NCSE 刷题系统'}
         </Typography.Text>

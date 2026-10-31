@@ -47,17 +47,33 @@ export default function Questions() {
     } catch (err) {}
   }
 
-  async function loadQuestions() {
+  /**
+   * 加载题目列表。
+   *
+   * 显式接收目标页码：删除最后一页的最后一条题后，当前页会越界，
+   * 接口返回空列表但 total 仍大于 0 —— 此时回退到仍有数据的页，
+   * 否则页面会一直停在空白表格上。
+   */
+  async function loadQuestions(targetPage) {
+    const p = targetPage || page;
     setLoading(true);
     try {
-      const params = { page, pageSize: 15, sortField, sortOrder };
+      const params = { page: p, pageSize: 15, sortField, sortOrder };
       if (statusFilter) params.status = statusFilter;
       if (qtypeFilter) params.qtype = qtypeFilter;
       if (subjectFilter) params.subjectId = subjectFilter;
       if (keyword) params.keyword = keyword;
       const r = await api.get('/questions', { params });
-      setQuestions(r.data.questions);
-      setTotal(r.data.total);
+      const list = r.data.questions || [];
+      const totalCount = r.data.total || 0;
+      setQuestions(list);
+      setTotal(totalCount);
+      if (list.length === 0 && totalCount > 0 && p > 1) {
+        const back = Math.max(1, Math.ceil(totalCount / 15));
+        setPage(back);
+        return loadQuestions(back);
+      }
+      if (p !== page) setPage(p);
     } catch (err) {
       message.error('加载失败');
     } finally {
@@ -229,6 +245,7 @@ export default function Questions() {
               </th>
               <th style={{ padding: '12px 8px' }}>片段</th>
               <th style={{ padding: '12px 8px' }}>题干</th>
+              <th style={{ width: 120, padding: '12px 8px' }}>来源真题</th>
               <th style={{ width: 50, padding: '12px 8px' }}>答案</th>
               <th style={{ width: 80, padding: '12px 8px', cursor: 'pointer', userSelect: 'none' }} onClick={() => { setSortField('status'); setSortOrder(prev => sortField === 'status' && prev === 'desc' ? 'asc' : 'desc'); setPage(1); }}>
                 状态 {sortField === 'status' && (sortOrder === 'desc' ? '↓' : '↑')}
@@ -241,9 +258,9 @@ export default function Questions() {
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={10} style={{ padding: 40, textAlign: 'center' }}>加载中...</td></tr>
+              <tr><td colSpan={11} style={{ padding: 40, textAlign: 'center' }}>加载中...</td></tr>
             ) : questions.length === 0 ? (
-              <tr><td colSpan={10} style={{ padding: 40, textAlign: 'center' }}>暂无数据</td></tr>
+              <tr><td colSpan={11} style={{ padding: 40, textAlign: 'center' }}>暂无数据</td></tr>
             ) : (
               questions.map(function(q, idx) {
                 return (
@@ -263,6 +280,11 @@ export default function Questions() {
                     <td style={{ padding: '10px 8px' }}>{getDifficultyTag(q.difficulty)}</td>
                     <td style={{ padding: '10px 8px', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{q.passage || '-'}</td>
                     <td style={{ padding: '10px 8px', maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{q.stem}</td>
+                    <td style={{ padding: '10px 8px', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {q.exam_paper_title
+                        ? <Tag color="cyan" title={q.exam_paper_title}>{q.exam_paper_title}</Tag>
+                        : <Text type="secondary">—</Text>}
+                    </td>
                     <td style={{ padding: '10px 8px' }}><Text strong>{q.answer}</Text></td>
                     <td style={{ padding: '10px 8px' }}>{getStatusTag(q.status)}</td>
                     <td style={{ padding: '10px 8px', fontSize: 12 }}>{q.created_at ? new Date(q.created_at).toLocaleString('zh-CN') : '-'}</td>

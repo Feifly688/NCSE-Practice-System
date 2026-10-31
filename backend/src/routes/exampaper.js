@@ -73,9 +73,76 @@ function isPublicUrl(urlStr) {
   }
 }
 
-/** 抓取试卷页正文 */
+/**
+ * 提取作用域内的叶子块文本，每块一行。
+ *
+ * 为什么不用 $(el).text()：cheerio 的 text() 会把所有后代文本**拼成一整块**，
+ * 没有换行分隔。噪声过滤是按行做的，拿一整块去过滤等于完全失效
+ * （首页/登录/分享这些导航文字会整段混进正文）。
+ * 只取叶子块（内部不再含块级子元素）可避免父子重复。
+ */
+function blockTexts($, scope) {
+  const BLOCK = 'p, div, li, td, h1, h2, h3, h4, h5, tr, section, article, dd, dt, blockquote';
+  const out = [];
+  scope.find(BLOCK).each((_, el) => {
+    const $el = $(el);
+    if ($el.find(BLOCK).length > 0) return; // 非叶子块，交给它的子块
+    const t = $el.text().replace(/[\t\u00a0]+/g, ' ').trim();
+    if (t) out.push(t);
+  });
+  return out;
+}
+
+/**
+ * 从 HTML 中提取标题与正文（纯函数，便于单测）。
+ *
+ * 真题站点的正文容器千差万别：人民网/新华社用 <p>，粉笔/中公这类题库站
+ * 常用 <div class="..."> 直接排题（几乎没有 <p>），还有些站点把整页塞进
+ * 一个 div。因此按「优先语义化段落 → 退到正文容器 → 最后才用 body」三级提取，
+ * 并在最后一级把导航/页脚等噪声行剔掉，避免正文里混进大量菜单文字。
+ *
+ * @param {string} html 页面 HTML
+ * @returns {{title: string, text: string}}
+ */
+function extractArticle(html) {
+  const $ = cheerio.load(html);
+  $('script, style, nav, header, footer, iframe, noscript, form, button, aside').remove();
+
+  const title = ($('h1').first().text() || $('title').text() || '').trim();
+
+  // ① 语义化段落：最干净，优先
+  const paragraphs = $('p, div.article p, div.content p')
+    .map((_, el) => $(el).text().trim())
+    .get()
+    .filter((t) => t.length > 5);
+
+  if (paragraphs.length >= 3) {
+    return { title, text: paragraphs.join('\n') };
+  }
+
+  // ② 正文容器：题库站常用 div 排版，取文本量最大的几个容器
+  const containers = $('article, main, [class*="content"], [class*="article"], [class*="detail"], [class*="question"], [id*="content"]')
+    .filter((_, el) => $(el).find('p, div, li, td').length > 0)
+    .map((_, el) => ({ el, text: blockTexts($, $(el)).join('\n') }))
+    .get()
+    .filter((c) => c.text.length > 200)
+    .sort((a, b) => b.text.length - a.text.length);
+  if (containers.length > 0) {
+    const cleaned = cleanCrawledText(containers[0].text);
+    if (cleaned.length >= 50) return { title, text: cleaned };
+  }
+
+  // ③ 兜底：整页文本（按叶子块分行，便于过滤噪声行）
+  const body = cleanCrawledText(blockTexts($, $('body')).join('\n'));
+  return { title, text: body };
+}
+
+/**
+ * 抓取试卷页正文。
+ *
+ * 走 safeGet：DNS 解析层 + 重定向守卫双重拦截内网地址。
+ */
 async function crawlText(url) {
-  // 走 safeGet：DNS 解析层拦截内网 IP（含 169.254.169.254 云元数据），并禁用重定向
   const { data } = await safeGet(url, {
     headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
@@ -84,17 +151,25 @@ async function crawlText(url) {
     },
     timeout: 30000,
   });
-  const $ = cheerio.load(data);
-  $('script, style, nav, header, footer, iframe, noscript').remove();
-  const title = ($('h1').first().text() || $('title').text() || '').trim();
-  const paragraphs = $('p, div.article p, div.content p')
-    .map((_, el) => $(el).text().trim())
-    .get()
-    .filter((t) => t.length > 5);
-  const text = paragraphs.length >= 3
-    ? paragraphs.join('\n')
-    : $('body').text().replace(/\s{2,}/g, '\n').trim();
-  return { title, text };
+  return extractArticle(data);
+}
+
+/**
+ * 清洗抓取到的整页文本：去掉导航、版权、分享等噪声行。
+ *
+ * 不做这一步的话，body.text() 会把菜单、页脚、推荐链接一起拼进来，
+ * 拆题时这些非题目内容会被模型当成题目片段，题号对账随之失准。
+ */
+function cleanCrawledText(raw) {
+  const noise = /(首页|登录|注册|客户端|下载|APP|扫码|分享|收藏|评论|版权|备案|ICP备|举报|联系我们|关于我们|广告|上一篇|下一篇|相关阅读|推荐阅读|返回顶部|网站地图|友情链接|投稿|订阅|打印|字体|繁體|简体)/;
+  return String(raw || '')
+    .split('\n')
+    .map((l) => l.replace(/[ \t\u00a0]+/g, ' ').trim())
+    .filter(Boolean)
+    .filter((l) => l.length > 4)
+    .filter((l) => !noise.test(l) || l.length > 120)
+    .join('\n')
+    .trim();
 }
 
 // ── 拆题任务 ────────────────────────────────────────
@@ -182,6 +257,26 @@ function splitOptionSequence(text) {
 }
 
 /**
+ * 按选项内容判断题型。
+ *
+ * 规则兜底构题原先一律写死「单选题」，导致资料分析、判断题、多选题
+ * 在题库里全被标成单选题（题型筛选一选就漏）。
+ * 这里按选项形态区分：
+ *   · 含 ①②③ 圈号 → 组合表述题，按多选计
+ *   · 5 个及以上选项 → 多选
+ *   · 两个选项且为「正确/错误、对/错」→ 判断题
+ *   · 其余 → 单选
+ */
+function detectQtype(options) {
+  const opts = (Array.isArray(options) ? options : []).map((o) => String(o).trim()).filter(Boolean);
+  if (opts.length >= 2 && opts.some((o) => /[①②③④⑤⑥⑦⑧⑨⑩]/.test(o))) return '多选题';
+  if (opts.length >= 5) return '多选题';
+  const judgeOption = /^(正确|错误|对|错|√|×|是|否|正确项|错误项)$/;
+  if (opts.length === 2 && opts.every((o) => judgeOption.test(o))) return '判断题';
+  return '单选题';
+}
+
+/**
  * 规则兜底构题：从原文题号块直接提取题目（不调 AI）。
  *
  * 为什么需要：模型对三类题持续漏拆，且补拆也补不回来 ——
@@ -210,11 +305,9 @@ function buildQuestionFromBlock(info, num) {
   if (finalStem.length < 5) return null;
   const combo = normalizeQuestionStem({ stem: finalStem, options: options.length ? options : [] });
   const finalOptions = combo.options.length ? combo.options : ['（图片选项）', '（图片选项）', '（图片选项）', '（图片选项）'];
-  // 组合表述题的选项是 ①②③ 这类圈号（政治理论常见），按多选计
-  const isCombo = finalOptions.some((o) => /[①②③④⑤⑥⑦⑧⑨⑩]/.test(String(o)));
   return {
     module: info.section || '未分区',
-    qtype: isCombo ? '多选题' : '单选题',
+    qtype: detectQtype(finalOptions),
     passage,
     stem: combo.stem.slice(0, 2000),
     options: finalOptions,
@@ -889,33 +982,77 @@ router.post('/upload', upload.single('file'), asyncHandler(async (req, res) => {
 }));
 
 // ── 2. 联网爬取真题 ───────────────────────────────────
-router.post('/crawl', asyncHandler(async (req, res) => {
-  const { url, title, year } = req.body;
+// 分两步：先 /crawl/preview 抓取并预览，确认无误再 /crawl 入库。
+// 直接一步到底的问题是：抓取失败或抓到了错误页面时，试卷已经落库并触发了
+// AI 拆题，库里留下一条没法用的记录，管理员还得手动删。
+router.post('/crawl/preview', asyncHandler(async (req, res) => {
+  const { url } = req.body;
   if (!url || !isPublicUrl(url)) return res.status(400).json({ error: '无效的或非公网的 URL' });
 
   let crawled;
   try {
     crawled = await crawlText(url);
   } catch (err) {
-    return res.status(400).json({ error: '抓取失败：' + err.message });
+    // 把失败原因分类说明，管理员才知道是反爬、重定向还是网络问题
+    const msg = err.message || '';
+    let hint = '抓取失败';
+    if (/SSRF|内网|保留地址/.test(msg)) hint = '该地址被安全策略拒绝（内网或保留地址不可抓取）';
+    else if (/status code 4\d\d/.test(msg)) hint = '目标站点拒绝访问（可能需要登录或有反爬策略）';
+    else if (/status code 5\d\d/.test(msg)) hint = '目标站点返回服务器错误';
+    else if (/timeout|ECONN|ENOTFOUND/.test(msg)) hint = '无法连接目标站点（超时或域名解析失败）';
+    else if (/maxRedirects/.test(msg)) hint = '重定向次数过多';
+    return res.status(400).json({ error: hint, detail: msg.slice(0, 200) });
   }
-  if (!crawled.text || crawled.text.length < 50) return res.status(400).json({ error: '抓取内容为空' });
 
-  const paperTitle = String(title || crawled.title || '').trim() || '未命名真题';
+  if (!crawled.text || crawled.text.length < 50) {
+    return res.status(400).json({
+      error: '抓取到的正文为空或过短',
+      detail: `仅取到 ${crawled.text ? crawled.text.length : 0} 字符。该页面可能是 JS 渲染（需浏览器）或未包含试题内容。`,
+    });
+  }
+
+  return res.json({
+    title: crawled.title,
+    text: crawled.text,
+    textLength: crawled.text.length,
+    preview: crawled.text.slice(0, 1500),
+  });
+}));
+
+router.post('/crawl', asyncHandler(async (req, res) => {
+  const { url, title, year, text } = req.body;
+  if (!url || !isPublicUrl(url)) return res.status(400).json({ error: '无效的或非公网的 URL' });
+
+  // 预览步骤已经拿到正文就直接用，避免重复抓取（对方站点可能限流）
+  let paperText = typeof text === 'string' ? text.trim() : '';
+  let pageTitle = '';
+  if (!paperText) {
+    let crawled;
+    try {
+      crawled = await crawlText(url);
+    } catch (err) {
+      return res.status(400).json({ error: '抓取失败：' + err.message });
+    }
+    if (!crawled.text || crawled.text.length < 50) return res.status(400).json({ error: '抓取内容为空' });
+    paperText = crawled.text;
+    pageTitle = crawled.title;
+  }
+
+  const paperTitle = String(title || pageTitle || '').trim() || '未命名真题';
   const id = await ingestPaper({
     title: paperTitle,
     year: Number(year) || null,
     source: new URL(url).hostname,
     sourceUrl: url,
     origin: 'crawl',
-    text: crawled.text,
+    text: paperText,
     userId: req.user.userId,
   });
 
   return res.json({
     id,
     title: paperTitle,
-    textLength: crawled.text.length,
+    textLength: paperText.length,
     parse_status: 'pending',
     message: '已保存整卷并开始 AI 拆题',
   });
@@ -925,8 +1062,9 @@ router.post('/crawl', asyncHandler(async (req, res) => {
 router.get('/:id/parse-status', asyncHandler(async (req, res) => {
   const paper = await withConnection(async (conn) => {
     const [rows] = await conn.query(
-      `SELECT id, title, parse_status, parse_error, parsed_count, last_parse_at, status, question_count
-       FROM exam_paper WHERE id = ?`,
+      `SELECT ep.id, ep.title, ep.parse_status, ep.parse_error, ep.parsed_count, ep.last_parse_at, ep.status,
+              (SELECT COUNT(*) FROM question q WHERE q.exam_paper_id = ep.id) AS question_count
+       FROM exam_paper ep WHERE ep.id = ?`,
       [req.params.id]
     );
     return rows[0] || null;
@@ -1142,9 +1280,15 @@ router.post('/:id/confirm', asyncHandler(async (req, res) => {
         }
       }
 
+      // question_count 直接写成实际入库行数，不再累加：
+      // 累加语义下重复入库（第二次 inserted=0）会让计数虚高，
+      // 而题库里单独删题又只会让计数偏高 —— 两个方向都会与实际不符。
       await conn.query(
-        `UPDATE exam_paper SET question_count = question_count + ?, status = 'parsed' WHERE id = ?`,
-        [inserted, paper.id]
+        `UPDATE exam_paper
+         SET question_count = (SELECT COUNT(*) FROM question WHERE exam_paper_id = ?),
+             status = 'parsed'
+         WHERE id = ?`,
+        [paper.id, paper.id]
       );
       await conn.commit();
     } catch (err) {
@@ -1166,10 +1310,14 @@ router.get('/', asyncHandler(async (req, res) => {
 
   const data = await withConnection(async (conn) => {
     const [countRows] = await conn.query('SELECT COUNT(*) AS total FROM exam_paper');
+    // question_count 用实时子查询，不用 exam_paper 表里的累加字段。
+    // 累加字段只增不减：题库里单独删题 / 批量禁用 / 重复入库都会让它与实际值脱节，
+    // 表现为「真题列表显示已入库 30 题，题目管理里却只有 28 题」这种脏数据。
     const [rows] = await conn.query(
-      `SELECT id, title, year, source, source_url, file_name, origin, question_count,
-              status, parse_status, parse_error, parsed_count, last_parse_at, created_at
-       FROM exam_paper ORDER BY id DESC LIMIT ? OFFSET ?`,
+      `SELECT ep.id, ep.title, ep.year, ep.source, ep.source_url, ep.file_name, ep.origin,
+              (SELECT COUNT(*) FROM question q WHERE q.exam_paper_id = ep.id) AS question_count,
+              ep.status, ep.parse_status, ep.parse_error, ep.parsed_count, ep.last_parse_at, ep.created_at
+       FROM exam_paper ep ORDER BY ep.id DESC LIMIT ? OFFSET ?`,
       [pageSize, offset]
     );
     return { papers: rows, total: countRows[0].total };
@@ -1193,7 +1341,11 @@ router.get('/:id', asyncHandler(async (req, res) => {
       `SELECT seq, section, qtype, stem FROM exam_paper_question WHERE exam_paper_id = ? ORDER BY seq`,
       [paper.id]
     );
-    return { paper, questions: qs, paperQuestions: epq };
+    // question_count 同样按实际入库行数统计，与列表页保持一致（见列表接口注释）
+    const [cnt] = await conn.query(
+      'SELECT COUNT(*) AS c FROM question WHERE exam_paper_id = ?', [paper.id]
+    );
+    return { paper: { ...paper, question_count: cnt[0].c }, questions: qs, paperQuestions: epq };
   });
   if (!data) return res.status(404).json({ error: '试卷不存在' });
   return res.json(data);
@@ -1235,4 +1387,4 @@ module.exports = router;
 // 用于不便走管理端接口时（如接口鉴权异常）重跑拆题任务
 module.exports.runParseJob = runParseJob;
 // 调试用：把收口相关的内部函数暴露出来，便于在服务器上复现某一步的取舍
-module.exports.__debug = { reconcileQuestions, buildQuestionFromBlock, splitMaterial, splitOptionSequence };
+module.exports.__debug = { reconcileQuestions, buildQuestionFromBlock, splitMaterial, splitOptionSequence, crawlText, extractArticle, cleanCrawledText, detectQtype };

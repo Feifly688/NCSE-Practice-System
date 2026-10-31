@@ -82,8 +82,14 @@ router.get('/', asyncHandler(async (req, res) => {
     if (keyword) { const escaped = keyword.replace(/[%_]/g, '\\$&'); const like = '%' + escaped + '%'; whereClause += ' AND (q.stem LIKE ? OR q.passage LIKE ? OR q.explanation LIKE ?)'; params.push(like, like, like); }
 
     const countQuery = 'SELECT COUNT(*) AS total FROM question q' + whereClause;
-    const query = `SELECT q.*, s.name AS subject_name, a.title AS article_title
-      FROM question q LEFT JOIN subject s ON q.subject_id = s.id LEFT JOIN article a ON q.source_article_id = a.id
+    // 关联来源真题：题目管理页要能看出每道题来自哪份整卷，
+    // 否则「真题列表显示已入库 N 题」与「题目列表里的 N 道题」无法互相印证。
+    const query = `SELECT q.*, s.name AS subject_name, a.title AS article_title,
+        ep.title AS exam_paper_title
+      FROM question q
+      LEFT JOIN subject s ON q.subject_id = s.id
+      LEFT JOIN article a ON q.source_article_id = a.id
+      LEFT JOIN exam_paper ep ON q.exam_paper_id = ep.id
       ${whereClause} ORDER BY q.${actualSort} ${sortOrder} LIMIT ? OFFSET ?`;
 
     const [countRows] = await conn.query(countQuery, params);

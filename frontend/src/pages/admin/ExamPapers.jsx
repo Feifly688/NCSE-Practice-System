@@ -42,6 +42,8 @@ export default function ExamPapers() {
   const [crawlForm] = Form.useForm();
   const [fileList, setFileList] = useState([]);
   const [submitting, setSubmitting] = useState(false);
+  // 联网爬取的预览结果：{ title, text, textLength, preview, url, year }
+  const [crawlResult, setCrawlResult] = useState(null);
 
   // 拆分与入库
   const [parseOpen, setParseOpen] = useState(false);
@@ -60,12 +62,28 @@ export default function ExamPapers() {
   useEffect(() => { loadPapers(); }, [page]);
   useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
 
-  async function loadPapers() {
+  /**
+   * 加载真题列表。
+   *
+   * 显式接收目标页码：原先直接调 loadPapers() 读的是闭包里的 page，
+   * 而 setPage(1) 是异步的 —— 在第 3 页点「添加真题」时，
+   * setPage(1) + loadPapers() 会先用旧 page=3 请求一次，
+   * 再由 useEffect 用 page=1 请求一次，中间还会闪一下错误数据。
+   */
+  async function loadPapers(targetPage) {
+    const p = targetPage || page;
     setLoading(true);
     try {
-      const r = await api.get('/admin/exam-papers', { params: { page, pageSize: 20 } });
+      const r = await api.get('/admin/exam-papers', { params: { page: p, pageSize: 20 } });
       setPapers(r.data.papers || []);
       setTotal(r.data.total || 0);
+      // 删到当前页空了（页码越界）时回退一页，避免列表空白
+      if ((r.data.papers || []).length === 0 && r.data.total > 0 && p > 1) {
+        const back = Math.max(1, Math.ceil(r.data.total / 20));
+        setPage(back);
+        return loadPapers(back);
+      }
+      if (p !== page) setPage(p);
     } catch (err) {
       message.error('加载真题列表失败');
     } finally {
@@ -78,6 +96,7 @@ export default function ExamPapers() {
     uploadForm.resetFields();
     crawlForm.resetFields();
     setFileList([]);
+    setCrawlResult(null);
     setAddOpen(true);
   }
 
@@ -98,8 +117,7 @@ export default function ExamPapers() {
       const w = r.data.warning ? `（${r.data.warning}）` : '';
       message.success(`上传成功：提取 ${r.data.textLength} 字${r.data.method === 'ocr-vision' ? '（OCR）' : ''}，已开始 AI 拆题${w}`);
       setAddOpen(false);
-      setPage(1);
-      loadPapers();
+      await loadPapers(1);
     } catch (err) {
       const d = err.response?.data;
       message.error({
@@ -112,18 +130,52 @@ export default function ExamPapers() {
     }
   }
 
+  /**
+   * 联网爬取：第一步只抓取并预览，确认内容无误后再入库。
+   *
+   * 之前是一步到底（抓取即入库并触发拆题），抓取失败或抓错页面时，
+   * 库里已经留下一条没用的试卷记录，还得手动删。
+   */
   async function submitCrawl() {
     const values = await crawlForm.validateFields().catch(() => null);
     if (!values) return;
     setSubmitting(true);
+    setCrawlResult(null);
     try {
-      const r = await api.post('/admin/exam-papers/crawl', values, { timeout: 120000 });
-      message.success(`抓取成功：提取 ${r.data.textLength} 字，已开始 AI 拆题`);
-      setAddOpen(false);
-      setPage(1);
-      loadPapers();
+      const r = await api.post('/admin/exam-papers/crawl/preview', { url: values.url }, { timeout: 60000 });
+      setCrawlResult({ ...r.data, url: values.url, year: values.year });
+      // 网页标题自动填进标题框（用户填了就不覆盖）
+      if (!values.title && r.data.title) {
+        crawlForm.setFieldsValue({ title: r.data.title });
+      }
+      message.success(`抓取成功：提取 ${r.data.textLength} 字，请确认下方内容后再导入`);
     } catch (err) {
-      message.error({ content: err.response?.data?.error || '抓取失败', duration: 5 });
+      const d = err.response?.data;
+      message.error({ content: d?.error || '抓取失败', duration: 6 });
+      if (d?.detail) console.warn('抓取失败详情:', d.detail);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  /** 确认导入：把预览到的正文交给后端入库并触发拆题 */
+  async function confirmCrawl() {
+    if (!crawlResult) return;
+    setSubmitting(true);
+    try {
+      const r = await api.post('/admin/exam-papers/crawl', {
+        url: crawlResult.url,
+        title: crawlForm.getFieldValue('title'),
+        year: crawlForm.getFieldValue('year'),
+        text: crawlResult.text,
+      }, { timeout: 120000 });
+      message.success(`导入成功：提取 ${r.data.textLength} 字，已开始 AI 拆题`);
+      setAddOpen(false);
+      setCrawlResult(null);
+      crawlForm.resetFields();
+      await loadPapers(1);
+    } catch (err) {
+      message.error({ content: err.response?.data?.error || '导入失败', duration: 6 });
     } finally {
       setSubmitting(false);
     }
@@ -202,7 +254,9 @@ export default function ExamPapers() {
       const r = await api.post(`/admin/exam-papers/${currentPaper.id}/confirm`, { questions: toSave });
       setSaveResult(r.data);
       message.success('入库完成');
-      loadPapers();
+      // 入库后：真题列表的「已入库」计数与题目管理页的内容都要跟着变
+      await loadPapers();
+      await refreshDetailIfOpen();
     } catch (err) {
       message.error(err.response?.data?.error || '入库失败');
     } finally {
@@ -218,6 +272,18 @@ export default function ExamPapers() {
     } catch { message.error('加载详情失败'); }
   }
 
+  /**
+   * 详情弹窗开着时，数据可能已被别的操作改动（拆题入库、删除试卷）。
+   * 详情是入库时刻的快照，不刷新就会与列表页对不上 —— 这里在相关操作后重新拉一次。
+   */
+  async function refreshDetailIfOpen() {
+    if (!detailOpen || !detail?.paper?.id) return;
+    try {
+      const r = await api.get(`/admin/exam-papers/${detail.paper.id}`);
+      setDetail(r.data);
+    } catch { /* 详情刷新失败不影响主流程 */ }
+  }
+
   function removePaper(record) {
     Modal.confirm({
       title: '确认删除试卷',
@@ -227,7 +293,13 @@ export default function ExamPapers() {
         try {
           await api.delete(`/admin/exam-papers/${record.id}`);
           message.success('已删除');
-          loadPapers();
+          // 删完后当前页可能越界，loadPapers 内部会回退到有数据的页
+          await loadPapers();
+          // 详情弹窗若正开着这份卷子，直接关掉（它已被删除）
+          if (detail?.paper?.id === record.id) {
+            setDetailOpen(false);
+            setDetail(null);
+          }
         } catch { message.error('删除失败'); }
       },
     });
@@ -254,7 +326,9 @@ export default function ExamPapers() {
     },
     {
       title: '已入库', dataIndex: 'question_count', width: 90,
-      render: (v) => (v > 0 ? <Tag color="green">{v} 题</Tag> : <Tag>未入库</Tag>),
+      render: (v) => (v > 0
+        ? <Tag color="green" title="该真题已入库题库的题目数（含待审核与已禁用状态）">{v} 题</Tag>
+        : <Tag>未入库</Tag>),
     },
     { title: '创建时间', dataIndex: 'created_at', width: 160, render: (v) => (v ? new Date(v).toLocaleString('zh-CN') : '-') },
     {
@@ -398,9 +472,34 @@ export default function ExamPapers() {
                   </Form.Item>
                   <Alert type="warning" showIcon style={{ marginBottom: 12 }}
                     message="仅支持公网可访问页面，内网地址会被拒绝（SSRF 防护）" />
-                  <Button type="primary" block loading={submitting} onClick={submitCrawl}>
-                    抓取并自动拆题
-                  </Button>
+
+                  {crawlResult ? (
+                    <>
+                      <Alert type="success" showIcon style={{ marginBottom: 12 }}
+                        message={`已抓取 ${crawlResult.textLength} 字，请确认下方内容无误后再导入`}
+                        description="导入后会自动开始 AI 拆题；若下方内容不是试题（如抓到了导航页），请不要导入。" />
+                      <div style={{
+                        maxHeight: 180, overflow: 'auto', padding: 12, marginBottom: 12,
+                        background: '#fafafa', borderRadius: 8, whiteSpace: 'pre-wrap',
+                        fontSize: 12, lineHeight: 1.7, border: '1px solid #f0f0f0',
+                      }}>
+                        {crawlResult.preview}
+                        {crawlResult.textLength > crawlResult.preview.length && '\n……（内容已截断，导入的是完整正文）'}
+                      </div>
+                      <Space style={{ width: '100%' }}>
+                        <Button type="primary" block loading={submitting} onClick={confirmCrawl}>
+                          确认导入并拆题
+                        </Button>
+                        <Button block disabled={submitting} onClick={() => setCrawlResult(null)}>
+                          重新抓取
+                        </Button>
+                      </Space>
+                    </>
+                  ) : (
+                    <Button type="primary" block loading={submitting} onClick={submitCrawl}>
+                      抓取预览
+                    </Button>
+                  )}
                 </Form>
               ),
             },

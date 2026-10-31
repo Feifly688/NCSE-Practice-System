@@ -14,6 +14,9 @@
 const { callChat, extractJson } = require('./aiClient');
 const { buildFingerprint, findDuplicate } = require('./questionDedupe');
 const { QUESTION_MARKERS } = require('./paperText');
+// 复用 questionStem 的选项切分（模型把选项写成一个字符串时需要），
+// 依赖方向 questionStem → questionDedupe，无循环引用
+const { splitOptionSequence } = require('./questionStem');
 
 const SYSTEM_PROMPT = `你是公考真题数字化专家，负责把试卷文本切分为结构化题目。
 
@@ -233,15 +236,25 @@ function splitIntoChunks(text, opts = {}) {
   });
 }
 
-/** 规范答案：从 "A"、"A."、"答案A"、"AB" 中提取字母 */
+/**
+ * 规范答案：从 "A"、"A."、"答案A"、"AB" 中提取字母。
+ *
+ * @param {*} v 模型给出的答案
+ * @param {number} optionCount 选项个数
+ * @returns {string|null} 合法答案字母；**超出选项范围时返回 null**。
+ *   原实现在这种情况下回退成第一个字母，会造出一个指向不存在选项的答案
+ *   （页面显示「正确答案 C」但只有 A/B 两项）—— 字段直接错位。
+ */
 function normalizeAnswer(v, optionCount) {
-  const letters = String(v || '').toUpperCase().match(/[A-D]/g) || [];
+  const letters = String(v || '').toUpperCase().match(/[A-F]/g) || [];
   if (letters.length === 0) return null;
+  if (!optionCount) return letters.join('');
   const valid = letters.filter((l) => {
     const idx = l.charCodeAt(0) - 65;
-    return optionCount ? idx < optionCount : true;
+    return idx < optionCount;
   });
-  return valid.length > 0 ? valid.join('') : letters[0];
+  // 越界即判定为无效答案，交由上层标记 needAnswer 走人工补充
+  return valid.length > 0 ? valid.join('') : null;
 }
 
 /**
@@ -258,6 +271,96 @@ function cleanStem(stem) {
     .slice(0, 2000);
 }
 
+/** 图片选项占位符 */
+const IMG_OPTION_PLACEHOLDER = '（图片选项）';
+
+/**
+ * 清洗模型输出的选项数组。
+ *
+ * 关键点：**保留位置**。原实现用 filter 丢掉空选项，结果是
+ *   模型输出 ["A. 甲", "B. 乙", "C. ", "D. "]、答案 "C"
+ *   → 清洗后只剩 ["甲","乙"]，"C" 变成越界字母
+ *   → 页面把「甲」渲染成 A、「乙」渲染成 B，而正确答案标着 C
+ * 也就是**选项内容整体错位一格**。这里改为：空项就地补占位符，
+ * 数组长度不变，字母与选项始终一一对应。
+ *
+ * 同时兼容模型把选项写成一个字符串的情况（"A. 甲 B. 乙 C. 丙 D. 丁"）——
+ * 这种输出原先会被当成空数组，四个选项全丢。
+ *
+ * @param {*} raw 模型输出的 options
+ * @returns {string[]} 与字母标签严格对应的选项数组
+ */
+function cleanOptions(raw) {
+  let list = raw;
+  if (typeof list === 'string') {
+    // 字符串形式的选项：按 A./B./C./D. 切分（复用 questionStem 的实现）
+    const parsed = splitOptionSequence(list);
+    list = parsed.options || [];
+  }
+  if (!Array.isArray(list)) return [];
+
+  const cleaned = list.map((o) => {
+    const s = String(o == null ? '' : o).trim();
+    if (!s) return '';
+    // 剥掉模型自己加的字母前缀（"A. 甲" → "甲"；"C. " 这样的空项 → 空）。
+    // 只要以「字母 + 点号」开头就剥：内容为空时说明该选项本身没有文字
+    // （模型输出 "C. " 表示 C 项是图片），此时必须留空并占位，
+    // 否则 "C." 会被当成选项文字，字母与内容又对不上了。
+    const m = s.match(/^([A-Da-d])\s*[.、．)）]\s*([\s\S]*)$/);
+    if (m) return m[2].trim();
+    return s;
+  });
+
+  // 尾部空项直接截掉（模型常多给几个空槽），但中间/首部的空项必须占位保位
+  while (cleaned.length && !cleaned[cleaned.length - 1]) cleaned.pop();
+  // 全部为空 → 没有有效选项
+  if (!cleaned.some((o) => o)) return [];
+
+  // 空项补占位符，保持下标与字母标签对应
+  return cleaned.map((o) => (o ? o : IMG_OPTION_PLACEHOLDER));
+}
+
+/** 选项是否全部为图片占位（图形推理/立体/分类题在原卷里选项是图形） */
+function allPlaceholderOptions(options) {
+  const opts = Array.isArray(options) ? options : [];
+  return opts.length >= 2 && opts.every((o) => String(o).trim() === IMG_OPTION_PLACEHOLDER);
+}
+
+/**
+ * 题型归一化。
+ *
+ * 模型输出的题型五花八门："单选题"/"单项选择题"/"选择最佳答案"，
+ * 不归一化会让题库里的题型筛选漏题。
+ * 但要小心别误伤题库模式的细分题型（意图判断 / 主旨概括 / 判断推理 …）——
+ * 它们不是"判断题"，只是名字里带"判断"二字，因此只匹配完整词形。
+ *
+ * @param {*} raw 模型输出的题型
+ * @returns {string|null}
+ */
+function normalizeQtype(raw) {
+  const t = String(raw || '').trim();
+  if (!t) return null;
+  if (/多选|不定项|多项选择/.test(t)) return '多选题';
+  if (/^判断题$|^对错题$|判断正误/.test(t)) return '判断题';
+  if (/^单选题$|单项选择|单选/.test(t)) return '单选题';
+  return t; // 意图判断 / 主旨概括 / 判断推理 等题库题型原样保留
+}
+
+/**
+ * 清洗 AI 报错信息，去掉上游响应体。
+ *
+ * callChat 抛出的 message 里带着上游返回的 JSON（可能含账号、配额、接口地址），
+ * 这些内容会经 parse_error 显示到管理端页面，不适合原样回显。
+ * 只保留「哪一步失败 + 状态码」即可定位问题。
+ */
+function sanitizeAiError(msg) {
+  const s = String(msg || '').trim();
+  if (!s) return '未知错误';
+  const code = (s.match(/HTTP\s*(\d{3})/) || [])[1];
+  const brief = s.split('：')[0].split(':')[0].slice(0, 50);
+  return code ? `${brief}（HTTP ${code}）` : brief;
+}
+
 /**
  * 清洗模型输出的一道题。
  *
@@ -270,22 +373,24 @@ function cleanStem(stem) {
 function normalizeQuestion(q, opts = {}) {
   const keepIncomplete = !!opts.keepIncomplete;
   if (!q || !q.stem) return null;
-  const options = (Array.isArray(q.options) ? q.options : [])
-    .map((o) => String(o).replace(/^[A-D][.、．)\s]*/i, '').trim())
-    .filter((o) => o.length > 0);
+  const options = cleanOptions(q.options);
+  const isImgOpts = allPlaceholderOptions(options);
+  const qtype = normalizeQtype(q.qtype) || '单选题';
 
   const answer = normalizeAnswer(q.answer, options.length);
 
-  if (options.length < 2) {
+  if (options.length < 2 || (isImgOpts && !answer)) {
     // 选项在原文中是图片（图形推理/几何图/统计图）：保留题目，选项用占位符
     if (!keepIncomplete) return null;
     return {
       module: normalizeModule(q.module),
-      qtype: String(q.qtype || '').trim() || '单选题',
+      qtype,
       difficulty: 3,
       passage: String(q.passage || '').trim() || null,
       stem: cleanStem(q.stem),
-      options: ['（图片选项）', '（图片选项）', '（图片选项）', '（图片选项）'],
+      options: options.length >= 2
+        ? options
+        : [IMG_OPTION_PLACEHOLDER, IMG_OPTION_PLACEHOLDER, IMG_OPTION_PLACEHOLDER, IMG_OPTION_PLACEHOLDER],
       answer: answer || null,
       explanation: String(q.explanation || '').trim().slice(0, 1000) || null,
       hasImageOptions: true,
@@ -294,11 +399,11 @@ function normalizeQuestion(q, opts = {}) {
   }
 
   if (!answer) {
-    // 模型没能给出答案：拆题阶段保留（待人工补答案），入库阶段丢弃
+    // 模型没能给出答案（或给出的字母超出了选项范围）：拆题阶段保留（待人工补答案），入库阶段丢弃
     if (!keepIncomplete) return null;
     return {
       module: normalizeModule(q.module),
-      qtype: String(q.qtype || '').trim() || '单选题',
+      qtype,
       difficulty: 3,
       passage: String(q.passage || '').trim() || null,
       stem: cleanStem(q.stem),
@@ -315,13 +420,14 @@ function normalizeQuestion(q, opts = {}) {
 
   return {
     module: normalizeModule(q.module),
-    qtype: String(q.qtype || '').trim() || '单选题',
+    qtype,
     difficulty,
     passage: String(q.passage || '').trim() || null,
     stem: cleanStem(q.stem),
     options: options.slice(0, 6),
     answer,
     explanation: String(q.explanation || '').trim().slice(0, 1000) || null,
+    hasImageOptions: isImgOpts || undefined,
   };
 }
 
@@ -438,7 +544,8 @@ async function parseChunk(chunk, opts = {}) {
     try {
       res = await callChat({ system: SYSTEM_PROMPT, user, maxTokens, timeout: opts.timeout });
     } catch (err) {
-      lastError = 'AI 调用失败：' + err.message;
+      // 完整错误留在日志里供排查，写入结果（会显示到管理端）的则脱敏
+      lastError = 'AI 调用失败：' + sanitizeAiError(err.message);
       console.warn(`[paperParser] 片段调用失败（${err.message}），第 ${attempts} 次`);
       continue;
     }
@@ -580,6 +687,9 @@ module.exports = {
   splitHalf,
   normalizeQuestion,
   normalizeAnswer,
+  normalizeQtype,
+  cleanOptions,
+  sanitizeAiError,
   normalizeModule,
   isCombinationOptions,
   mergeFragments,

@@ -125,7 +125,45 @@ function assertPublicUrl(urlStr, allowHosts) {
 }
 
 /**
- * 受保护的 GET：协议校验 + 解析层拦截 + 禁用重定向。
+ * 重定向守卫：在 follow-redirects 每次跳转前同步校验新目标。
+ *
+ * 为什么 lookup 不够：Node 的 http 客户端**只对域名调用 dns.lookup**，
+ * 目标是 IP 字面量（如 http://169.254.169.254/）时直接建连，压根不经过 lookup。
+ * 实测「公网地址 302 → 127.0.0.1」会被绕过并拿到内网响应。
+ *
+ * 因此分两层拦截：
+ *   ① beforeRedirect（同步）：检查协议、IP 字面量是否属于内网/保留段、
+ *      localhost/.internal/.local 等特殊域名 —— 抛错即中断跳转
+ *   ② lookup（异步）：覆盖「域名解析到内网」与 DNS rebinding，
+ *      对 IP 字面量无效但对域名有效，与 ① 互补
+ */
+function createRedirectGuard() {
+  return function beforeRedirect(options) {
+    const target = options && (options.href || options.path);
+    if (!target) return;
+    try {
+      assertPublicUrl(target);
+    } catch (err) {
+      const e = new Error('SSRF 拦截：重定向目标 ' + target + ' 不被允许（' + err.message + '）');
+      e.isSsrfBlock = true;
+      throw e;
+    }
+  };
+}
+
+/**
+ * 受保护的 GET：协议校验 + 解析层拦截 + 有限跟随重定向。
+ *
+ * 【为什么可以跟随重定向】
+ * 最初这里写的是 maxRedirects: 0（完全禁止跳转），结果真实站点几乎全挂：
+ * http://news.cn 会 301 到 https://www.news.cn、http://example.com 会跳到带
+ * www 的域名、多数站点会去掉末尾斜杠 —— 不跟随就只会拿到一个空的跳转页，
+ * 正文长度 0，表现为「抓取结果始终为空」。
+ *
+ * 允许跳转不削弱 SSRF 防护，因为跳转链上有两道闸：
+ *   · beforeRedirect：同步校验每个跳转目标的协议与 IP 字面量
+ *   · lookup：每一跳重新解析域名并判定实际 IP（覆盖 DNS rebinding）
+ *
  * @param {string} url
  * @param {object} opts axios 选项（timeout / headers 等）；maxRedirects 与 lookup 会被强制覆盖
  */
@@ -135,11 +173,13 @@ async function safeGet(url, opts = {}) {
   return axios.get(url, {
     ...rest,
     lookup: createSafeLookup(),
-    // 不跟随重定向：否则外部站点可 302 把请求带进内网
-    maxRedirects: 0,
-    // 不代理，避免绕过本地判定
+    // 允许有限次跳转（http→https、加 www、去尾斜杠等常规跳转）
+    maxRedirects: Number(rest.maxRedirects ?? 5),
+    // 每一跳都过 IP 字面量与协议校验
+    beforeRedirect: createRedirectGuard(),
+    // 不走代理，避免代理绕过本地判定
     proxy: false,
   });
 }
 
-module.exports = { isBlockedIp, createSafeLookup, assertPublicUrl, safeGet };
+module.exports = { isBlockedIp, createSafeLookup, createRedirectGuard, assertPublicUrl, safeGet };
