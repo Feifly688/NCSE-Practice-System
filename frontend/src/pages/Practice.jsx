@@ -94,16 +94,33 @@ export default function Practice() {
     return () => { if (autoSaveRef.current) clearInterval(autoSaveRef.current); };
   }, [step, sessionId]);
 
-  // 页面离开保护 — 使用 sendBeacon 确保请求能发出
+  // 页面离开保护 — 确保答题进度能在页面关闭/刷新前发出去
   useEffect(() => {
     function handleBeforeUnload(e) {
       if (step === 'doing' && sessionId) {
-        const blob = new Blob([JSON.stringify({
+        const payload = JSON.stringify({
           session_id: sessionId,
           answers: answersRef.current,
           elapsed_sec: elapsedRef.current
-        })], { type: 'application/json' });
-        navigator.sendBeacon('/api/practice/save-progress', blob);
+        });
+        // 为什么不用 navigator.sendBeacon：
+        //   beacon 走的是 no-cors 简单请求，跨域时浏览器**不会带上凭据**，
+        //   前后端不同域部署时进度根本存不进去（后端会收到未登录的 401）。
+        //   fetch + keepalive 能带 credentials，且浏览器保证在页面卸载时把请求发完。
+        const url = `${api.defaults.baseURL || '/api'}/practice/save-progress`;
+        try {
+          fetch(url, {
+            method: 'POST',
+            body: payload,
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            keepalive: true,
+          }).catch(() => { /* 页面正在卸载，失败无法处理 */ });
+        } catch (_) {
+          // keepalive 不被支持时退回 beacon（同源场景仍可用）
+          const blob = new Blob([payload], { type: 'application/json' });
+          navigator.sendBeacon('/api/practice/save-progress', blob);
+        }
         e.preventDefault();
         e.returnValue = '';
       }
@@ -312,9 +329,14 @@ export default function Practice() {
       });
       setResult({ ...r.data, duration_sec: durationSec });
 
+      // 正确答案与解析由服务端在交卷后下发（答题阶段接口不下发，防提前看答案）。
+      // 结果页的判定与高亮一律用这份权威数据，不用本地 questions。
+      const graded = Array.isArray(r.data.questions) ? r.data.questions : [];
+      if (graded.length > 0) setQuestions(graded);
+
       // 错题练习模式：答对的题目自动移出错题本
       if (wrongRedo && localStorage.getItem('wrongbook_auto_remove') === 'true') {
-        const correctIds = questions.filter(q => answers[q.id] === q.answer).map(q => q.id);
+        const correctIds = graded.filter(q => answers[q.id] === q.answer).map(q => q.id);
         if (correctIds.length > 0) {
           await Promise.allSettled(correctIds.map(qid => api.delete('/practice/wrong-book/by-question/' + qid)));
           message.info('已自动移出 ' + correctIds.length + ' 道已掌握的题目');
@@ -323,7 +345,7 @@ export default function Practice() {
 
       setCurrentIndex(0);
       setStep('result');
-      loadFeedbacks(questions.map(q => q.id));
+      loadFeedbacks((graded.length > 0 ? graded : questions).map(q => q.id));
     } catch (err) {
       message.error('提交失败');
       setStep('doing');

@@ -123,8 +123,11 @@ npm run dev            # http://localhost:5173
 | `MYSQL_DATABASE` | 数据库名，默认 `ncse-practice-system` | 是 |
 | `APP_PORT` | 后端端口，默认 4000 | 否 |
 | `NODE_ENV` | `production` 时启用 CORS 白名单与静态托管 | 否 |
-| `JWT_SECRET` | JWT 签名密钥（**必须改为随机强密钥**） | 是 |
+| `JWT_SECRET` | JWT 签名密钥（**必须改为随机强密钥，≥32 字符**，否则后端拒绝启动） | 是 |
 | `CORS_ORIGIN` | 跨域白名单，多个域名用英文逗号分隔。前端与后端不同域时**必填** | 条件 |
+| `COOKIE_SAMESITE` | Cookie 的 SameSite 属性。**前后端不同域时必须设为 `none`**，同源保持 `lax` | 否 |
+| `COOKIE_SECURE` | Cookie 的 Secure 属性。留空则随 `NODE_ENV=production` 自动为 true | 否 |
+| `CSRF_TRUST_MISSING_ORIGIN` | 设为 `true` 放行「无 Origin 且无 Sec-Fetch-Site」的请求（仅老旧客户端需要） | 否 |
 | `FRONTEND_DIST` | 前端静态目录；前端部署在 Cloudflare Pages 时留空，后端只提供 `/api` | 否 |
 | `API_KEY` | AI 解析/生题的 API Key（留空禁用 AI 功能） | 否 |
 | `BASE_URL` | AI API 地址，默认 `https://open.bigmodel.cn/api/paas/v4` | 否 |
@@ -150,6 +153,25 @@ npm run dev            # http://localhost:5173
 - **邮箱**是备用登录名，选填
 - **昵称**只是显示名，可随意修改，不影响登录
 - 用户名规则：2-64 字符，仅限字母、数字、下划线、连字符、中文
+- 密码规则：8-128 字符（bcrypt 只取前 72 字节，过长的密码会被静默截断，因此直接拒绝）
+
+### 登录凭据存放方式
+
+token 保存在**服务端下发的 httpOnly Cookie**（`ncse_token`）里，前端 JS 读不到。
+
+- ✅ 页面里任何一处 XSS 都偷不走 token —— 这是从 localStorage 迁到 Cookie 的主要目的
+- 凭据随请求自动携带（前端 axios 设 `withCredentials: true`）
+- 前端本地只保存昵称、角色、到期时间等展示信息，不保存任何凭据
+
+后端同时保留 `Authorization: Bearer <token>` 通道，API 客户端 / curl / 脚本照常可用。
+
+**CSRF 防护**：状态变更接口（POST/PUT/PATCH/DELETE）会校验请求来源——
+用 Bearer 头的请求豁免；浏览器请求按 `Origin` 白名单 + `Sec-Fetch-Site` 判定。
+
+> ⚠️ **前后端不同域时，`COOKIE_SAMESITE` 必须设为 `none`。**
+> 跨站请求（包括 `<img>` 这类子资源请求）在 `SameSite=Lax` 下浏览器**不会**带 Cookie，
+> 会导致登录态失效、题目截图全部 401。`SameSite=none` 强制要求 HTTPS。
+> 同源部署保持默认 `lax` 即可，安全性最好。
 
 数据库密码是 bcrypt 哈希，**不可逆**。改密码用：
 
@@ -249,6 +271,12 @@ Cloudflare 的代理层会在远小于此的时间内掐断连接，导致生题
    ```
    CORS_ORIGIN=https://你的项目.pages.dev,https://你的自定义域名
    ```
+   **同时必须设置 Cookie 属性**（否则跨站请求浏览器不会带 Cookie，登录态直接失效）：
+   ```
+   COOKIE_SAMESITE=none
+   ```
+   `SameSite=none` 强制要求 Secure，后端在 `NODE_ENV=production` 下会自动开启，
+   前提是站点走 HTTPS（Cloudflare Pages 默认就是）。
 4. Cloudflare Pages 项目设置环境变量，然后重新部署：
    ```
    VITE_API_BASE_URL=https://api.你的域名

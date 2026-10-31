@@ -3,7 +3,7 @@ import { message } from 'antd';
 import api, { AUTH_EXPIRED_EVENT } from '../services/api';
 import { fetchSessionPolicy, getTokenExpiry } from '../services/session';
 import {
-  getToken, getUser as readUser, setSession, updateUser, clearSession, isPersistent,
+  getUser as readUser, setSession, updateUser, clearSession, isPersistent,
 } from '../services/authStorage';
 
 const AuthContext = createContext(null);
@@ -60,11 +60,11 @@ export function AuthProvider({ children }) {
   }, []);
 
   // 验证 token 是否仍然有效
+  // token 已移入 httpOnly Cookie，前端读不到，靠 /auth/me 验证 Cookie 是否还有效。
   useEffect(() => {
-    const token = getToken();
-    if (token && userRef.current) {
+    if (userRef.current) {
       api.get('/auth/me').catch(() => {
-        // token 无效时拦截器会派发失效事件并清理存储；
+        // Cookie 失效时拦截器会派发失效事件并清理存储；
         // 这里兜底处理网络错误等非 401 场景
         clearSession();
         setUser(null);
@@ -75,14 +75,14 @@ export function AuthProvider({ children }) {
 
   /**
    * 登录。remember 同时决定两件事，二者必须一致才能形成闭环：
-   *   - 服务端签发的 token 有效期（前端传参）
-   *   - 浏览器存储位置（勾选 → localStorage；未勾选 → sessionStorage）
+   *   - 服务端 token 有效期与 Cookie 属性（勾选 → 带 maxAge 的持久 Cookie；未勾选 → 会话 Cookie）
+   *   - 浏览器存储位置（勾选 → localStorage；未勾选 → sessionStorage，仅存展示信息）
    */
   const login = useCallback(async (account, password, remember = true) => {
     setLoading(true);
     try {
       const { data } = await api.post('/auth/login', { account, password, remember });
-      setSession({ token: data.token, user: data.user }, remember);
+      setSession({ user: data.user, session: data.session }, remember);
       setUser(data.user);
       setPersistent(!!remember);
       return data;
@@ -93,7 +93,7 @@ export function AuthProvider({ children }) {
     setLoading(true);
     try {
       const { data } = await api.post('/auth/register', { ...values, remember });
-      setSession({ token: data.token, user: data.user }, remember);
+      setSession({ user: data.user, session: data.session }, remember);
       setUser(data.user);
       setPersistent(!!remember);
       return data;
@@ -101,6 +101,8 @@ export function AuthProvider({ children }) {
   }, []);
 
   const logout = useCallback(() => {
+    // 通知服务端清除 httpOnly Cookie（否则本地清了 Cookie 还在，刷新又登回来了）
+    api.post('/auth/logout').catch(() => { /* 失败也要清本地 */ });
     clearSession();
     setUser(null);
     setPersistent(false);
@@ -118,7 +120,7 @@ export function AuthProvider({ children }) {
       login, register, logout,
       authModal, openAuth, closeAuth,
       sessionPolicy: sessionPolicy || FALLBACK_POLICY,
-      tokenExpiry: getTokenExpiry(getToken()),
+      tokenExpiry: getTokenExpiry(),
       isPersistentSession: persistent,
     }}>
       {children}

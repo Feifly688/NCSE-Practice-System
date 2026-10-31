@@ -4,9 +4,11 @@
  * 设计要点：
  * 1. 时长文案不在前端硬编码，而是从后端 GET /api/auth/session-policy 拉取，
  *    保证「运维改 env → 前端提示同步变化」，不会出现文案说谎。
- * 2. JWT payload 解码需要处理 base64url 的 '-'/'_' 字符与缺失的 '=' padding，
- *    且 payload 为 UTF-8 字节，需用 TextDecoder 还原中文，避免直接 atob 乱码。
+ * 2. token 已移入 httpOnly Cookie，前端读不到它，因此到期时间改为登录时
+ *    由后端下发 session.ms、前端落盘记录（见 authStorage.setSessionExpiry）。
+ *    decodeJwtPayload 仍保留：若将来接口改回返回 token，可直接复用。
  */
+import { getSessionExpiry } from './authStorage';
 
 const SESSION_POLICY_URL = '/auth/session-policy';
 
@@ -68,13 +70,15 @@ export function decodeJwtPayload(token) {
 }
 
 /**
- * 从 token 中解析到期时间戳。
+ * 读取 token 到期时间戳。
+ *
+ * token 本体在 httpOnly Cookie 里，前端读不到，因此这里读的是登录时
+ * 由后端下发 session.ms 换算并落盘的到期时间。
+ *
  * @returns {number|null} 毫秒时间戳
  */
-export function getTokenExpiry(token) {
-  const payload = decodeJwtPayload(token);
-  if (!payload || !payload.exp) return null;
-  return payload.exp * 1000;
+export function getTokenExpiry() {
+  return getSessionExpiry();
 }
 
 /**

@@ -9,7 +9,6 @@ import {
   FlagOutlined, FlagFilled, DashboardOutlined, ClockCircleOutlined,
 } from '@ant-design/icons';
 import api from '../services/api';
-import { getToken } from '../services/authStorage';
 import { useResponsive } from '../hooks/useResponsive';
 
 const { Title, Text, Paragraph } = Typography;
@@ -17,16 +16,23 @@ const { Title, Text, Paragraph } = Typography;
 const OPTION_LABELS = ['A', 'B', 'C', 'D', 'E', 'F'];
 
 /**
- * 题目截图地址：<img> 标签带不了 Authorization 头，
- * 后端图片路由额外接受 ?t=<token>（仅用于这类静态资源）。
+ * 题目截图地址。
+ *
+ * <img> 标签带不了 Authorization 头，但 httpOnly Cookie 浏览器会自动带上，
+ * 因此这里不需要（也不应该）再拼 ?t=<token> —— token 出现在 URL 里会进
+ * 服务端访问日志、浏览器历史和 Referer 头，等于把凭据泄漏出去。
+ *
+ * 注意 baseURL 的两种形态：
+ *   同源部署   → '/api'                      → '/api/exam-papers/images/...'
+ *   跨域部署   → 'https://api.你的域名'        → 需要补上 '/api'，否则 404
+ * 后端返回的图片路径本身不含 /api 前缀，这里按 base 是否已含 /api 决定补不补。
  */
 function paperImageUrl(src) {
   if (!src) return '';
   if (/^https?:\/\//i.test(src)) return src;
   const base = api.defaults.baseURL || '/api';
-  const token = getToken() || '';
-  const sep = src.includes('?') ? '&' : '?';
-  return `${base}${src}${sep}t=${encodeURIComponent(token)}`;
+  const prefix = /\/api(\/|$)/.test(base) ? base : `${base.replace(/\/+$/, '')}/api`;
+  return `${prefix}${src}`;
 }
 
 /**
@@ -55,7 +61,7 @@ function groupSectionQuestions(questions) {
       id: `grp-${gid}`,
       materialGroup: gid,
       passage: head.passage || (head.materialRef && head.materialRef.passage) || '',
-      images: (head.images || []).filter((x) => /-m\./.test(x)),
+      images: (head.images || []).filter((x) => /-m(-\d+)?\./.test(x)),
       questions: [q],
     });
   }

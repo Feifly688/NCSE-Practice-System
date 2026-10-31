@@ -5,7 +5,6 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
 import { getTokenExpiry, describeRemaining } from '../services/session';
-import { getToken } from '../services/authStorage';
 import { useResponsive } from '../hooks/useResponsive';
 
 const { Title } = Typography;
@@ -17,7 +16,7 @@ export default function Profile() {
   // 从 JWT 的 exp 字段解析登录失效时间，让会话时长对用户透明
   const [sessionExpiry, setSessionExpiry] = useState('-');
   useEffect(() => {
-    const expiryAt = getTokenExpiry(getToken());
+    const expiryAt = getTokenExpiry();
     if (!expiryAt) {
       setSessionExpiry('-');
       return;
