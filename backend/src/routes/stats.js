@@ -1,37 +1,59 @@
 const express = require('express');
+const rateLimit = require('express-rate-limit');
 const { asyncHandler } = require('../middleware/asyncHandler');
 const { withConnection } = require('../db');
 const { localDateStr, shiftDateStr } = require('../lib/time');
 
 const router = express.Router();
 
-// GET /api/stats/public - 公开统计数据（无需登录）
-router.get('/public', asyncHandler(async (req, res) => {
+// 访问量上报是匿名可写接口，前端的 3 小时节流只在客户端生效，
+// 直接打接口可以无限刷。这里按 IP 兜底限流。
+const visitLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  message: { error: '请求过于频繁，请稍后再试' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// 首页统计缓存：这组数据每次请求要跑 8 个聚合查询，且每个访客打开首页都会打一次。
+// 统计口径本身允许几十秒的延迟，缓存住能挡掉绝大部分数据库压力。
+const PUBLIC_STATS_TTL_MS = 30 * 1000;
+let publicStatsCache = { at: 0, payload: null };
+let publicStatsInflight = null;
+
+/** 真正跑统计查询（8 个聚合），结果会被上层缓存复用 */
+async function computePublicStats() {
   // 以 Node 本地时区（Asia/Shanghai）为事实源计算日期边界，
   // 避免 MySQL 服务端 UTC 时区导致凌晨记录被算到前一天
   const today = localDateStr();
 
-  const data = await withConnection(async (conn) => {
+  return withConnection(async (conn) => {
+    // 今日区间用「>= 今天 00:00 AND < 明天 00:00」比较，
+    // 而不是 DATE(started_at) = ? —— 后者把列包在函数里，索引直接失效，全表扫描。
+    const todayStart = today + ' 00:00:00';
+    const tomorrowStart = shiftDateStr(1) + ' 00:00:00';
+
     // 今日答题数（通过 session 关联获取日期）
     const [todayAnswers] = await conn.query(`
       SELECT COUNT(*) as count
       FROM practice_answer a
       JOIN practice_session s ON a.session_id = s.id
-      WHERE DATE(s.started_at) = ?
-    `, [today]);
+      WHERE s.started_at >= ? AND s.started_at < ?
+    `, [todayStart, tomorrowStart]);
 
     // 今日正确率
     const [todayCorrectRate] = await conn.query(`
       SELECT ROUND(SUM(a.is_correct)/COUNT(*)*100, 1) as rate
       FROM practice_answer a
       JOIN practice_session s ON a.session_id = s.id
-      WHERE DATE(s.started_at) = ?
-    `, [today]);
+      WHERE s.started_at >= ? AND s.started_at < ?
+    `, [todayStart, tomorrowStart]);
 
     // 今日完成的练习次数
     const [todaySessions] = await conn.query(
-      "SELECT COUNT(*) as count FROM practice_session WHERE DATE(started_at) = ? AND status = 'completed'",
-      [today]
+      "SELECT COUNT(*) as count FROM practice_session WHERE started_at >= ? AND started_at < ? AND status = 'completed'",
+      [todayStart, tomorrowStart]
     );
 
     // 总用户数
@@ -99,12 +121,39 @@ router.get('/public', asyncHandler(async (req, res) => {
       weekTrend: trend
     };
   });
+}
 
-  return res.json(data);
+// GET /api/stats/public - 公开统计数据（无需登录、无需实时精确）
+router.get('/public', asyncHandler(async (req, res) => {
+  const now = Date.now();
+  // 命中新鲜缓存直接返回
+  if (publicStatsCache.payload && now - publicStatsCache.at < PUBLIC_STATS_TTL_MS) {
+    return res.json(publicStatsCache.payload);
+  }
+
+  try {
+    // 缓存刚过期时的并发合并：多个请求共用同一次查询，避免同时打穿数据库
+    if (!publicStatsInflight) {
+      publicStatsInflight = computePublicStats()
+        .then((payload) => {
+          publicStatsCache = { at: Date.now(), payload };
+          return payload;
+        })
+        .finally(() => { publicStatsInflight = null; });
+    }
+    return res.json(await publicStatsInflight);
+  } catch (err) {
+    // 查询失败时降级返回上一份缓存（首页总比报错强），没有缓存才真正抛错
+    if (publicStatsCache.payload) {
+      console.error('Stats error (fallback to cache):', err.message);
+      return res.json(publicStatsCache.payload);
+    }
+    throw err;
+  }
 }, (err) => console.error('Stats error:', err)));
 
 // POST /api/stats/visit - 记录访问量（每次加载首页时调用）
-router.post('/visit', asyncHandler(async (req, res) => {
+router.post('/visit', visitLimiter, asyncHandler(async (req, res) => {
   await withConnection(async (conn) => {
     // 增加总访问量
     await conn.query(`

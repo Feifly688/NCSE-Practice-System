@@ -1,10 +1,11 @@
 const express = require('express');
 const axios = require('axios');
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, requireAdmin } = require('../middleware/auth');
 const { asyncHandler } = require('../middleware/asyncHandler');
 const { withConnection } = require('../db');
 const { localDateTimeStr } = require('../lib/time');
 const { safeOptions } = require('../lib/json');
+const { parseIdsQuery } = require('../helpers');
 
 const router = express.Router();
 
@@ -22,11 +23,64 @@ function parseMetaJson(raw) {
   try { return JSON.parse(raw || '{}'); } catch (e) { return {}; }
 }
 
+/** 单次练习的题目数上限 */
+const MAX_SESSION_QUESTIONS = 200;
+
+/**
+ * 从 meta 中取出题目 id 列表。
+ *
+ * 安全要点：meta 里的题目**答案一律不可信** —— 历史格式 meta.questions 是 start
+ * 时把客户端整个题目对象（含 answer）塞进来的，客户端可以任意改写。判分必须
+ * 只取 id，再去 question 表取权威答案。这里因此只返回 id，不返回任何答案字段。
+ *
+ * 兼容两种历史格式：
+ *   新格式 meta.question_ids = [1,2,3]
+ *   旧格式 meta.questions    = [{ id, answer }, ...] 或 [1,2,3]
+ */
+function extractQuestionIds(meta) {
+  const raw = Array.isArray(meta.question_ids)
+    ? meta.question_ids
+    : Array.isArray(meta.questions)
+      ? meta.questions.map((q) => (typeof q === 'object' && q !== null ? q.id : q))
+      : [];
+  const seen = new Set();
+  const ids = [];
+  for (const v of raw) {
+    const id = Number(v);
+    if (!Number.isInteger(id) || id <= 0 || seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+  }
+  return ids;
+}
+
+/** 按给定顺序取出题目完整数据（判分用权威答案 + 结果页展示用字段） */
+async function loadQuestionsByIds(conn, ids) {
+  if (!ids.length) return [];
+  const [rows] = await conn.query(
+    `SELECT id, subject_id, qtype, difficulty, passage, stem, options_json,
+            answer, explanation, source_exam
+     FROM question WHERE id IN (?)`,
+    [ids]
+  );
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  // 保持客户端出题顺序（IN 查询不保证顺序）
+  return ids.map((id) => byId.get(id)).filter(Boolean);
+}
+
 // POST /api/practice/start
+// 只接收题目 id 列表：答案一律由服务端在判分时从 question 表读取，
+// 客户端提交的题目对象里的 answer 字段会被丢弃。
 router.post('/start', requireAuth, asyncHandler(async (req, res) => {
   const { subject_id, questions } = req.body;
   if (!subject_id || !questions || !Array.isArray(questions) || questions.length === 0) {
     return res.status(400).json({ error: '参数不完整' });
+  }
+
+  const requestedIds = extractQuestionIds({ questions });
+  if (requestedIds.length === 0) return res.status(400).json({ error: '题目列表为空或格式不正确' });
+  if (requestedIds.length > MAX_SESSION_QUESTIONS) {
+    return res.status(400).json({ error: `一次练习最多 ${MAX_SESSION_QUESTIONS} 道题` });
   }
 
   const session_id = await withConnection(async (conn) => {
@@ -34,10 +88,19 @@ router.post('/start', requireAuth, asyncHandler(async (req, res) => {
     const [subjects] = await conn.query('SELECT id FROM subject WHERE id = ?', [subject_id]);
     if (subjects.length === 0) throw Object.assign(new Error('科目不存在'), { status: 400 });
 
-      const [result] = await conn.query(
-        'INSERT INTO practice_session (user_id, subject_id, mode, status, total, duration_sec, started_at, meta_json) VALUES (?,?,?,?,?,?,?,?)',
-        [req.user.userId, subject_id, 'random', 'in_progress', questions.length, 0, localDateTimeStr(), JSON.stringify({ questions })]
-      );
+    // 过滤掉不存在 / 未过审的题目，并保持客户端给定的出题顺序
+    const [rows] = await conn.query(
+      'SELECT id FROM question WHERE id IN (?) AND status = ?',
+      [requestedIds, 'approved']
+    );
+    const valid = new Set(rows.map((r) => r.id));
+    const questionIds = requestedIds.filter((id) => valid.has(id));
+    if (questionIds.length === 0) throw Object.assign(new Error('没有可用的题目'), { status: 400 });
+
+    const [result] = await conn.query(
+      'INSERT INTO practice_session (user_id, subject_id, mode, status, total, duration_sec, started_at, meta_json) VALUES (?,?,?,?,?,?,?,?)',
+      [req.user.userId, subject_id, 'random', 'in_progress', questionIds.length, 0, localDateTimeStr(), JSON.stringify({ question_ids: questionIds })]
+    );
     return result.insertId;
   });
 
@@ -72,9 +135,15 @@ router.post('/save-progress', requireAuth, asyncHandler(async (req, res) => {
 }));
 
 // POST /api/practice/submit
+// 判分只认 question 表里的权威答案；客户端提交的 answers 只作为「用户选了什么」。
+// 全程单事务：避免 DELETE 后 INSERT 中断导致的半截数据。
 router.post('/submit', requireAuth, asyncHandler(async (req, res) => {
   const { session_id, answers, elapsed_sec } = req.body;
   if (!session_id || !answers) return res.status(400).json({ error: '参数不完整' });
+  if (typeof answers !== 'object' || Array.isArray(answers)) {
+    return res.status(400).json({ error: '作答数据格式不正确' });
+  }
+  const elapsed = Number(elapsed_sec) || 0;
 
   const result = await withConnection(async (conn) => {
     const [sessions] = await conn.query(
@@ -82,45 +151,91 @@ router.post('/submit', requireAuth, asyncHandler(async (req, res) => {
       [session_id, req.user.userId]
     );
     if (sessions.length === 0) throw Object.assign(new Error('答题记录不存在'), { status: 404 });
-
-    let meta = parseMetaJson(sessions[0].meta_json);
-    const questions = meta.questions || [];
-    let correct = 0;
-    const total = questions.length;
-
-    await conn.query('DELETE FROM practice_answer WHERE session_id = ?', [session_id]);
-
-    for (const q of questions) {
-      const userAnswer = answers[q.id] || '';
-      const isCorrect = userAnswer === q.answer ? 1 : 0;
-      if (isCorrect) correct++;
-      await conn.query(
-        'INSERT INTO practice_answer (session_id, question_id, user_answer, is_correct, time_spent_sec) VALUES (?,?,?,?,?)',
-        [session_id, q.id, userAnswer, isCorrect, 0]
-      );
+    if (sessions[0].status === 'completed') {
+      throw Object.assign(new Error('该练习已提交，无法重复交卷'), { status: 400 });
     }
 
-    const score = total > 0 ? ((correct / total) * 100).toFixed(2) : 0;
+    const meta = parseMetaJson(sessions[0].meta_json);
+    const questionIds = extractQuestionIds(meta);
+    if (questionIds.length === 0) throw Object.assign(new Error('该练习没有题目，请重新发起'), { status: 400 });
+
+    // 权威答案与展示字段都来自 question 表
+    const questions = await loadQuestionsByIds(conn, questionIds);
+    if (questions.length === 0) throw Object.assign(new Error('题目已不存在，请重新发起练习'), { status: 400 });
+
+    const total = questions.length;
+    let correct = 0;
+    const answerRows = [];
+    const answerParams = [];
+    const wrongIds = [];
+    // 只落库本卷题目 id 的作答，丢弃客户端夹带的任何杂项键
+    const savedAnswers = {};
 
     for (const q of questions) {
-      const userAnswer = answers[q.id] || '';
-      if (userAnswer !== q.answer) {
+      const userAnswer = String(answers[q.id] ?? answers[String(q.id)] ?? '');
+      if (userAnswer) savedAnswers[q.id] = userAnswer;
+      const isCorrect = userAnswer !== '' && userAnswer === q.answer ? 1 : 0;
+      if (isCorrect) correct++;
+      else wrongIds.push(q.id);
+      answerRows.push('(?,?,?,?,?)');
+      answerParams.push(session_id, q.id, userAnswer, isCorrect, 0);
+    }
+
+    const score = total > 0 ? Number(((correct / total) * 100).toFixed(2)) : 0;
+
+    await conn.beginTransaction();
+    try {
+      await conn.query('DELETE FROM practice_answer WHERE session_id = ?', [session_id]);
+      // 批量写入作答记录（原先逐条 INSERT，100 题 = 100 次往返）
+      await conn.query(
+        `INSERT INTO practice_answer (session_id, question_id, user_answer, is_correct, time_spent_sec)
+         VALUES ${answerRows.join(',')}`,
+        answerParams
+      );
+
+      if (wrongIds.length > 0) {
+        const placeholders = wrongIds.map(() => '(?, ?, 1, 0)').join(',');
+        const params = [];
+        for (const id of wrongIds) params.push(req.user.userId, id);
         await conn.query(
-          'INSERT INTO wrong_book (user_id, question_id, wrong_count, mastered) VALUES (?, ?, 1, 0) ON DUPLICATE KEY UPDATE wrong_count = wrong_count + 1, mastered = 0',
-          [req.user.userId, q.id]
+          `INSERT INTO wrong_book (user_id, question_id, wrong_count, mastered) VALUES ${placeholders}
+           ON DUPLICATE KEY UPDATE wrong_count = wrong_count + 1, mastered = 0`,
+          params
         );
       }
+
+      const nextMeta = { ...meta, question_ids: questionIds, answers: savedAnswers, elapsed_sec: elapsed };
+      await conn.query(
+        'UPDATE practice_session SET status = ?, correct = ?, score = ?, duration_sec = ?, finished_at = ?, meta_json = ? WHERE id = ?',
+        ['completed', correct, score, elapsed, localDateTimeStr(), JSON.stringify(nextMeta), session_id]
+      );
+
+      await conn.commit();
+    } catch (err) {
+      await conn.rollback();
+      throw err;
     }
 
-    meta.answers = answers;
-    meta.elapsed_sec = elapsed_sec || 0;
-
-    await conn.query(
-      'UPDATE practice_session SET status = ?, correct = ?, score = ?, duration_sec = ?, finished_at = ?, meta_json = ? WHERE id = ?',
-      ['completed', correct, score, elapsed_sec || 0, localDateTimeStr(), JSON.stringify(meta), session_id]
-    );
-
-    return { session_id, total, correct, score: Number(score), duration_sec: elapsed_sec || 0 };
+    return {
+      session_id,
+      total,
+      correct,
+      score,
+      duration_sec: elapsed,
+      // 结果页需要正确答案与解析；答题阶段接口不下发（防提前看答案），交卷后才给
+      questions: questions.map((q) => ({
+        id: q.id,
+        subject_id: q.subject_id,
+        qtype: q.qtype,
+        difficulty: q.difficulty,
+        passage: q.passage,
+        stem: q.stem,
+        options_json: q.options_json,
+        answer: q.answer,
+        explanation: q.explanation,
+        source_exam: q.source_exam,
+      })),
+    };
   });
 
   return res.json(result);
@@ -138,6 +253,9 @@ router.get('/session/:id', requireAuth, asyncHandler(async (req, res) => {
     const session = sessions[0];
     const meta = parseMetaJson(session.meta_json);
 
+    // questions 统一从 question 表取完整数据（meta 里只有 id 列表，没有题干/选项/解析）
+    const questions = await loadQuestionsByIds(conn, extractQuestionIds(meta));
+
     const [answerDetails] = await conn.query(
       `SELECT pa.*, q.stem, q.passage, q.options_json, q.answer AS correct_answer, q.explanation, q.qtype, q.difficulty
        FROM practice_answer pa JOIN question q ON pa.question_id = q.id WHERE pa.session_id = ?`,
@@ -151,10 +269,10 @@ router.get('/session/:id', requireAuth, asyncHandler(async (req, res) => {
         score: session.score, duration_sec: session.duration_sec,
         started_at: session.started_at, finished_at: session.finished_at
       },
-      // 注意：questions 来自 meta_json，仅含 {id, answer}（start 时写入的精简数据），
-      // 缺少 stem/options_json/explanation。需要完整题目数据请用 answerDetails
-      // （practice_answer JOIN question，字段齐全）。前端结果页已改用 answerDetails。
-      questions: meta.questions || [],
+      // 完整题目数据（含 answer / explanation），供结果页与恢复进度渲染。
+      // 未提交（in_progress）的练习在答题阶段不会走到这里 —— 恢复进度时
+      // practice_answer 还没有记录，answerDetails 为空，此时才需要 questions。
+      questions,
       answers: meta.answers || {},
       elapsed_sec: meta.elapsed_sec || session.duration_sec || 0,
       answerDetails
@@ -296,8 +414,9 @@ router.put('/wrong-book/:id/mastered', requireAuth, asyncHandler(async (req, res
 router.post('/wrong-book/redo', requireAuth, asyncHandler(async (req, res) => {
   const { count = 10 } = req.body;
   const questions = await withConnection(async (conn) => {
+    // 同 /questions/random：答题阶段不下发 answer / explanation，交卷后由 submit 返回
     const [rows] = await conn.query(
-      `SELECT q.id, q.subject_id, q.qtype, q.difficulty, q.passage, q.stem, q.options_json, q.answer, q.explanation, q.source_exam, q.source_article_id,
+      `SELECT q.id, q.subject_id, q.qtype, q.difficulty, q.passage, q.stem, q.options_json, q.source_exam, q.source_article_id,
        a.clean_text as article_text, a.title as article_title
        FROM wrong_book wb JOIN question q ON wb.question_id = q.id LEFT JOIN article a ON q.source_article_id = a.id
        WHERE wb.user_id = ? AND wb.mastered = 0 AND q.status = 'approved' ORDER BY RAND() LIMIT ?`,
@@ -361,7 +480,8 @@ router.post('/feedback', requireAuth, asyncHandler(async (req, res) => {
 // GET /api/practice/feedback?ids=1,2,3
 // 批量查询当前用户对若干题目的评分（结果页一次性渲染用，避免 N 次请求）
 router.get('/feedback', requireAuth, asyncHandler(async (req, res) => {
-  const ids = (req.query.ids || '').split(',').filter(Boolean).map(Number).filter(Number.isInteger);
+  // 限制条数并过滤非法值：客户端可以拼任意长的 ?ids= 把 IN 子句撑爆
+  const ids = parseIdsQuery(req.query.ids, { max: 200 });
   if (ids.length === 0) return res.json({ feedbacks: {} });
 
   const rows = await withConnection(async (conn) => {
@@ -387,7 +507,8 @@ router.get('/feedback', requireAuth, asyncHandler(async (req, res) => {
 
 // GET /api/practice/feedback/stats
 // 管理员视角的评分汇总（按题目聚合，用于后台观察题目质量）
-router.get('/feedback/stats', requireAuth, asyncHandler(async (req, res) => {
+// 注意：必须挂 requireAdmin —— 汇总里带全站题目的评分分布与 stem，普通用户无权查看
+router.get('/feedback/stats', requireAuth, requireAdmin, asyncHandler(async (req, res) => {
   const rows = await withConnection(async (conn) => {
     const [r] = await conn.query(
       `SELECT qf.question_id, q.stem, q.qtype,
@@ -443,7 +564,7 @@ router.delete('/favorites/:questionId', requireAuth, asyncHandler(async (req, re
 
 // GET /api/practice/favorites/check
 router.get('/favorites/check', requireAuth, asyncHandler(async (req, res) => {
-  const ids = (req.query.ids || '').split(',').filter(Boolean).map(Number);
+  const ids = parseIdsQuery(req.query.ids, { max: 200 });
   if (ids.length === 0) return res.json({ favorited: [] });
   const favorited = await withConnection(async (conn) => {
     const [rows] = await conn.query('SELECT question_id FROM favorite WHERE user_id = ? AND question_id IN (?)', [req.user.userId, ids]);

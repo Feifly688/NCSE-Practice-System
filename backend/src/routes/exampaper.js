@@ -29,6 +29,7 @@ const { normalizeQuestionStem } = require('../lib/questionStem');
 const { buildFingerprint, findDuplicate, matchQuestionNumbers, assignQuestionsToNumbers, diceSimilarity, stemPart } = require('../lib/questionDedupe');
 const { preprocessPaperText } = require('../lib/paperText');
 const { safeJson } = require('../lib/json');
+const { assertPublicUrl, safeGet } = require('../lib/ssrf');
 const { extractQuestionImages } = require('../lib/pdfRegions');
 const fs = require('fs');
 const path = require('path');
@@ -58,15 +59,14 @@ function moduleToSubject(moduleName) {
   return 'verbal_comprehension';
 }
 
-/** SSRF 防护：仅允许公网 http(s)，拒绝内网地址 */
+/**
+ * SSRF 防护：仅允许公网 http(s)，拒绝内网/保留地址。
+ * 判定逻辑已收敛到 lib/ssrf.js（含 DNS 解析层拦截与禁用重定向），
+ * 这里保留布尔语义，方便在路由里做 400 前置校验。
+ */
 function isPublicUrl(urlStr) {
   try {
-    const u = new URL(urlStr);
-    if (!['http:', 'https:'].includes(u.protocol)) return false;
-    const host = u.hostname.toLowerCase();
-    if (host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0' || host === '::1') return false;
-    if (/^10\./.test(host) || /^192\.168\./.test(host) || /^172\.(1[6-9]|2\d|3[01])\./.test(host)) return false;
-    if (host.endsWith('.internal') || host.endsWith('.local')) return false;
+    assertPublicUrl(urlStr);
     return true;
   } catch {
     return false;
@@ -75,7 +75,8 @@ function isPublicUrl(urlStr) {
 
 /** 抓取试卷页正文 */
 async function crawlText(url) {
-  const { data } = await axios.get(url, {
+  // 走 safeGet：DNS 解析层拦截内网 IP（含 169.254.169.254 云元数据），并禁用重定向
+  const { data } = await safeGet(url, {
     headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
       Accept: 'text/html,application/xhtml+xml,*/*',
@@ -384,7 +385,60 @@ const PARSE_CHUNK_TIMEOUT_MS = Number(process.env.PARSE_CHUNK_TIMEOUT_MS || 1200
 /** 拆题进度（进程内）：paperId -> { stage, done, total, startedAt } */
 const parseProgress = new Map();
 
+/**
+ * 正在拆题的试卷 id（进程内）。
+ * 没有这层保护时，重复点「重新拆题」会为同一份卷子起多个后台任务，
+ * 每个任务都要跑 9-12 分钟并占用 AI 并发闸门，几个管理员各点几次就把
+ * AI 配额和数据库连接全占满，所有人拆题一起变慢。
+ */
+const activeParseJobs = new Set();
+
+/**
+ * 用数据库做原子抢占，把试卷状态从非 parsing 置为 parsing。
+ *
+ * 内存集合只能挡住单进程内的重复触发；多实例（PM2 cluster / 多台服务器）部署时，
+ * 每个实例都有自己的 activeParseJobs，同一份卷子仍可能被拆两次。
+ * 这里用条件 UPDATE 做跨实例的原子锁：谁把 affectedRows 抢到 1，谁才有权跑。
+ */
+async function claimParseJob(paperId) {
+  return withConnection(async (conn) => {
+    const [r] = await conn.query(
+      "UPDATE exam_paper SET parse_status = 'parsing', parse_error = NULL WHERE id = ? AND parse_status <> 'parsing'",
+      [paperId]
+    );
+    return r.affectedRows === 1;
+  }).catch((err) => {
+    console.error('[exam] 抢占拆题任务失败:', err.message);
+    return false;
+  });
+}
+
 async function runParseJob(paperId) {
+  if (activeParseJobs.has(paperId)) {
+    console.warn(`[exam] paper=${paperId} 已在拆题中，忽略重复触发`);
+    return;
+  }
+  // 跨实例抢占失败说明别的实例正在拆，直接放弃
+  if (!(await claimParseJob(paperId))) {
+    console.warn(`[exam] paper=${paperId} 已被其他实例/任务占用，跳过`);
+    return;
+  }
+  activeParseJobs.add(paperId);
+  // 心跳定时器兜底：截图、补拆等阶段不经过 chunk 回调，
+  // 没有定时器时这些长阶段仍可能被判僵死
+  const heartbeat = setInterval(() => touchParseHeartbeat(paperId), 60 * 1000);
+  if (typeof heartbeat.unref === 'function') heartbeat.unref();
+  try {
+    return await runParseJobInner(paperId);
+  } finally {
+    clearInterval(heartbeat);
+    activeParseJobs.delete(paperId);
+    // 任务结束时确保进度条目被清掉，避免异常路径留下永久 parsing
+    parseProgress.delete(paperId);
+  }
+}
+
+async function runParseJobInner(paperId) {
   const paper = await withConnection(async (conn) => {
     const [rows] = await conn.query('SELECT id, title, raw_text FROM exam_paper WHERE id = ?', [paperId]);
     return rows[0] || null;
@@ -395,6 +449,12 @@ async function runParseJob(paperId) {
 
   if (!paper) {
     console.error('[exam] 拆题任务中止：试卷不存在 id=' + paperId);
+    // 抢占时已把状态置为 parsing，这里必须显式复位，
+    // 否则这份卷子会一直停在 parsing，只能等 12 分钟后的僵死兜底
+    await updateParseState(paperId, {
+      parse_status: 'failed',
+      parse_error: '试卷不存在，拆题任务中止',
+    });
     return;
   }
 
@@ -433,6 +493,10 @@ async function runParseJob(paperId) {
       const r = await parseChunk(c, { paperTitle: paper.title, timeout: PARSE_CHUNK_TIMEOUT_MS });
       const p = parseProgress.get(paperId);
       if (p) p.done += 1;
+      // 刷新心跳：整卷拆题要 9-15 分钟，而 last_parse_at 只在开始和结束时写。
+      // 没有心跳时，跑满 12 分钟的任务会被 /parse-status 判为「僵死」直接标 failed，
+      // 任务其实还在跑，状态却被覆盖，用户看到的就是莫名其妙的失败。
+      touchParseHeartbeat(paperId);
       console.log(
         `[exam] paper=${paperId} 第 ${i + 1}/${chunks.length} 片（${c.section}）完成：` +
         `${r.questions.length} 题 / ${((Date.now() - t0) / 1000).toFixed(1)}s / ` +
@@ -569,21 +633,36 @@ async function runParseJob(paperId) {
     console.log(`[exam] paper=${paperId} 没有原始 PDF（uploads/papers/${paperId}.pdf），跳过区域截图`);
   }
 
-  // 写入整卷题目（先清后写，保证重拆结果干净）
+  // 写入整卷题目（先清后写，保证重拆结果干净）。
+  // 必须用事务：原先是先 DELETE 再逐条 INSERT，中途失败会留下「旧题已删、新题没写进去」
+  // 的空卷，前端看到的就是 0 题。这里改成单事务 + 批量 INSERT（130 题 1 次往返）。
   await withConnection(async (conn) => {
-    await conn.query('DELETE FROM exam_paper_question WHERE exam_paper_id = ?', [paperId]);
-    for (const q of deduped) {
-      await conn.query(
-        `INSERT INTO exam_paper_question
-         (exam_paper_id, seq, section, qtype, difficulty, passage, stem, options_json, image_url, answer, explanation, fingerprint)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-        [
-          paperId, q.seq, q.section, q.qtype, q.difficulty,
-          q.passage || null, q.stem, JSON.stringify(q.options), imageBySeq.get(q.seq) || null,
-          q.answer, q.explanation || null,
-          q.fingerprint || buildFingerprint(q),
-        ]
-      );
+    await conn.beginTransaction();
+    try {
+      await conn.query('DELETE FROM exam_paper_question WHERE exam_paper_id = ?', [paperId]);
+      if (deduped.length > 0) {
+        const rows = [];
+        const params = [];
+        for (const q of deduped) {
+          rows.push('(?,?,?,?,?,?,?,?,?,?,?,?)');
+          params.push(
+            paperId, q.seq, q.section, q.qtype, q.difficulty,
+            q.passage || null, q.stem, JSON.stringify(q.options), imageBySeq.get(q.seq) || null,
+            q.answer, q.explanation || null,
+            q.fingerprint || buildFingerprint(q)
+          );
+        }
+        await conn.query(
+          `INSERT INTO exam_paper_question
+           (exam_paper_id, seq, section, qtype, difficulty, passage, stem, options_json, image_url, answer, explanation, fingerprint)
+           VALUES ${rows.join(',')}`,
+          params
+        );
+      }
+      await conn.commit();
+    } catch (err) {
+      await conn.rollback();
+      throw err;
     }
   }).catch((err) => {
     console.error('[exam] 写入整卷题目失败:', err.message);
@@ -704,9 +783,33 @@ async function supplementMissingQuestions(pre, missingNums, paperTitle) {
   return out;
 }
 
+/**
+ * 刷新拆题心跳（只更新 last_parse_at）。
+ * 供长任务在执行过程中定期调用，避免被 /parse-status 的僵死判定误伤。
+ */
+function touchParseHeartbeat(paperId) {
+  withConnection(async (conn) => {
+    await conn.query('UPDATE exam_paper SET last_parse_at = NOW() WHERE id = ?', [paperId]);
+  }).catch((err) => console.error('[exam] 心跳更新失败:', err.message));
+}
+
+/** exam_paper 上允许由 updateParseState 写入的列名白名单 */
+const PARSE_STATE_COLUMNS = new Set([
+  'parse_status', 'parse_error', 'parsed_count', 'question_count', 'status', 'raw_text', 'expected_count',
+]);
+
+/**
+ * 更新拆题状态。
+ * 列名走白名单：虽然当前调用点都是内部常量，但直接把对象 key 拼进 SQL
+ * 是危险模式 —— 一旦将来有调用方把外部输入透传进来就是注入点。这里显式收口。
+ */
 async function updateParseState(paperId, fields) {
-  const keys = Object.keys(fields);
+  const keys = Object.keys(fields).filter((k) => PARSE_STATE_COLUMNS.has(k));
   if (keys.length === 0) return;
+  const unknown = Object.keys(fields).filter((k) => !PARSE_STATE_COLUMNS.has(k));
+  if (unknown.length > 0) {
+    console.warn(`[exam] updateParseState 忽略未知字段: ${unknown.join(',')}`);
+  }
   const setSql = keys.map((k) => `\`${k}\` = ?`).join(', ');
   const values = keys.map((k) => fields[k]);
   await withConnection(async (conn) => {
@@ -879,23 +982,34 @@ router.post('/:id/parse', asyncHandler(async (req, res) => {
     return rows[0] || null;
   });
   if (!paper) return res.status(404).json({ error: '试卷不存在' });
-  if (paper.parse_status === 'parsing') return res.json({ started: false, message: '正在拆题中，请稍候' });
+  if (paper.parse_status === 'parsing' || activeParseJobs.has(Number(req.params.id))) {
+    return res.json({ started: false, message: '正在拆题中，请稍候' });
+  }
 
   runParseJob(paper.id).catch((err) => console.error('[exam] 拆题任务异常:', err.message));
   return res.json({ started: true, parse_status: 'parsing' });
 }));
 
 router.post('/:id/reparse', asyncHandler(async (req, res) => {
-  const affected = await withConnection(async (conn) => {
-    const [r] = await conn.query(
-      "UPDATE exam_paper SET parse_status = 'pending', parse_error = NULL WHERE id = ?",
-      [req.params.id]
-    );
-    return r.affectedRows;
+  const id = Number(req.params.id);
+  const paper = await withConnection(async (conn) => {
+    const [rows] = await conn.query('SELECT id, parse_status FROM exam_paper WHERE id = ?', [id]);
+    return rows[0] || null;
   });
-  if (affected === 0) return res.status(404).json({ error: '试卷不存在' });
+  if (!paper) return res.status(404).json({ error: '试卷不存在' });
+  // 正在拆题时直接拒绝，否则重复触发会叠加后台任务打满 AI 并发
+  if (paper.parse_status === 'parsing' || activeParseJobs.has(id)) {
+    return res.json({ started: false, message: '正在拆题中，请稍候' });
+  }
 
-  runParseJob(req.params.id).catch((err) => console.error('[exam] 拆题任务异常:', err.message));
+  await withConnection(async (conn) => {
+    await conn.query(
+      "UPDATE exam_paper SET parse_status = 'pending', parse_error = NULL WHERE id = ?",
+      [id]
+    );
+  });
+
+  runParseJob(id).catch((err) => console.error('[exam] 拆题任务异常:', err.message));
   return res.json({ started: true, parse_status: 'parsing' });
 }));
 
@@ -938,18 +1052,34 @@ router.post('/:id/confirm', asyncHandler(async (req, res) => {
       fingerprint: r.fingerprint,
     }));
 
-    let inserted = 0;
-    let duplicated = 0;
-    const byModule = {};
-    const duplicateDetails = [];
+    // 科目映射一次取全（slug 只有两三种，原先每题查一次纯属浪费）
+    const [subjectRows] = await conn.query('SELECT id, slug FROM subject');
+    const subjectBySlug = new Map(subjectRows.map((r) => [r.slug, r.id]));
 
+    // 先整体归一化并算指纹，再用一次 IN 查询批量判重，
+    // 替代原先「每题一次 SELECT fingerprint」的 N+1
+    const prepared = [];
     for (const raw of list) {
       const q = normalizeQuestion(raw);
       if (!q) continue;
-      const fp = buildFingerprint(q);
+      prepared.push({ raw, q, fp: buildFingerprint(q) });
+    }
+    const existingFps = new Set();
+    if (prepared.length > 0) {
+      const [fpRows] = await conn.query(
+        'SELECT fingerprint FROM question WHERE fingerprint IN (?)',
+        [prepared.map((p) => p.fp)]
+      );
+      for (const r of fpRows) existingFps.add(r.fingerprint);
+    }
 
-      const [exact] = await conn.query('SELECT id FROM question WHERE fingerprint = ?', [fp]);
-      if (exact.length > 0) {
+    let duplicated = 0;
+    const byModule = {};
+    const duplicateDetails = [];
+    const toInsert = [];
+
+    for (const { raw, q, fp } of prepared) {
+      if (existingFps.has(fp)) {
         duplicated++;
         duplicateDetails.push({ stem: q.stem.slice(0, 40), reason: 'exact', score: 1 });
         continue;
@@ -963,41 +1093,64 @@ router.post('/:id/confirm', asyncHandler(async (req, res) => {
       }
 
       const slug = raw.subject_slug || moduleToSubject(q.module);
-      const [subjects] = await conn.query('SELECT id FROM subject WHERE slug = ?', [slug]);
-      const subjectId = subjects[0]?.id || 1;
+      const subjectId = subjectBySlug.get(slug) || 1;
 
-      await conn.query(
-        `INSERT INTO question (subject_id, qtype, difficulty, passage, stem, options_json, answer, explanation,
-         source_exam, exam_paper_id, fingerprint, creator_user_id, status)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'pending_review')`,
-        [
-          subjectId,
-          q.qtype,
-          q.difficulty,
-          q.passage || null,
-          q.stem.slice(0, 1024),
-          JSON.stringify(q.options),
-          q.answer,
-          q.explanation || '',
-          paper.title.slice(0, 128),
-          paper.id,
-          fp,
-          req.user.userId,
-        ]
-      );
-      inserted++;
+      toInsert.push({
+        subjectId,
+        q,
+        fp,
+        modName: q.module || '未分类',
+      });
 
       // 新入库题目加入候选集，避免同批内互相重复
       candidates.push({ id: null, qtype: q.qtype, stem: q.stem, options: q.options, answer: q.answer, fingerprint: fp });
-
-      const modName = q.module || '未分类';
-      byModule[modName] = (byModule[modName] || 0) + 1;
     }
 
-    await conn.query(
-      `UPDATE exam_paper SET question_count = question_count + ?, status = 'parsed' WHERE id = ?`,
-      [inserted, paper.id]
-    );
+    // 批量落库 + 更新试卷计数，整体一个事务：
+    // 原先逐条 INSERT 且无事务，中途失败会留下「题已入库但试卷计数没更新」的偏差
+    let inserted = 0;
+    await conn.beginTransaction();
+    try {
+      if (toInsert.length > 0) {
+        const rowSql = "(?,?,?,?,?,?,?,?,?,?,?,?,'pending_review')";
+        const params = [];
+        for (const it of toInsert) {
+          params.push(
+            it.subjectId,
+            it.q.qtype,
+            it.q.difficulty,
+            it.q.passage || null,
+            it.q.stem.slice(0, 1024),
+            JSON.stringify(it.q.options),
+            it.q.answer,
+            it.q.explanation || '',
+            paper.title.slice(0, 128),
+            paper.id,
+            it.fp,
+            req.user.userId
+          );
+        }
+        await conn.query(
+          `INSERT INTO question (subject_id, qtype, difficulty, passage, stem, options_json, answer, explanation,
+           source_exam, exam_paper_id, fingerprint, creator_user_id, status)
+           VALUES ${Array(toInsert.length).fill(rowSql).join(',')}`,
+          params
+        );
+        inserted = toInsert.length;
+        for (const it of toInsert) {
+          byModule[it.modName] = (byModule[it.modName] || 0) + 1;
+        }
+      }
+
+      await conn.query(
+        `UPDATE exam_paper SET question_count = question_count + ?, status = 'parsed' WHERE id = ?`,
+        [inserted, paper.id]
+      );
+      await conn.commit();
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    }
 
     return { inserted, duplicated, byModule, duplicateDetails: duplicateDetails.slice(0, 20) };
   });
@@ -1046,15 +1199,34 @@ router.get('/:id', asyncHandler(async (req, res) => {
   return res.json(data);
 }));
 
+/** 删除试卷关联的磁盘文件：原卷 PDF + 该卷的题目区域截图目录 */
+function removePaperFiles(paperId) {
+  const targets = [
+    path.join(PAPER_FILES_DIR, `${paperId}.pdf`),
+    path.join(PAPER_FILES_DIR, PAPER_IMAGE_SUBDIR, String(paperId)),
+  ];
+  for (const t of targets) {
+    try {
+      fs.rmSync(t, { recursive: true, force: true });
+    } catch (err) {
+      // 文件清理失败不影响删除流程，但必须留下日志便于运维补删
+      console.warn(`[exam] 清理试卷文件失败 ${t}: ${err.message}`);
+    }
+  }
+}
+
 // 删除试卷：整卷题目随外键级联删除；已入库的 question 保留（仅解除归属）
 router.delete('/:id', asyncHandler(async (req, res) => {
+  const id = Number(req.params.id);
   const affected = await withConnection(async (conn) => {
-    await conn.query('UPDATE question SET exam_paper_id = NULL WHERE exam_paper_id = ?', [req.params.id]);
-    await conn.query('DELETE FROM exam_paper_question WHERE exam_paper_id = ?', [req.params.id]);
-    const [r] = await conn.query('DELETE FROM exam_paper WHERE id = ?', [req.params.id]);
+    await conn.query('UPDATE question SET exam_paper_id = NULL WHERE exam_paper_id = ?', [id]);
+    await conn.query('DELETE FROM exam_paper_question WHERE exam_paper_id = ?', [id]);
+    const [r] = await conn.query('DELETE FROM exam_paper WHERE id = ?', [id]);
     return r.affectedRows;
   });
   if (affected === 0) return res.status(404).json({ error: '试卷不存在' });
+  // 同步清理 PDF 与截图，否则 uploads 会随每次上传/重跑持续增长
+  removePaperFiles(id);
   return res.json({ success: true });
 }));
 

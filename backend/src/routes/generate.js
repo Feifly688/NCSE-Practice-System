@@ -3,7 +3,7 @@ const axios = require('axios');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 const { asyncHandler } = require('../middleware/asyncHandler');
 const { withConnection } = require('../db');
-const { runConcurrent } = require('../helpers');
+const { runConcurrent, parseIdList } = require('../helpers');
 
 const router = express.Router();
 
@@ -281,15 +281,27 @@ ${planText}
   }
 }
 
+// 单批最多处理的文章数：每篇一次 AI 调用（超时 30min），
+// 不设上限时选 20 篇就能让请求挂上数小时，把连接和 AI 并发闸门全占住。
+const MAX_ARTICLES_PER_BATCH = 5;
+
+/** 单次入库的题目数上限 */
+const MAX_CONFIRM_QUESTIONS = 500;
+
 // POST /api/generate/preview
 router.post('/preview', asyncHandler(async (req, res) => {
   const { articleIds, questionsPerArticle = 2, subject = 'verbal_comprehension' } = req.body;
   if (!articleIds || !Array.isArray(articleIds) || articleIds.length === 0) {
     return res.status(400).json({ error: '请选择至少一篇文章' });
   }
+  if (articleIds.length > MAX_ARTICLES_PER_BATCH) {
+    return res.status(400).json({ error: `一次最多选择 ${MAX_ARTICLES_PER_BATCH} 篇文章` });
+  }
+  const parsed = parseIdList(articleIds, { max: MAX_ARTICLES_PER_BATCH, field: '文章列表' });
+  if (parsed.error) return res.status(400).json({ error: parsed.error });
 
   const articles = await withConnection(async (conn) => {
-    const [rows] = await conn.query('SELECT id, source, title, clean_text FROM article WHERE id IN (?)', [articleIds]);
+    const [rows] = await conn.query('SELECT id, source, title, clean_text FROM article WHERE id IN (?)', [parsed.ids]);
     return rows;
   });
 
@@ -332,21 +344,49 @@ router.post('/confirm', asyncHandler(async (req, res) => {
     return res.status(400).json({ error: '没有要保存的题目' });
   }
 
+  if (questions.length > MAX_CONFIRM_QUESTIONS) {
+    return res.status(400).json({ error: `一次最多保存 ${MAX_CONFIRM_QUESTIONS} 道题` });
+  }
+
   const inserted = await withConnection(async (conn) => {
     const [subjects] = await conn.query("SELECT id FROM subject WHERE slug = ?", [subject]);
     const subjectId = subjects[0]?.id || 1;
-    let count = 0;
-    for (const q of questions) {
-      try {
-        if (!q.passage || q.passage.length < 30) continue;
-        await conn.query(
-          'INSERT INTO question (subject_id, qtype, difficulty, passage, stem, options_json, answer, explanation, source_article_id, source_exam, status) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
-          [subjectId, q.qtype || '单选题', q.difficulty || 3, q.passage, q.stem, JSON.stringify(q.options), q.answer, q.explanation, q.source_article_id || null, q.source || 'AI生成', 'pending_review']
-        );
-        count++;
-      } catch (err) { console.error('Insert error:', err.message); }
+    const valid = questions.filter((q) => q.passage && q.passage.length >= 30);
+    if (valid.length === 0) return 0;
+
+    const rowSql = '(?,?,?,?,?,?,?,?,?,?,?)';
+    const params = [];
+    for (const q of valid) {
+      params.push(
+        subjectId, q.qtype || '单选题', q.difficulty || 3, q.passage, q.stem,
+        JSON.stringify(q.options), q.answer, q.explanation,
+        q.source_article_id || null, q.source || 'AI生成', 'pending_review'
+      );
     }
-    return count;
+    const sql = `INSERT INTO question
+      (subject_id, qtype, difficulty, passage, stem, options_json, answer, explanation, source_article_id, source_exam, status)
+      VALUES ${Array(valid.length).fill(rowSql).join(',')}`;
+
+    try {
+      // 批量写入：原先逐条 INSERT，几十道题就是几十次往返
+      await conn.query(sql, params);
+      return valid.length;
+    } catch (err) {
+      // 批量失败（如某条数据过长触发严格模式）时降级为逐条插入，
+      // 保留「坏一条不拖累整批」的原语义
+      console.error('[generate] 批量插入失败，降级为逐条插入:', err.message);
+      let count = 0;
+      for (const q of valid) {
+        try {
+          await conn.query(
+            'INSERT INTO question (subject_id, qtype, difficulty, passage, stem, options_json, answer, explanation, source_article_id, source_exam, status) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+            [subjectId, q.qtype || '单选题', q.difficulty || 3, q.passage, q.stem, JSON.stringify(q.options), q.answer, q.explanation, q.source_article_id || null, q.source || 'AI生成', 'pending_review']
+          );
+          count++;
+        } catch (e) { console.error('Insert error:', e.message); }
+      }
+      return count;
+    }
   });
   return res.json({ inserted });
 }, (err) => console.error('Confirm error:', err)));
@@ -369,8 +409,14 @@ router.post('/test', async (req, res) => {
 
     return res.json({ success: true, message: response.data.choices[0].message.content });
   } catch (err) {
-    console.error('Test error:', err.message);
-    return res.status(500).json({ success: false, error: err.message, details: err.response?.data });
+    const status = err.response?.status;
+    // 详情只进服务端日志，不回显给前端：上游响应体里可能带接口地址、
+    // 配额信息、账号标识等，暴露出去等于给攻击者一份配置清单
+    console.error('[generate] 连通性测试失败:', status || '', err.message);
+    return res.status(502).json({
+      success: false,
+      error: status ? `AI 服务返回 HTTP ${status}` : 'AI 服务连接失败，请检查 BASE_URL 与网络',
+    });
   }
 });
 

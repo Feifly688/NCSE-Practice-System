@@ -2,6 +2,7 @@ const express = require('express');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 const { asyncHandler } = require('../middleware/asyncHandler');
 const { withConnection } = require('../db');
+const { parseIdList } = require('../helpers');
 
 const router = express.Router();
 
@@ -17,8 +18,11 @@ router.get('/random', requireAuth, asyncHandler(async (req, res) => {
   const difficulty = req.query.difficulty || null;
 
   const questions = await withConnection(async (conn) => {
+    // 不下发 answer / explanation：练习接口在答题前就把答案送到前端，
+    // 抓包或 F12 即可看光，模拟考试等同于开卷。正确答案由 POST /practice/submit
+    // 在交卷后返回。
     let query = `SELECT q.id, q.subject_id, q.qtype, q.difficulty, q.passage, q.stem, q.options_json,
-      q.answer, q.explanation, q.source_exam, q.source_article_id,
+      q.source_exam, q.source_article_id,
       a.clean_text as article_text, a.title as article_title
       FROM question q
       LEFT JOIN article a ON q.source_article_id = a.id
@@ -141,11 +145,12 @@ router.delete('/:id', asyncHandler(async (req, res) => {
 // POST /api/questions/batch-update-status
 router.post('/batch-update-status', asyncHandler(async (req, res) => {
   const { ids, status } = req.body;
-  if (!ids || !Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: '请选择题目' });
+  const parsed = parseIdList(ids, { field: '题目列表' });
+  if (parsed.error) return res.status(400).json({ error: parsed.error });
   if (!VALID_STATUSES.includes(status)) return res.status(400).json({ error: '无效的状态' });
 
   const result = await withConnection(async (conn) => {
-    const [r] = await conn.query('UPDATE question SET status = ? WHERE id IN (?)', [status, ids]);
+    const [r] = await conn.query('UPDATE question SET status = ? WHERE id IN (?)', [status, parsed.ids]);
     return r.affectedRows;
   });
   return res.json({ updated: result });
@@ -154,10 +159,11 @@ router.post('/batch-update-status', asyncHandler(async (req, res) => {
 // POST /api/questions/batch-delete
 router.post('/batch-delete', asyncHandler(async (req, res) => {
   const { ids } = req.body;
-  if (!ids || !Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: '请选择题目' });
+  const parsed = parseIdList(ids, { field: '题目列表' });
+  if (parsed.error) return res.status(400).json({ error: parsed.error });
 
   const result = await withConnection(async (conn) => {
-    const [r] = await conn.query('DELETE FROM question WHERE id IN (?)', [ids]);
+    const [r] = await conn.query('DELETE FROM question WHERE id IN (?)', [parsed.ids]);
     return r.affectedRows;
   });
   return res.json({ deleted: result });

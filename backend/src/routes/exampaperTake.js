@@ -175,9 +175,9 @@ router.get('/:id', asyncHandler(async (req, res) => {
     // 题目区域截图（原 PDF 裁剪），多张用逗号分隔。
     // 路径不带 /api 前缀：前端会拼上 axios 的 baseURL，避免出现 /api/api/...
     const files = String(q.image_url || '').split(',').filter(Boolean);
-    // `-m.` 前缀的是所属材料段的共享图（统计图表），其余是本题自身的区域截图
-    const matFiles = files.filter((f) => /-m\./.test(f));
-    const ownFiles = files.filter((f) => !/-m\./.test(f));
+    // 带 `-m` 后缀的是所属材料段的共享图（统计图表），其余是本题自身的区域截图
+    const matFiles = files.filter((f) => /-m(-\d+)?\./.test(f));
+    const ownFiles = files.filter((f) => !/-m(-\d+)?\./.test(f));
     const rawOpts = safeJson(q.options_json, []);
     // 部分题（规则兜底构题的那批）题干里还粘着 A./B./C./D. 选项行：
     // 页面会「题干读一遍、下面又渲染一遍」。这里在读取时剥离；若已存选项是占位符，

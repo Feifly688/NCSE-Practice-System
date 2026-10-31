@@ -5,7 +5,7 @@ const cheerio = require('cheerio');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 const { asyncHandler } = require('../middleware/asyncHandler');
 const { withConnection } = require('../db');
-const { runConcurrent } = require('../helpers');
+const { runConcurrent, parseIdList } = require('../helpers');
 
 const router = express.Router();
 
@@ -289,19 +289,26 @@ router.post('/preview', asyncHandler(async (req, res) => {
     const used = new Set();
     const out = [];
     const tasks = sources.map(sourceId => async () => {
-      const fetched = await fetchArticlesFromSource(sourceId, countPerSource * 2);
-      const filtered = [];
-      for (const a of fetched) {
-        if (out.length >= (totalCount || 10)) break;
-        const fp = makeFingerprint(a.source, a.title);
-        if (used.has(fp)) continue;
-        const [existing] = await conn.query('SELECT id FROM article WHERE fingerprint = ?', [fp]);
-        if (existing.length === 0) {
-          filtered.push({ ...a, text: '点击"确认添加"后将自动抓取文章内容...', fingerprint: fp });
-          used.add(fp);
+      // 单个来源失败不能让整批预览挂掉：Promise.all 只要有一个 reject
+      // 就全部丢失，用户看到的是整个页面报错而不是「某个源没抓到」
+      try {
+        const fetched = await fetchArticlesFromSource(sourceId, countPerSource * 2);
+        const filtered = [];
+        for (const a of fetched) {
+          if (out.length >= (totalCount || 10)) break;
+          const fp = makeFingerprint(a.source, a.title);
+          if (used.has(fp)) continue;
+          const [existing] = await conn.query('SELECT id FROM article WHERE fingerprint = ?', [fp]);
+          if (existing.length === 0) {
+            filtered.push({ ...a, text: '点击"确认添加"后将自动抓取文章内容...', fingerprint: fp });
+            used.add(fp);
+          }
         }
+        return { sourceId, fetchedCount: fetched.length, items: filtered };
+      } catch (err) {
+        console.error('[articles] 预览来源 ' + sourceId + ' 失败:', err.message);
+        return { sourceId, fetchedCount: 0, items: [] };
       }
-      return { sourceId, fetchedCount: fetched.length, items: filtered };
     });
     const results = await runConcurrent(tasks, 3);
     for (const r of results) {
@@ -320,38 +327,104 @@ router.post('/preview', asyncHandler(async (req, res) => {
   });
 }));
 
+/** 单次确认添加的文章数上限（每篇都要抓一次网页，超时 15s） */
+const MAX_CONFIRM_ARTICLES = 50;
+
 // POST /api/articles/confirm
+//
+// 三个关键改动：
+//   1. 网络抓取与数据库操作分离 —— 原来在 withConnection 里并发抓网页，
+//      每篇最长 15s，20 篇就占着连接 5 分钟，连接池很快被耗光。
+//      现在先在连接外并发抓取，再一次性批量入库。
+//   2. 判重改成一次 IN 查询，替代原来每篇一次 SELECT。
+//   3. 单篇抓取失败不再拖垮整批（原来任一 task 抛错会让 Promise.all 整体 reject，
+//      前面已经插入的文章也拿不到计数）。
 router.post('/confirm', asyncHandler(async (req, res) => {
   const { articles, category = 'both' } = req.body;
   if (!articles || !Array.isArray(articles) || articles.length === 0) return res.status(400).json({ error: '没有要添加的文章' });
+  if (articles.length > MAX_CONFIRM_ARTICLES) {
+    return res.status(400).json({ error: `一次最多添加 ${MAX_CONFIRM_ARTICLES} 篇文章` });
+  }
+
+  // ── 1. 批量判重：一次 IN 查询拿回所有已存在的指纹 ──────────────
+  const fingerprints = articles.map((a) => makeFingerprint(a.source, a.title));
+  const existingSet = await withConnection(async (conn) => {
+    const [rows] = await conn.query(
+      'SELECT fingerprint FROM article WHERE fingerprint IN (?)', [fingerprints]
+    );
+    return new Set(rows.map((r) => r.fingerprint));
+  });
+
+  const duplicated = fingerprints.filter((fp) => existingSet.has(fp)).length;
+  const todo = articles.filter((a) => !existingSet.has(makeFingerprint(a.source, a.title)));
+
+  // ── 2. 并发抓取正文（不占用数据库连接）────────────────────────
+  const fetched = await runConcurrent(
+    todo.map((a) => async () => {
+      try {
+        const { content, publishTime } = await fetchArticleContent(a.url, getSourceId(a.source));
+        return { a, content, publishTime };
+      } catch (err) {
+        console.error('[articles] 抓取失败 ' + a.title + ':', err.message);
+        return { a, content: '', publishTime: null };
+      }
+    }),
+    3
+  );
+
+  // ── 3. 批量入库（短事务，连接占用从「分钟级」降到「毫秒级」）────
   const result = await withConnection(async (conn) => {
-    let inserted = 0, skipped = 0, duplicated = 0;
-    const tasks = articles.map(a => async () => {
-      const fp = makeFingerprint(a.source, a.title);
-      const [existing] = await conn.query('SELECT id FROM article WHERE fingerprint = ?', [fp]);
-      if (existing.length > 0) return 'duplicate';
-      const { content, publishTime } = await fetchArticleContent(a.url, getSourceId(a.source));
-      if (!content || content.length < 200) return 'empty';
-      const safePublishTime = publishTime || null;
-      // AI 自动分类：根据文章内容判断适合出什么题型
-      const autoCategory = classifyArticleContent(content);
-      // 如果自动分类结果为 'both'（不确定），则使用前端选择的默认分类
+    let inserted = 0, skipped = 0;
+    const rows = [];
+    const params = [];
+    for (const f of fetched) {
+      if (!f.content || f.content.length < 200) { skipped++; continue; }
+      const autoCategory = classifyArticleContent(f.content);
+      // 自动分类不确定（both）时才回退到前端选择的默认分类
       const finalCategory = autoCategory === 'both' ? category : autoCategory;
-      await conn.query('INSERT INTO article (source, title, url, publish_time, author, clean_text, fingerprint, category) VALUES (?,?,?,?,?,?,?,?)', [a.source, a.title, a.url || '', safePublishTime, a.author || a.source, content, fp, finalCategory]);
-      return 'inserted';
-    });
-    const statuses = await runConcurrent(tasks, 3);
-    for (const s of statuses) {
-      if (s === 'inserted') inserted++;
-      else if (s === 'empty') skipped++;
-      else if (s === 'duplicate') duplicated++;
+      rows.push('(?,?,?,?,?,?,?,?)');
+      params.push(
+        f.a.source, f.a.title, f.a.url || '', f.publishTime || null,
+        f.a.author || f.a.source, f.content,
+        makeFingerprint(f.a.source, f.a.title), finalCategory
+      );
+      inserted++;
+    }
+
+    if (rows.length > 0) {
+      await conn.query(
+        `INSERT INTO article (source, title, url, publish_time, author, clean_text, fingerprint, category)
+         VALUES ${rows.join(',')}`,
+        params
+      );
     }
     return { inserted, skipped, duplicated };
   });
+
   return res.json(result);
 }));
 
-// PUT /api/articles/:id/category - 修改文章分类
+// PUT /api/articles/batch/category - 批量修改文章分类
+//
+// 必须定义在 /:id/category **之前**：Express 按注册顺序匹配，
+// 「/batch/category」同样满足「/:id/category」（:id 会取到字符串 'batch'），
+// 一旦被前者先命中，Number('batch') 得到 NaN，直接返回「无效的ID」——
+// 批量改分类这个功能是彻底走不到的。
+router.put('/batch/category', asyncHandler(async (req, res) => {
+  const { ids, category } = req.body;
+  const parsed = parseIdList(ids, { field: '文章列表' });
+  if (parsed.error) return res.status(400).json({ error: parsed.error });
+  if (!['verbal', 'politics', 'both'].includes(category)) {
+    return res.status(400).json({ error: '无效的分类' });
+  }
+  const affected = await withConnection(async (conn) => {
+    const [r] = await conn.query('UPDATE article SET category = ? WHERE id IN (?)', [category, parsed.ids]);
+    return r.affectedRows;
+  });
+  return res.json({ success: true, affected });
+}));
+
+// PUT /api/articles/:id/category - 修改单篇文章分类
 router.put('/:id/category', asyncHandler(async (req, res) => {
   const id = Number(req.params.id);
   const { category } = req.body;
@@ -365,20 +438,6 @@ router.put('/:id/category', asyncHandler(async (req, res) => {
   });
   if (affected === 0) return res.status(404).json({ error: '文章不存在' });
   return res.json({ success: true });
-}));
-
-// PUT /api/articles/batch/category - 批量修改文章分类
-router.put('/batch/category', asyncHandler(async (req, res) => {
-  const { ids, category } = req.body;
-  if (!ids || !Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: '请选择文章' });
-  if (!['verbal', 'politics', 'both'].includes(category)) {
-    return res.status(400).json({ error: '无效的分类' });
-  }
-  const affected = await withConnection(async (conn) => {
-    const [r] = await conn.query('UPDATE article SET category = ? WHERE id IN (?)', [category, ids]);
-    return r.affectedRows;
-  });
-  return res.json({ success: true, affected });
 }));
 
 // DELETE /api/articles/:id
