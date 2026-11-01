@@ -91,13 +91,34 @@ const CARD_STATUS_COLOR = {
 };
 
 /**
+ * 材料题（资料分析 / 一拖五）两栏布局的尺寸常量。
+ *
+ * 【为什么等高要用确定高度，而不是让右栏去「贴合」左栏】
+ * flex 行里 align-items: stretch 只能把**矮的**那一栏拉高到高的那一栏，
+ * 无法反过来让高的一栏（5 道题的列表）压低。真要靠 JS 测量左栏高度再设
+ * maxHeight，就得在图片懒加载完成、窗口缩放、字号变化时反复重算，
+ * 极易出现两栏高低不齐的抖动。
+ * 这里改成整行给一个确定高度、左右两栏各占 100% —— 等高由 DOM 结构保证，
+ * 不依赖测量时机。两栏内容超出各自栏高时在栏内滚动，不会往外撑、不会重叠。
+ */
+// 整行高度：至少看得到一段材料 + 两道小题；最多不超过一屏（留出顶部信息栏与分区标题）
+const MATERIAL_ROW_H = 'clamp(380px, calc(100vh - 190px), 880px)';
+// 左栏宽度：随可用宽度自适应；窄屏不低于 300px，宽屏不超过 460px
+const MATERIAL_LEFT_W = 'clamp(300px, 42%, 460px)';
+// 低于此宽度时右侧题目区会被挤到 400px 以下（题干与选项换行后极难读），
+// 因此退回上下堆叠布局，而不是硬撑两栏导致内容截断
+const MATERIAL_SPLIT_MIN_W = 1024;
+
+/**
  * 整卷在线阅览与答题（参考粉笔网页版交互）：
  * 分区导航 + 答题卡 + 选项作答 + 交卷后答案与解析 + 进度与结果反馈，PC/移动响应式。
  */
 export default function ExamPaperTake() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { isMobile } = useResponsive();
+  const { isMobile, width } = useResponsive();
+  // 窗口够宽才做「左材料 / 右小题」分栏，否则材料单独成卡堆在题目上方
+  const materialSplit = width >= MATERIAL_SPLIT_MIN_W;
 
   const [loading, setLoading] = useState(true);
   const [paper, setPaper] = useState(null);
@@ -117,6 +138,8 @@ export default function ExamPaperTake() {
   const [matOpen, setMatOpen] = useState({});
 
   const qRefs = useRef({});
+  // 顶部吸附信息栏（定位时要用它的高度让开位置）
+  const headerRef = useRef(null);
 
   useEffect(() => { loadPaper(); }, [id]);
 
@@ -182,7 +205,35 @@ export default function ExamPaperTake() {
 
   function scrollToSeq(seq) {
     const el = qRefs.current[seq];
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (!el) {
+      setSheetOpen(false);
+      return;
+    }
+    // 顶部吸附的信息栏高度：小题要落在它下面，不能被压住
+    const headerH = headerRef.current ? headerRef.current.offsetHeight : 90;
+    const want = headerH + 8;
+
+    // ① 题目在独立滚动容器里（材料组右栏）→ 先在容器内对到顶部
+    const port = el.closest('[data-scroll-port]');
+    if (port) {
+      const er = el.getBoundingClientRect();
+      const pr = port.getBoundingClientRect();
+      port.scrollTop += (er.top - pr.top) - 8;
+    }
+
+    // ② 再滚动窗口，把题目落到信息栏下方
+    //    这里不用 scrollIntoView：它在多级滚动容器里只保证「可见」不保证对齐，
+    //    目标题会被压在顶部信息栏下面（题号行看不见）。
+    //    也不用相对位移 scrollBy —— 那种写法在多级滚动容器里会多滚十几像素；
+    //    这里换算成绝对落点，误差为零。
+    //    注：题目在内层滚动容器里时，它的「视口位置 + 窗口滚动量」已包含容器滚动量，
+    //    直接当作文档位置用即可（滚动窗口时两者同步变化）。
+    const cur = el.getBoundingClientRect().top;
+    const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
+    const target = Math.max(0, Math.min(window.scrollY + cur - want, maxScroll));
+    if (Math.abs(window.scrollY - target) > 1) {
+      window.scrollTo({ top: target, behavior: 'smooth' });
+    }
     setSheetOpen(false);
   }
 
@@ -284,6 +335,47 @@ export default function ExamPaperTake() {
     return <Empty description="该试卷暂无可作答的题目" />;
   }
 
+  /**
+   * 材料区内容：资料正文 + 图表。
+   *
+   * 左右分栏时放进左栏内部的滚动容器；窄屏堆叠时单独成卡。
+   * wordBreak 是必要的：资料分析常见一长串数字或连续单位，
+   * 不断词会把容器撑宽导致横向溢出。
+   */
+  const renderMaterialBody = (grp, fontSize) => (
+    <>
+      {grp.passage && (
+        <Paragraph
+          style={{
+            fontSize,
+            lineHeight: fontSize >= 16 ? 2 : 1.9,
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+            marginBottom: 12,
+          }}
+        >
+          {grp.passage}
+        </Paragraph>
+      )}
+      {grp.images.map((src) => {
+        const url = paperImageUrl(src);
+        return (
+          <img
+            key={src}
+            src={url}
+            alt="资料图表"
+            loading="lazy"
+            onClick={() => setPreviewImg(url)}
+            style={{
+              width: '100%', border: '1px solid #f0f0f0', borderRadius: 8,
+              background: '#fff', cursor: 'zoom-in', display: 'block', marginBottom: 8,
+            }}
+          />
+        );
+      })}
+    </>
+  );
+
   /** 单题卡片（资料分析的两栏布局里会复用）
    *  opts.hidePassage：材料已在左栏展示时，题干区不再重复渲染一遍 */
   const renderQuestionCard = (q, opts = {}) => {
@@ -293,14 +385,14 @@ export default function ExamPaperTake() {
     return (
       <Card
         key={q.seq}
+        ref={(el) => { qRefs.current[q.seq] = el; }}
         size="small"
         style={{
-          marginBottom: 14, borderRadius: 10, scrollMarginTop: 90,
+          marginBottom: 14, borderRadius: 10,
           borderColor: isWrong ? '#ffccc7' : undefined,
         }}
         styles={{ body: { padding: isMobile ? '12px 14px' : '16px 20px' } }}
       >
-        <div ref={(el) => { qRefs.current[q.seq] = el; }} />
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
           <span style={{
             display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
@@ -507,6 +599,7 @@ export default function ExamPaperTake() {
     <div style={{ paddingBottom: isMobile ? 80 : 24 }}>
       {/* 顶部信息栏 */}
       <Card
+        ref={headerRef}
         size="small"
         style={{ position: 'sticky', top: 0, zIndex: 20, marginBottom: 16, boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}
         styles={{ body: { padding: isMobile ? '10px 12px' : '12px 16px' } }}
@@ -610,57 +703,60 @@ export default function ExamPaperTake() {
                 </Text>
               </div>
 
-              {groupSectionQuestions(s.questions).map((grp) => (
-                grp.materialGroup ? (
-                  <div key={`grp-${grp.id}`} style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
-                    {/* 左栏：本篇材料（题干 + 图表），随页面滚动固定可见 */}
-                    {!isMobile && (
-                      <div style={{ width: 380, flexShrink: 0, position: 'sticky', top: 80 }}>
-                        <Card size="small" style={{ borderRadius: 10 }} styles={{ body: { padding: 14 } }}>
-                          <div style={{ fontSize: 13, color: '#8c8c8c', marginBottom: 8 }}>本篇资料</div>
-                          {grp.passage && (
-                            <Paragraph style={{ fontSize: 13, lineHeight: 1.8, whiteSpace: 'pre-wrap', marginBottom: 8 }}>
-                              {grp.passage}
-                            </Paragraph>
-                          )}
-                          {grp.images.map((src) => {
-                            const url = paperImageUrl(src);
-                            return (
-                              <img
-                                key={src}
-                                src={url}
-                                alt="资料图表"
-                                loading="lazy"
-                                onClick={() => setPreviewImg(url)}
-                                style={{ width: '100%', border: '1px solid #f0f0f0', borderRadius: 8, background: '#fff', cursor: 'zoom-in', display: 'block', marginBottom: 8 }}
-                              />
-                            );
-                          })}
-                        </Card>
-                      </div>
-                    )}
-                    {/* 右栏：该篇的题目列表 */}
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      {isMobile && grp.passage && (
-                        <Card size="small" style={{ borderRadius: 10, marginBottom: 12 }} styles={{ body: { padding: 12 } }}>
-                          <div style={{ fontSize: 13, color: '#8c8c8c', marginBottom: 6 }}>本篇资料</div>
-                          <Paragraph style={{ fontSize: 13, lineHeight: 1.8, whiteSpace: 'pre-wrap', marginBottom: 8 }}>{grp.passage}</Paragraph>
-                          {grp.images.map((src) => {
-                            const url = paperImageUrl(src);
-                            return (
-                              <img key={src} src={url} alt="资料图表" loading="lazy" onClick={() => setPreviewImg(url)}
-                                style={{ width: '100%', border: '1px solid #f0f0f0', borderRadius: 8, background: '#fff', cursor: 'zoom-in', display: 'block', marginBottom: 8 }} />
-                            );
-                          })}
-                        </Card>
-                      )}
+              {groupSectionQuestions(s.questions).map((grp) => {
+                // 材料组但正文与图表都为空（材料组延伸到后续分区时的边界情况）
+                // → 不渲染空的「本篇资料」面板，退回单列列表
+                const hasMaterial = Boolean(grp.passage) || grp.images.length > 0;
+                if (!grp.materialGroup || !hasMaterial) {
+                  return grp.questions.map(renderQuestionCard);
+                }
+                return materialSplit ? (
+                  /* ── 宽屏：左材料 / 右小题，两栏严格等高 ─────────────── */
+                  <div
+                    key={`grp-${grp.id}`}
+                    style={{
+                      display: 'flex', gap: 16,
+                      // 整行确定高度 → 两栏各 100%，等高由结构保证
+                      height: MATERIAL_ROW_H,
+                      marginBottom: 14,
+                    }}
+                  >
+                    {/* 左栏：本篇总题干（材料正文 + 图表）。超出栏高时在栏内滚动 */}
+                    <div style={{ flex: `0 0 ${MATERIAL_LEFT_W}`, minHeight: 0 }}>
+                      <Card
+                        size="small"
+                        style={{ height: '100%', borderRadius: 10, display: 'flex', flexDirection: 'column' }}
+                        styles={{ body: { padding: 14, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' } }}
+                      >
+                        <div style={{ fontSize: 13, color: '#8c8c8c', marginBottom: 8, flexShrink: 0 }}>本篇资料</div>
+                        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', paddingRight: 4 }}>
+                          {renderMaterialBody(grp, 16)}
+                        </div>
+                      </Card>
+                    </div>
+
+                    {/* 右栏：本篇小题列表，在等高容器内独立上下滚动 */}
+                    <div
+                      data-scroll-port="1"
+                      style={{
+                        flex: 1, minWidth: 0, minHeight: 0, height: '100%',
+                        overflowY: 'auto', overflowX: 'hidden', paddingRight: 4,
+                      }}
+                    >
                       {grp.questions.map((q) => renderQuestionCard(q, { hidePassage: true }))}
                     </div>
                   </div>
                 ) : (
-                  grp.questions.map(renderQuestionCard)
-                )
-              ))}
+                  /* ── 窄屏：两栏会把题目挤到读不了，改为材料卡 + 题目流式堆叠 ── */
+                  <div key={`grp-${grp.id}`}>
+                    <Card size="small" style={{ borderRadius: 10, marginBottom: 12 }} styles={{ body: { padding: 12 } }}>
+                      <div style={{ fontSize: 13, color: '#8c8c8c', marginBottom: 6 }}>本篇资料</div>
+                      {renderMaterialBody(grp, isMobile ? 15 : 16)}
+                    </Card>
+                    {grp.questions.map((q) => renderQuestionCard(q, { hidePassage: true }))}
+                  </div>
+                );
+              })}
             </div>
           ))}
         </div>
