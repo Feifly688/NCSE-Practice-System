@@ -93,9 +93,13 @@ function fmtTime(sec) {  const m = Math.floor(sec / 60);
  *   分隔线 #e8ecf3、强调黄 #ffbc22
  * 目的是让整卷答题页的观感与粉笔一致，而不是 antd 默认蓝 + 默认圆角卡片。
  */
+// 粉笔设计 token —— 取自粉笔线上样式表与真实页面计算样式
 const FB = {
   primary: '#385dca',
   primaryLight: '#3c7cfc',
+  // 题型标签实测色：文字 rgb(71,117,254) = #4775fe，底 rgba(60,124,252,.04)
+  tagText: '#4775fe',
+  tagBg: 'rgba(60,124,252,0.04)',
   selectedBg: '#edf6ff',
   selectedBorder: '#cbdfff',
   pageBg: '#f7f9fc',
@@ -103,6 +107,8 @@ const FB = {
   textSub: '#3c464f',
   textWeak: '#868ea8',
   border: '#e8ecf3',
+  // 粉笔卡片描边实测 rgb(240,243,250)
+  cardBorder: '#f0f3fa',
   accent: '#ffbc22',
 };
 const FB_FONT = '"Noto Sans SC", system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif';
@@ -317,8 +323,8 @@ export default function ExamPaperTake() {
         sections.map((s) => (
           <div key={s.name} style={{ marginBottom: 14 }}>
             <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 6 }}>
-              <Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>{s.name}</Text>
-              <Text type="secondary" style={{ fontSize: 12 }}>{s.questions.length} 题</Text>
+              <span style={{ fontSize: 16, color: '#000', fontWeight: 600 }}>{s.name}</span>
+              <span style={{ fontSize: 14, color: FB.textWeak }}>（{s.questions.length}题）</span>
             </div>
             {renderCardGrid(s.questions.map((q) => ({ ...q, section: s.name })))}
           </div>
@@ -422,24 +428,22 @@ export default function ExamPaperTake() {
         size="small"
         style={{
           marginBottom: 14, borderRadius: 8,
-          borderColor: isWrong ? '#ffccc7' : FB.border,
+          borderColor: isWrong ? '#ffccc7' : FB.cardBorder,
           background: '#fff',
         }}
-        styles={{ body: { padding: isMobile ? '12px 14px' : '18px 22px' } }}
+        styles={{ body: { padding: isMobile ? '12px 14px 16px' : '12px 20px 16px' } }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+        {/* 标题行：粉笔式 —— 题号是纯黑的「N.」，题型是淡蓝底的文字标签 */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 15, lineHeight: 1.57, color: '#000', fontWeight: 500 }}>
+            {q.seq}.
+          </span>
           <span style={{
-            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-            minWidth: 26, height: 24, padding: '0 7px', borderRadius: 4,
-            background: FB.primary, color: '#fff', fontSize: 13, fontWeight: 600,
-          }}>{q.seq}</span>
-          <Tag color={q.qtype === '多选题' ? 'blue' : 'default'} style={{ marginInlineEnd: 0, borderRadius: 4, fontSize: 12 }}>
+            fontSize: 12, lineHeight: '12px', color: FB.tagText,
+            background: FB.tagBg, borderRadius: 4, padding: '5px 10px',
+          }}>
             {q.qtype || '单选题'}
-          </Tag>
-          <Tag color={q.difficulty <= 2 ? 'green' : q.difficulty <= 4 ? 'orange' : 'red'}
-            style={{ marginInlineEnd: 0, borderRadius: 4, fontSize: 12 }}>
-            难度 {q.difficulty || 3}
-          </Tag>
+          </span>
           {res && (
             res.correct
               ? <Tag icon={<CheckCircleOutlined />} color="success" style={{ marginInlineEnd: 0, borderRadius: 4, fontSize: 12 }}>答对</Tag>
@@ -624,21 +628,52 @@ export default function ExamPaperTake() {
         </div>
 
         {res && (
-          <div style={{
-            marginTop: 12, padding: 12, borderRadius: 6,
-            background: res.correct ? '#f6ffed' : '#fff7e6',
-            border: `1px solid ${res.correct ? '#b7eb8f' : '#ffd591'}`,
-          }}>
-            <Space size={12} wrap>
-              <Text strong>答案：{res.answer}</Text>
-              <Text type="secondary">你的作答：{res.yourAnswer || '未作答'}</Text>
-            </Space>
+          <>
+            {/* 粉笔式四栏统计条：底 #f7f9fc、圆角 16px、padding 14px */}
+            <div style={{
+              marginTop: 10, padding: 14, borderRadius: 16,
+              background: FB.pageBg,
+              display: 'flex', alignItems: 'stretch', gap: 8,
+            }}>
+              {[
+                { label: '正确答案', value: res.answer || '-', color: '#52c41a' },
+                { label: '你的答案', value: res.yourAnswer || '未作答', color: res.yourAnswer ? (res.correct ? '#52c41a' : '#f5222d') : FB.textWeak },
+                { label: '你的得分', value: res.correct ? '1.0' : '0.0', color: FB.primaryLight },
+                { label: '题目难度', value: `${q.difficulty || 3} / 5`, color: FB.textWeak },
+              ].map((it) => (
+                <div key={it.label} style={{
+                  flex: 1, textAlign: 'center', minWidth: 0,
+                }}>
+                  <div style={{ fontSize: 16, fontWeight: 600, color: it.color, lineHeight: 1.4 }}>
+                    {it.value}
+                  </div>
+                  <div style={{ fontSize: 12, color: FB.textWeak, marginTop: 2 }}>{it.label}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* 解析：粉笔是独立的白底卡（描边 #f0f3fa、圆角 8、padding 20） */}
             {res.explanation && (
-              <div style={{ marginTop: 6, fontSize: 13, lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>
-                <Text strong>解析：</Text>{res.explanation}
+              <div style={{
+                marginTop: 20, padding: 20, borderRadius: 8,
+                background: '#fff', border: `1px solid ${FB.cardBorder}`,
+                fontSize: 14, lineHeight: 1.8, color: 'rgba(0,0,0,0.85)',
+                whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+              }}>
+                <div style={{
+                  fontSize: 14, fontWeight: 600, color: '#000',
+                  marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6,
+                }}>
+                  <span style={{
+                    width: 6, height: 6, borderRadius: '50%',
+                    background: FB.primaryLight, display: 'inline-block',
+                  }} />
+                  解析
+                </div>
+                {res.explanation}
               </div>
             )}
-          </div>
+          </>
         )}
       </Card>
     );
@@ -653,32 +688,50 @@ export default function ExamPaperTake() {
       fontFamily: FB_FONT,
       color: FB.text,
     }}>
-      {/* 顶部工具条：粉笔式 —— 白底 + 底部细线，不用卡片阴影 */}
+      {/* 顶部工具条：粉笔式
+          实测规格 —— fixed / 高 60px / 白底 / 无阴影 / 标题居中 */}
       <div
         ref={headerRef}
         style={{
           position: 'sticky', top: 0, zIndex: 20,
-          background: '#fff', borderBottom: `1px solid ${FB.border}`,
+          background: '#fff', borderBottom: `1px solid ${FB.cardBorder}`,
           marginBottom: 16,
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: isMobile ? '10px 12px' : '12px 16px' }}>
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 12,
+          padding: isMobile ? '10px 12px' : '0 16px',
+          height: isMobile ? 48 : 60,
+        }}>
           <Button type="text" size="small" icon={<ArrowLeftOutlined />} onClick={() => navigate('/exam-papers')}
             style={{ color: FB.textSub }}>
             {!isMobile && '返回'}
           </Button>
-          <Text strong ellipsis style={{ flex: 1, minWidth: 120, fontSize: isMobile ? 14 : 16, color: FB.text }}>
-            {paper.title}
-          </Text>
-          <Tag
-            icon={<ClockCircleOutlined />}
-            style={{
-              marginInlineEnd: 0, borderRadius: 4, fontSize: 12,
-              background: '#f2f5fb', borderColor: '#e3e9f5', color: FB.textSub,
-            }}
-          >
-            {fmtTime(elapsed)}
-          </Tag>
+          {/* 标题居中（粉笔是绝对居中，不受左侧按钮影响） */}
+          <div style={{
+            position: 'absolute', left: 0, right: 0, textAlign: 'center',
+            pointerEvents: 'none', padding: '0 120px',
+          }}>
+            <span style={{
+              fontSize: isMobile ? 13 : 15, color: 'rgba(0,0,0,0.85)',
+              display: 'inline-block', maxWidth: '100%',
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              verticalAlign: 'middle',
+            }}>
+              {paper.title}
+            </span>
+          </div>
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
+            <Tag
+              icon={<ClockCircleOutlined />}
+              style={{
+                marginInlineEnd: 0, borderRadius: 4, fontSize: 12,
+                background: '#f2f5fb', borderColor: '#e3e9f5', color: FB.textSub,
+              }}
+            >
+              {fmtTime(elapsed)}
+            </Tag>
+          </div>
         </div>
         <Progress
           percent={total ? Math.round((answeredCount / total) * 100) : 0}
@@ -755,14 +808,15 @@ export default function ExamPaperTake() {
             <div key={s.name}>
               <div
                 style={{
-                  margin: '8px 0 12px', paddingLeft: 10, borderLeft: `3px solid ${FB.primary}`,
-                  fontSize: isMobile ? 15 : 16, fontWeight: 600, color: FB.text,
+                  margin: '8px 0 12px', fontSize: isMobile ? 15 : 16,
+                  fontWeight: 600, color: '#000',
+                  display: 'flex', alignItems: 'baseline', gap: 8,
                 }}
               >
                 {s.name}
-                <Text style={{ fontWeight: 400, fontSize: 13, marginLeft: 8, color: FB.textWeak }}>
-                  共 {s.count} 题
-                </Text>
+                <span style={{ fontWeight: 400, fontSize: 14, color: FB.textWeak }}>
+                  （{s.count}题）
+                </span>
               </div>
 
               {groupSectionQuestions(s.questions).map((grp) => {
@@ -825,16 +879,43 @@ export default function ExamPaperTake() {
 
       </div>
 
-      {/* 答题卡：底部抽屉（可下拉/收起），PC 与移动端一致 */}
+      {/* 答题卡：粉笔式底部抽屉
+          实测规格 —— fixed 贴底、白底、右上圆角 12px、描边 rgb(240,243,250) */}
       <Drawer
-        title="答题卡" placement="bottom" open={sheetOpen}
+        title={null}
+        placement="bottom"
+        open={sheetOpen}
         onClose={() => setSheetOpen(false)}
-        height={isMobile ? '62%' : '52%'}
-        styles={{ body: { padding: 16 } }}
+        height={isMobile ? '62%' : '46%'}
+        closable={false}
+        styles={{
+          body: { padding: '16px 20px 20px', background: '#fff' },
+          wrapper: { boxShadow: 'none' },
+          content: {
+            borderTopLeftRadius: 12,
+            border: `1px solid ${FB.cardBorder}`,
+            borderBottom: 'none',
+            overflow: 'hidden',
+          },
+        }}
       >
+        {/* 抽屉顶部的标题行（粉笔是自绘的，不是 antd 标题） */}
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          marginBottom: 14, paddingBottom: 10,
+          borderBottom: `1px solid ${FB.cardBorder}`,
+        }}>
+          <span style={{ fontSize: 15, fontWeight: 600, color: '#000' }}>答题卡</span>
+          <span
+            onClick={() => setSheetOpen(false)}
+            style={{ fontSize: 13, color: FB.textWeak, cursor: 'pointer' }}
+          >
+            收起
+          </span>
+        </div>
         {answerSheet}
         <Button
-          type="primary" block style={{ marginTop: 14 }} loading={submitting}
+          type="primary" block style={{ marginTop: 14, borderRadius: 4 }} loading={submitting}
           disabled={!!result} onClick={submit}
         >
           {result ? '已交卷' : '交卷并查看解析'}

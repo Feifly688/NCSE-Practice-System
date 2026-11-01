@@ -121,11 +121,16 @@ function parseCookies(raw, extraUserid) {
 /** 解析粉笔套题页 URL → { key, routecs } */
 function parseExerciseUrl(url) {
   const u = new URL(url);
-  const m = u.pathname.match(/\/ti\/exam\/exercise\/([^/]+)/);
+  // 粉笔有两条路径指向同一份练习：
+  //   /ti/exam/exercise/<key>  练习页（未提交时用它取题目）
+  //   /ti/exam/solution/<key>  解析页（已提交时用它取答案）
+  const m = u.pathname.match(/\/ti\/exam\/(?:exercise|solution)\/([^/]+)/);
   if (!m) return null;
   return {
     key: decodeURIComponent(m[1]),
     routecs: u.searchParams.get('routecs') || 'xingce',
+    // 调用方据此优先走「答案优先」流程
+    solutionPage: /\/ti\/exam\/solution\//.test(u.pathname),
   };
 }
 
@@ -160,6 +165,51 @@ function htmlToText(html) {
   return s.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
+/**
+ * 粉笔两个静态端点的题目字段位置不同：
+ *   · static/exercise  → data.questions[]（题目，无答案）
+ *   · static/solution  → data.solutions[]（题目 + 答案 + 解析）
+ * 两者的条目结构一致（globalId / content / accessories），
+ * 所以统一从这里取题目列表。
+ */
+function listQuestions(data) {
+  if (Array.isArray(data.questions) && data.questions.length) return data.questions;
+  if (Array.isArray(data.solutions) && data.solutions.length) return data.solutions;
+  return [];
+}
+
+/**
+ * 从粉笔的静态数据里抽取答案与解析。
+ * solution 模式下答案就在 data.solutions 里；exercise 模式下需要另外请求。
+ */
+function extractSolutions(data) {
+  const out = new Map();
+  (data.solutions || []).forEach((s) => {
+    const ca = s.correctAnswer || {};
+    const choice = choiceToLetters(ca.choice);
+    if (!choice && !s.solution) return;
+    out.set(s.globalId, { choice, type: ca.type, solution: s.solution || '' });
+  });
+  return out;
+}
+
+/**
+ * 粉笔的 correctAnswer.choice 是**选项下标**（"0"~"3"），
+ * 本库答案统一用字母（A/B/C/D）。多选时粉笔给逗号分隔的多个下标。
+ */
+function choiceToLetters(choice) {
+  if (choice == null) return '';
+  const s = String(choice).trim();
+  if (!s) return '';
+  if (/^[A-Da-d]$/.test(s)) return s.toUpperCase();
+  const idxs = s.split(',').map((x) => x.trim()).filter((x) => x !== '' && /^-?\d+$/.test(x));
+  if (!idxs.length) return s;
+  return idxs
+    .map((x) => String.fromCharCode(65 + Number(x)))
+    .filter((c) => c >= 'A' && c <= 'H')
+    .join('');
+}
+
 /** 提取 HTML 里的图片地址（协议相对地址补全） */
 function extractImgs(html) {
   const out = [];
@@ -179,7 +229,7 @@ function extractImgs(html) {
 function toPaperText(data, solutions) {
   const lines = [];
   const byGid = new Map();
-  (data.questions || []).forEach((q) => byGid.set(q.globalId, q));
+  listQuestions(data).forEach((q) => byGid.set(q.globalId, q));
   const matByGid = new Map();
   (data.materials || []).forEach((m) => matByGid.set(m.globalId, m));
 
@@ -292,31 +342,61 @@ async function fetchFenbiPaper(url, cookieRaw, extraUserid) {
   Object.entries(cred.extra).forEach(([k, v]) => jar.set('fenbi.com', k, v));
 
   // ② 套卷元信息
-  const exRes = await axios.get('https://tiku.fenbi.com/combine/exercise/getExercise', {
-    params: { format: 'html', key: target.key, routecs: target.routecs, ...COMMON, deviceId },
-    headers: { ...base, Cookie: jar.header('tiku.fenbi.com') },
-    timeout: 30000,
-    responseType: 'text',
-    transformResponse: [(d) => d],
-    validateStatus: () => true,
-    proxy: false,
-  });
-  jar.absorb(exRes, 'tiku.fenbi.com');
-  if (exRes.status !== 200) {
-    const e = new Error('粉笔拒绝了本次请求');
-    e.code = 'FENBI_NEED_LOGIN';
-    e.detail = exRes.status === 401 ? 'Cookie 无效或已过期，请重新登录粉笔后再复制 Cookie。'
-      : exRes.status === 453 ? '设备凭据校验失败，请重试。'
-      : `HTTP ${exRes.status}`;
-    throw e;
+  //
+  // 关键：粉笔的练习**提交后**，getExercise 会返回
+  //   {"code":-10,"data":null,"msg":"练习已提交"}
+  // 也就是说老接口在已提交状态下拿不到任何东西。
+  // 此时必须走 getSolution（解析页接口），它返回的 staticUrl 里
+  // requestKey 已经带上了答案签名，static/solution 能一次给出
+  // **题目 + 官方答案 + 解析**。
+  // 所以顺序反过来：先试 getSolution，失败再退回 getExercise。
+  const fetchMeta = async (endpoint) => {
+    const r = await axios.get(`https://tiku.fenbi.com/combine/exercise/${endpoint}`, {
+      params: { format: 'html', key: target.key, routecs: target.routecs, ...COMMON, deviceId },
+      headers: { ...base, Cookie: jar.header('tiku.fenbi.com') },
+      timeout: 30000,
+      responseType: 'text',
+      transformResponse: [(d) => d],
+      validateStatus: () => true,
+      proxy: false,
+    });
+    jar.absorb(r, 'tiku.fenbi.com');
+    if (r.status !== 200) {
+      const e = new Error('粉笔拒绝了本次请求');
+      e.code = 'FENBI_NEED_LOGIN';
+      e.detail = r.status === 401 ? 'Cookie 无效或已过期，请重新登录粉笔后再复制 Cookie。'
+        : r.status === 453 ? '设备凭据校验失败，请重试。'
+        : `HTTP ${r.status}`;
+      throw e;
+    }
+    let info;
+    try { info = JSON.parse(r.data); } catch (e) {
+      const err = new Error('粉笔返回格式异常');
+      err.code = 'FENBI_BAD_RESPONSE';
+      throw err;
+    }
+    // code=-10 表示业务错误（如"练习已提交"），data 为空
+    if (!info || info.code !== 1 || !info.data) {
+      const e = new Error(info && info.msg ? `粉笔提示：${info.msg}` : '粉笔未返回练习内容');
+      e.code = 'FENBI_NO_CONTENT';
+      e.detail = info && info.msg ? info.msg : '';
+      e.apiMsg = info && info.msg;
+      throw e;
+    }
+    return info.data;
+  };
+
+  let meta = null;
+  let fromSolution = false;
+  try {
+    meta = await fetchMeta('getSolution');
+    fromSolution = true;
+  } catch (err) {
+    if (err.code !== 'FENBI_NO_CONTENT') throw err;
+    // 未提交（getSolution 拿不到）→ 走练习页接口
+    meta = await fetchMeta('getExercise');
+    fromSolution = false;
   }
-  let exInfo;
-  try { exInfo = JSON.parse(exRes.data); } catch (e) {
-    const err = new Error('粉笔返回格式异常');
-    err.code = 'FENBI_BAD_RESPONSE';
-    throw err;
-  }
-  const meta = exInfo.data || {};
   const staticUrl = meta.staticUrl && meta.staticUrl.urls && meta.staticUrl.urls[0];
   if (!staticUrl) {
     const e = new Error('粉笔未返回题目内容地址');
@@ -361,36 +441,47 @@ async function fetchFenbiPaper(url, cookieRaw, extraUserid) {
     throw err;
   }
 
-  // ④ 答案与解析（需要用户已在粉笔提交该练习）
+  // ④ 答案与解析
+  //
+  // 两种模式：
+  //  · solution 模式（练习已提交）：staticUrl 本身就指向 /static/solution，
+  //    题目与答案在同一个响应里（data.solutions[]），这里直接从 data 取。
+  //  · exercise 模式（未提交）：staticUrl 指向 /static/exercise，只有题目；
+  //    答案要另外请求 /static/solution，粉笔要求先提交练习才会开放。
   const solutions = new Map();
   let answerNote = '';
-  const requestKey = new URL(staticUrl).searchParams.get('key');
-  try {
-    const solRes = await axios.get(buildStaticUrl(
-      staticUrl.replace(/\/exercise(\?|$)/, '/solution$1'), 1), {
-      headers: { ...base, Cookie: jar.header('tiku.fenbi.com') },
-      timeout: 30000,
-      responseType: 'text',
-      transformResponse: [(d) => d],
-      validateStatus: () => true,
-      proxy: false,
-    });
-    if (solRes.status === 200) {
-      const sj = JSON.parse(solRes.data);
-      for (const s of sj.solutions || []) {
-        const ca = s.correctAnswer || {};
-        solutions.set(s.globalId, { choice: ca.choice || '', type: ca.type, solution: s.solution || '' });
+  if (fromSolution) {
+    solutions.clear();
+    extractSolutions(data).forEach((v, k) => solutions.set(k, v));
+    answerNote = solutions.size
+      ? `已获取 ${solutions.size} 道题的官方答案与解析`
+      : '粉笔未开放该练习的答案';
+  } else {
+    try {
+      const solRes = await axios.get(buildStaticUrl(
+        staticUrl.replace(/\/exercise(\?|$)/, '/solution$1'), 1), {
+        headers: { ...base, Cookie: jar.header('tiku.fenbi.com') },
+        timeout: 30000,
+        responseType: 'text',
+        transformResponse: [(d) => d],
+        validateStatus: () => true,
+        proxy: false,
+      });
+      if (solRes.status === 200) {
+        const sj = JSON.parse(solRes.data);
+        extractSolutions(sj).forEach((v, k) => solutions.set(k, v));
+        if (solutions.size) answerNote = `已获取 ${solutions.size} 道题的官方答案与解析`;
+        else answerNote = '粉笔未开放该练习的答案（需先在粉笔完成并提交）';
+      } else {
+        answerNote = '粉笔未开放该练习的答案（需先在粉笔完成并提交）';
       }
-      if (solutions.size) answerNote = `已获取 ${solutions.size} 道题的官方答案与解析`;
-    } else {
-      answerNote = '粉笔未开放该练习的答案（需先在粉笔完成并提交）';
-    }
-  } catch (e) {
-    const body = String((e.response && e.response.data) || '');
-    if (/not submit/i.test(body)) {
-      answerNote = '粉笔要求先在粉笔完成并提交这份练习，才会开放答案与解析；本次仅导入题目内容';
-    } else {
-      answerNote = '答案获取失败，本次仅导入题目内容';
+    } catch (e) {
+      const body = String((e.response && e.response.data) || '');
+      if (/not submit/i.test(body)) {
+        answerNote = '粉笔要求先在粉笔完成并提交这份练习，才会开放答案与解析；本次仅导入题目内容';
+      } else {
+        answerNote = '答案获取失败，本次仅导入题目内容';
+      }
     }
   }
 
@@ -419,7 +510,7 @@ async function fetchFenbiPaper(url, cookieRaw, extraUserid) {
  */
 function toQuestions(data, solutions) {
   const byGid = new Map();
-  (data.questions || []).forEach((q) => byGid.set(q.globalId, q));
+  listQuestions(data).forEach((q) => byGid.set(q.globalId, q));
   const matByGid = new Map();
   (data.materials || []).forEach((m) => matByGid.set(m.globalId, m));
 
