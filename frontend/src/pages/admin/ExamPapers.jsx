@@ -40,6 +40,8 @@ export default function ExamPapers() {
   const [addWay, setAddWay] = useState('upload');
   const [uploadForm] = Form.useForm();
   const [crawlForm] = Form.useForm();
+  // 爬取失败信息（需要 Cookie 的站点要展示获取方法）
+  const [crawlError, setCrawlError] = useState(null);
   const [fileList, setFileList] = useState([]);
   const [submitting, setSubmitting] = useState(false);
   // 联网爬取的预览结果：{ title, text, textLength, preview, url, year }
@@ -95,6 +97,7 @@ export default function ExamPapers() {
     setAddWay('upload');
     uploadForm.resetFields();
     crawlForm.resetFields();
+    setCrawlError(null);
     setFileList([]);
     setCrawlResult(null);
     setAddOpen(true);
@@ -141,8 +144,12 @@ export default function ExamPapers() {
     if (!values) return;
     setSubmitting(true);
     setCrawlResult(null);
+    setCrawlError(null);
     try {
-      const r = await api.post('/admin/exam-papers/crawl/preview', { url: values.url }, { timeout: 60000 });
+      const r = await api.post('/admin/exam-papers/crawl/preview', {
+        url: values.url,
+        cookie: values.cookie || '',
+      }, { timeout: 60000 });
       setCrawlResult({ ...r.data, url: values.url, year: values.year });
       // 网页标题自动填进标题框（用户填了就不覆盖）
       if (!values.title && r.data.title) {
@@ -151,6 +158,7 @@ export default function ExamPapers() {
       message.success(`抓取成功：提取 ${r.data.textLength} 字，请确认下方内容后再导入`);
     } catch (err) {
       const d = err.response?.data;
+      setCrawlError({ error: d?.error || '抓取失败', detail: d?.detail || '', needCookie: !!d?.needCookie });
       message.error({ content: d?.error || '抓取失败', duration: 6 });
       if (d?.detail) console.warn('抓取失败详情:', d.detail);
     } finally {
@@ -473,11 +481,29 @@ export default function ExamPapers() {
                   <Alert type="warning" showIcon style={{ marginBottom: 12 }}
                     message="仅支持公网可访问页面，内网地址会被拒绝（SSRF 防护）" />
 
+                  <Form.Item name="cookie" label="站点 Cookie（仅需要登录的站点填写）"
+                    extra="粉笔等题库站的题目数据来自需要登录的接口，抓取时必须带上你自己账号的 Cookie。获取方式：浏览器登录粉笔 → F12 → Network → 任选一个 fenbi 请求 → Request Headers → 复制整行 cookie: 的值。Cookie 只用于本次抓取，不会保存到服务器。"
+                    rules={[{ max: 4000, message: 'Cookie 过长' }]}>
+                    <Input.TextArea rows={2} placeholder="cookie: 粘贴这里（可留空）" />
+                  </Form.Item>
+
+                  {crawlError && (
+                    <Alert type="error" showIcon style={{ marginBottom: 12 }}
+                      message={crawlError.error}
+                      description={crawlError.detail || undefined} />
+                  )}
+
                   {crawlResult ? (
                     <>
-                      <Alert type="success" showIcon style={{ marginBottom: 12 }}
-                        message={`已抓取 ${crawlResult.textLength} 字，请确认下方内容无误后再导入`}
-                        description="导入后会自动开始 AI 拆题；若下方内容不是试题（如抓到了导航页），请不要导入。" />
+                      {crawlResult.detectedQuestions > 0 ? (
+                        <Alert type="success" showIcon style={{ marginBottom: 12 }}
+                          message={`已抓取 ${crawlResult.textLength} 字，识别到约 ${crawlResult.detectedQuestions} 道题号，请确认下方内容无误后再导入`}
+                          description="导入后会自动开始 AI 拆题；若下方内容不是试题（如抓到了导航页），请不要导入。" />
+                      ) : (
+                        <Alert type="warning" showIcon style={{ marginBottom: 12 }}
+                          message={`已抓取 ${crawlResult.textLength} 字，但没有识别到题号`}
+                          description="抓到的可能不是试题页面（或是需要登录才返回正文的站点）。请核对下方内容，确认为试题后再导入，否则拆题会失败。" />
+                      )}
                       <div style={{
                         maxHeight: 180, overflow: 'auto', padding: 12, marginBottom: 12,
                         background: '#fafafa', borderRadius: 8, whiteSpace: 'pre-wrap',

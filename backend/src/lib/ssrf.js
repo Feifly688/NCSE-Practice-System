@@ -182,4 +182,26 @@ async function safeGet(url, opts = {}) {
   });
 }
 
-module.exports = { isBlockedIp, createSafeLookup, createRedirectGuard, assertPublicUrl, safeGet };
+/**
+ * 受保护的 POST：与 safeGet 同一套防护（协议校验 + DNS 解析层拦截 +
+ * 重定向守卫 + 不走代理）。
+ *
+ * 用于必须用 POST 调用的外部接口（如题库站的设备初始化接口）。
+ *
+ * @param {string} url
+ * @param {*} data 请求体
+ * @param {object} opts axios 选项
+ */
+async function safePost(url, data, opts = {}) {
+  assertPublicUrl(url, opts.allowHosts);
+  const { allowHosts, ...rest } = opts;
+  return axios.post(url, data, {
+    ...rest,
+    lookup: createSafeLookup(),
+    maxRedirects: Number(rest.maxRedirects ?? 3),
+    beforeRedirect: createRedirectGuard(),
+    proxy: false,
+  });
+}
+
+module.exports = { isBlockedIp, createSafeLookup, createRedirectGuard, assertPublicUrl, safeGet, safePost };

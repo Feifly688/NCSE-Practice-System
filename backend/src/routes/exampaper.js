@@ -28,6 +28,7 @@ const {
 const { normalizeQuestionStem } = require('../lib/questionStem');
 const { buildFingerprint, findDuplicate, matchQuestionNumbers, assignQuestionsToNumbers, diceSimilarity, stemPart } = require('../lib/questionDedupe');
 const { preprocessPaperText } = require('../lib/paperText');
+const { fetchByAdapter, adapterHints } = require('../lib/crawlSites');
 const { safeJson } = require('../lib/json');
 const { assertPublicUrl, safeGet } = require('../lib/ssrf');
 const { extractQuestionImages } = require('../lib/pdfRegions');
@@ -121,7 +122,8 @@ function extractArticle(html) {
   }
 
   // ② 正文容器：题库站常用 div 排版，取文本量最大的几个容器
-  const containers = $('article, main, [class*="content"], [class*="article"], [class*="detail"], [class*="question"], [id*="content"]')
+  //    class 关键词覆盖常见题库站命名（粉笔用 q-cont/q-stem，中公/华图用 content/question）
+  const containers = $('article, main, [class*="content"], [class*="article"], [class*="detail"], [class*="question"], [class*="q-cont"], [class*="q-stem"], [class*="exercise"], [class*="paper"], [id*="content"]')
     .filter((_, el) => $(el).find('p, div, li, td').length > 0)
     .map((_, el) => ({ el, text: blockTexts($, $(el)).join('\n') }))
     .get()
@@ -134,15 +136,32 @@ function extractArticle(html) {
 
   // ③ 兜底：整页文本（按叶子块分行，便于过滤噪声行）
   const body = cleanCrawledText(blockTexts($, $('body')).join('\n'));
-  return { title, text: body };
+  if (body.length >= 50) return { title, text: body };
+
+  // ④ 再兜底：有些接口返回的是没有结构的片段，退到全文纯文本
+  const raw = $('body').text().replace(/[\t\u00a0]+/g, ' ').replace(/\s{2,}/g, '\n').trim();
+  return { title, text: raw };
 }
 
 /**
  * 抓取试卷页正文。
  *
- * 走 safeGet：DNS 解析层 + 重定向守卫双重拦截内网地址。
+ * 两条路径：
+ *  ① 站点适配器（SPA / 需登录的题库站，如粉笔）—— 走它自己的数据接口，
+ *     否则页面 HTML 里只有空壳，正文永远抓不到
+ *  ② 通用 HTML 抓取 —— 走 safeGet：DNS 解析层 + 重定向守卫双重拦截内网地址
+ *
+ * @param {string} url
+ * @param {object} opts { cookie } 管理员提供的站点 Cookie（仅适配器用，不落库）
  */
-async function crawlText(url) {
+async function crawlText(url, opts = {}) {
+  const parsed = new URL(url);
+  const adapted = await fetchByAdapter(parsed, { cookie: opts.cookie });
+  if (adapted) {
+    const art = extractArticle(adapted.html);
+    return { ...art, site: adapted.site, adapted: true };
+  }
+
   const { data } = await safeGet(url, {
     headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
@@ -986,22 +1005,46 @@ router.post('/upload', upload.single('file'), asyncHandler(async (req, res) => {
 // 直接一步到底的问题是：抓取失败或抓到了错误页面时，试卷已经落库并触发了
 // AI 拆题，库里留下一条没法用的记录，管理员还得手动删。
 router.post('/crawl/preview', asyncHandler(async (req, res) => {
-  const { url } = req.body;
+  const { url, cookie } = req.body;
   if (!url || !isPublicUrl(url)) return res.status(400).json({ error: '无效的或非公网的 URL' });
+
+  // 命中需要 Cookie 的站点（粉笔等）且没带 Cookie → 直接提示，别白跑一次请求
+  try {
+    const hint = adapterHints(new URL(url));
+    if (hint && hint.needsCookie && !String(cookie || '').trim()) {
+      return res.status(400).json({
+        error: '该站点的题目需要登录后才能抓取',
+        detail: hint.cookieHint,
+        needCookie: true,
+      });
+    }
+  } catch (_) { /* URL 已在上面校验过，这里忽略 */ }
 
   let crawled;
   try {
-    crawled = await crawlText(url);
+    crawled = await crawlText(url, { cookie });
   } catch (err) {
     // 把失败原因分类说明，管理员才知道是反爬、重定向还是网络问题
     const msg = err.message || '';
     let hint = '抓取失败';
-    if (/SSRF|内网|保留地址/.test(msg)) hint = '该地址被安全策略拒绝（内网或保留地址不可抓取）';
+    let needCookie = false;
+    if (err.code === 'FENBI_NEED_LOGIN') {
+      hint = '该站点的题目需要登录后才能抓取';
+      needCookie = true;
+    } else if (err.code === 'FENBI_HTTP_ERROR') {
+      hint = '目标站点拒绝了本次请求';
+    } else if (err.code === 'FENBI_EMPTY') {
+      hint = '目标站点返回了空内容';
+    } else if (/SSRF|内网|保留地址/.test(msg)) hint = '该地址被安全策略拒绝（内网或保留地址不可抓取）';
     else if (/status code 4\d\d/.test(msg)) hint = '目标站点拒绝访问（可能需要登录或有反爬策略）';
     else if (/status code 5\d\d/.test(msg)) hint = '目标站点返回服务器错误';
     else if (/timeout|ECONN|ENOTFOUND/.test(msg)) hint = '无法连接目标站点（超时或域名解析失败）';
     else if (/maxRedirects/.test(msg)) hint = '重定向次数过多';
-    return res.status(400).json({ error: hint, detail: msg.slice(0, 200) });
+    return res.status(400).json({
+      error: hint,
+      detail: (err.detail || msg).slice(0, 300),
+      needCookie,
+    });
   }
 
   if (!crawled.text || crawled.text.length < 50) {
@@ -1016,11 +1059,14 @@ router.post('/crawl/preview', asyncHandler(async (req, res) => {
     text: crawled.text,
     textLength: crawled.text.length,
     preview: crawled.text.slice(0, 1500),
+    site: crawled.site || null,
+    // 粗略统计行首题号，让管理员一眼看出抓到的内容是不是试题
+    detectedQuestions: (crawled.text.match(/^[ \t]*\d{1,3}[.、．]/gm) || []).length,
   });
 }));
 
 router.post('/crawl', asyncHandler(async (req, res) => {
-  const { url, title, year, text } = req.body;
+  const { url, title, year, text, cookie } = req.body;
   if (!url || !isPublicUrl(url)) return res.status(400).json({ error: '无效的或非公网的 URL' });
 
   // 预览步骤已经拿到正文就直接用，避免重复抓取（对方站点可能限流）
@@ -1029,9 +1075,12 @@ router.post('/crawl', asyncHandler(async (req, res) => {
   if (!paperText) {
     let crawled;
     try {
-      crawled = await crawlText(url);
+      crawled = await crawlText(url, { cookie });
     } catch (err) {
-      return res.status(400).json({ error: '抓取失败：' + err.message });
+      return res.status(400).json({
+        error: '抓取失败：' + (err.code ? err.message : err.message),
+        detail: (err.detail || '').slice(0, 300),
+      });
     }
     if (!crawled.text || crawled.text.length < 50) return res.status(400).json({ error: '抓取内容为空' });
     paperText = crawled.text;
