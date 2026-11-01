@@ -47,7 +47,9 @@ function groupSectionQuestions(questions) {
   for (const q of questions || []) {
     const gid = q.materialGroup;
     if (gid == null) {
-      out.push({ id: `single-${q.seq}`, materialGroup: null, questions: [q] });
+      // 单题（不属于任何材料组）：结构与材料组保持一致，
+      // 否则调用方读 grp.images / grp.passage 时会拿到 undefined
+      out.push({ id: `single-${q.seq}`, materialGroup: null, passage: '', images: [], questions: [q] });
       continue;
     }
     const last = out[out.length - 1];
@@ -357,9 +359,8 @@ export default function ExamPaperTake() {
           {grp.passage}
         </Paragraph>
       )}
-      {grp.images.map((src) => {
-        const url = paperImageUrl(src);
-        return (
+      {(grp.images || []).map((src) => {
+        const url = paperImageUrl(src);        return (
           <img
             key={src}
             src={url}
@@ -706,7 +707,7 @@ export default function ExamPaperTake() {
               {groupSectionQuestions(s.questions).map((grp) => {
                 // 材料组但正文与图表都为空（材料组延伸到后续分区时的边界情况）
                 // → 不渲染空的「本篇资料」面板，退回单列列表
-                const hasMaterial = Boolean(grp.passage) || grp.images.length > 0;
+                const hasMaterial = Boolean(grp.passage) || (grp.images || []).length > 0;
                 if (!grp.materialGroup || !hasMaterial) {
                   return grp.questions.map(renderQuestionCard);
                 }
