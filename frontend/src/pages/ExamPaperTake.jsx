@@ -215,26 +215,17 @@ export default function ExamPaperTake() {
     const headerH = headerRef.current ? headerRef.current.offsetHeight : 90;
     const want = headerH + 8;
 
-    // ① 题目在独立滚动容器里（材料组右栏）→ 先在容器内对到顶部
-    const port = el.closest('[data-scroll-port]');
-    if (port) {
-      const er = el.getBoundingClientRect();
-      const pr = port.getBoundingClientRect();
-      port.scrollTop += (er.top - pr.top) - 8;
-    }
+    // ① 先用原生滚动。它能正确处理两件靠算式很难算准的事：
+    //    · 题目在独立滚动容器里（材料组右栏）时，容器与窗口两级滚动
+    //    · 图片懒加载导致文档高度变化（整卷有上百张图，滚动中会漂移几千元）
+    //    原生滚动有滚动锚定兜底，手工算绝对落点会因为漂移而失准。
+    el.scrollIntoView({ block: 'start' });
 
-    // ② 再滚动窗口，把题目落到信息栏下方
-    //    这里不用 scrollIntoView：它在多级滚动容器里只保证「可见」不保证对齐，
-    //    目标题会被压在顶部信息栏下面（题号行看不见）。
-    //    也不用相对位移 scrollBy —— 那种写法在多级滚动容器里会多滚十几像素；
-    //    这里换算成绝对落点，误差为零。
-    //    注：题目在内层滚动容器里时，它的「视口位置 + 窗口滚动量」已包含容器滚动量，
-    //    直接当作文档位置用即可（滚动窗口时两者同步变化）。
-    const cur = el.getBoundingClientRect().top;
-    const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
-    const target = Math.max(0, Math.min(window.scrollY + cur - want, maxScroll));
-    if (Math.abs(window.scrollY - target) > 1) {
-      window.scrollTo({ top: target, behavior: 'smooth' });
+    // ② 原生滚动只保证「可见」，不保证对齐 —— 目标题可能被压在顶部信息栏下面，
+    //    题号行看不见。这里在滚动完成后按实测位置补一次精确校正。
+    const delta = el.getBoundingClientRect().top - want;
+    if (Math.abs(delta) > 1) {
+      window.scrollBy({ top: delta, behavior: 'smooth' });
     }
     setSheetOpen(false);
   }
@@ -378,11 +369,18 @@ export default function ExamPaperTake() {
   );
 
   /** 单题卡片（资料分析的两栏布局里会复用）
-   *  opts.hidePassage：材料已在左栏展示时，题干区不再重复渲染一遍 */
+   *  opts.hidePassage：材料已在左栏展示时，题干区不再重复渲染一遍
+   *  opts.hideMaterialImages：材料图已在左栏展示时，卡片里不再重复渲染一遍
+   *    （材料图文件名带 -m 后缀；重复渲染既冗余，又会因为图片懒加载
+   *      撑高文档、放大滚动漂移） */
   const renderQuestionCard = (q, opts = {}) => {
     const myAnswer = answers[q.seq];
     const res = resultMap[q.seq];
     const isWrong = res && !res.correct;
+    // 材料图（文件名带 -m 后缀）已在左栏展示时，卡片里不再重复渲染
+    const cardImages = (q.images || []).filter(
+      (src) => !(opts.hideMaterialImages && /-m(-\d+)?\./.test(src))
+    );
     return (
       <Card
         key={q.seq}
@@ -471,9 +469,9 @@ export default function ExamPaperTake() {
         {/* 原卷区域截图：图形推理/几何图/统计图表在文本层里没有，只能看图。
             纯文本题的区域截图只是把题干重拍一遍，与上面的文字重复，
             默认折叠，需要核对原卷时再展开（懒加载）。 */}
-        {(q.images || []).length > 0 && q.imageNeeded !== false && (
+        {cardImages.length > 0 && q.imageNeeded !== false && (
           <div style={{ marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {q.images.map((src) => {
+            {cardImages.map((src) => {
               const url = paperImageUrl(src);
               return (
                 <img
@@ -492,7 +490,7 @@ export default function ExamPaperTake() {
           </div>
         )}
 
-        {(q.images || []).length > 0 && q.imageNeeded === false && (
+        {cardImages.length > 0 && q.imageNeeded === false && (
           <div style={{ marginBottom: 12 }}>
             <a
               onClick={() => setShotOpen((s) => ({ ...s, [q.seq]: !s[q.seq] }))}
@@ -502,7 +500,7 @@ export default function ExamPaperTake() {
             </a>
             {shotOpen[q.seq] && (
               <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {q.images.map((src) => {
+                {cardImages.map((src) => {
                   const url = paperImageUrl(src);
                   return (
                     <img
@@ -744,7 +742,7 @@ export default function ExamPaperTake() {
                         overflowY: 'auto', overflowX: 'hidden', paddingRight: 4,
                       }}
                     >
-                      {grp.questions.map((q) => renderQuestionCard(q, { hidePassage: true }))}
+                      {grp.questions.map((q) => renderQuestionCard(q, { hidePassage: true, hideMaterialImages: true }))}
                     </div>
                   </div>
                 ) : (
@@ -754,7 +752,7 @@ export default function ExamPaperTake() {
                       <div style={{ fontSize: 13, color: '#8c8c8c', marginBottom: 6 }}>本篇资料</div>
                       {renderMaterialBody(grp, isMobile ? 15 : 16)}
                     </Card>
-                    {grp.questions.map((q) => renderQuestionCard(q, { hidePassage: true }))}
+                    {grp.questions.map((q) => renderQuestionCard(q, { hidePassage: true, hideMaterialImages: true }))}
                   </div>
                 );
               })}
