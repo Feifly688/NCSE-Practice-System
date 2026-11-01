@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Card, Button, Tag, Progress, Space, Typography, Spin, Empty, message,
-  Drawer, Modal, Statistic, Row, Col, Divider, Affix,
+  Drawer, Modal, Statistic, Row, Col, Divider,
 } from 'antd';
 import {
   ArrowLeftOutlined, CheckCircleOutlined, CloseCircleOutlined,
@@ -84,12 +84,36 @@ function fmtTime(sec) {  const m = Math.floor(sec / 60);
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
+/**
+ * 粉笔题库（spa.fenbi.com/ti）的设计 token。
+ *
+ * 取自粉笔线上样式表 styles-*.css 的实际取值：
+ *   主色 #385dca / 亮蓝 #3c7cfc、选中底 #edf6ff、选中描边 #cbdfff、
+ *   页面底 #f7f9fc、正文 #292a2d、次要文字 #3c464f、弱文字 #868ea8、
+ *   分隔线 #e8ecf3、强调黄 #ffbc22
+ * 目的是让整卷答题页的观感与粉笔一致，而不是 antd 默认蓝 + 默认圆角卡片。
+ */
+const FB = {
+  primary: '#385dca',
+  primaryLight: '#3c7cfc',
+  selectedBg: '#edf6ff',
+  selectedBorder: '#cbdfff',
+  pageBg: '#f7f9fc',
+  text: '#292a2d',
+  textSub: '#3c464f',
+  textWeak: '#868ea8',
+  border: '#e8ecf3',
+  accent: '#ffbc22',
+};
+const FB_FONT = '"Noto Sans SC", system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif';
+
+/** 答题状态配色：与粉笔答题卡一致（未答白底灰边 / 已答蓝底 / 标记黄底） */
 const CARD_STATUS_COLOR = {
-  answered: { bg: '#1D4ED8', color: '#fff', border: '#1D4ED8' },
-  marked: { bg: '#fff7e6', color: '#d46b08', border: '#ffd591' },
-  unanswered: { bg: '#fff', color: '#8c8c8c', border: '#d9d9d9' },
-  correct: { bg: '#16a34a', color: '#fff', border: '#16a34a' },
-  wrong: { bg: '#dc2626', color: '#fff', border: '#dc2626' },
+  answered: { bg: FB.primaryLight, color: '#fff', border: FB.primaryLight },
+  marked: { bg: '#fff8e6', color: '#d48806', border: '#ffe08a' },
+  unanswered: { bg: '#fff', color: FB.textWeak, border: '#e3e7ee' },
+  correct: { bg: '#52c41a', color: '#fff', border: '#52c41a' },
+  wrong: { bg: '#f5222d', color: '#fff', border: '#f5222d' },
 };
 
 /**
@@ -180,6 +204,7 @@ export default function ExamPaperTake() {
   );
   const total = allQuestions.length;
   const answeredCount = Object.keys(answers).length;
+  const unansweredCount = Math.max(0, total - answeredCount);
   const resultMap = useMemo(() => {
     const m = {};
     (result?.results || []).forEach((r) => { m[r.seq] = r; });
@@ -271,10 +296,11 @@ export default function ExamPaperTake() {
             key={q.seq}
             onClick={() => scrollToSeq(q.seq)}
             style={{
-              width: isMobile ? 34 : 32, height: isMobile ? 34 : 32,
+              width: 30, height: 30,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              borderRadius: 6, border: `1px solid ${c.border}`, background: c.bg, color: c.color,
-              fontSize: 13, cursor: 'pointer', fontWeight: st === 'unanswered' ? 400 : 600,
+              borderRadius: 4, border: `1px solid ${c.border}`, background: c.bg, color: c.color,
+              fontSize: 12, cursor: 'pointer', fontWeight: st === 'unanswered' ? 400 : 600,
+              transition: 'background .15s',
             }}
             title={`第 ${q.seq} 题${q.section ? '（' + q.section + '）' : ''}${marked[q.seq] ? '（已标记）' : ''}`}
           >
@@ -287,7 +313,6 @@ export default function ExamPaperTake() {
 
   const answerSheet = (
     <div>
-      <Text strong style={{ display: 'block', marginBottom: 8 }}>答题卡</Text>
       {sections.length > 0 ? (
         sections.map((s) => (
           <div key={s.name} style={{ marginBottom: 14 }}>
@@ -396,29 +421,33 @@ export default function ExamPaperTake() {
         ref={(el) => { qRefs.current[q.seq] = el; }}
         size="small"
         style={{
-          marginBottom: 14, borderRadius: 10,
-          borderColor: isWrong ? '#ffccc7' : undefined,
+          marginBottom: 14, borderRadius: 8,
+          borderColor: isWrong ? '#ffccc7' : FB.border,
+          background: '#fff',
         }}
-        styles={{ body: { padding: isMobile ? '12px 14px' : '16px 20px' } }}
+        styles={{ body: { padding: isMobile ? '12px 14px' : '18px 22px' } }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
           <span style={{
             display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-            width: 24, height: 24, borderRadius: '50%', background: '#1D4ED8',
-            color: '#fff', fontSize: 13, fontWeight: 600,
+            minWidth: 26, height: 24, padding: '0 7px', borderRadius: 4,
+            background: FB.primary, color: '#fff', fontSize: 13, fontWeight: 600,
           }}>{q.seq}</span>
-          <Tag color="purple">{q.qtype || '单选题'}</Tag>
-          <Tag color={q.difficulty <= 2 ? 'green' : q.difficulty <= 4 ? 'orange' : 'red'}>
+          <Tag color={q.qtype === '多选题' ? 'blue' : 'default'} style={{ marginInlineEnd: 0, borderRadius: 4, fontSize: 12 }}>
+            {q.qtype || '单选题'}
+          </Tag>
+          <Tag color={q.difficulty <= 2 ? 'green' : q.difficulty <= 4 ? 'orange' : 'red'}
+            style={{ marginInlineEnd: 0, borderRadius: 4, fontSize: 12 }}>
             难度 {q.difficulty || 3}
           </Tag>
           {res && (
             res.correct
-              ? <Tag icon={<CheckCircleOutlined />} color="success">答对</Tag>
-              : <Tag icon={<CloseCircleOutlined />} color="error">答错</Tag>
+              ? <Tag icon={<CheckCircleOutlined />} color="success" style={{ marginInlineEnd: 0, borderRadius: 4, fontSize: 12 }}>答对</Tag>
+              : <Tag icon={<CloseCircleOutlined />} color="error" style={{ marginInlineEnd: 0, borderRadius: 4, fontSize: 12 }}>答错</Tag>
           )}
           <span
             onClick={() => toggleMark(q.seq)}
-            style={{ marginLeft: 'auto', cursor: 'pointer', color: marked[q.seq] ? '#fa8c16' : '#bfbfbf' }}
+            style={{ marginLeft: 'auto', cursor: 'pointer', color: marked[q.seq] ? FB.accent : '#c8cdd6' }}
             title="标记此题"
           >
             {marked[q.seq] ? <FlagFilled /> : <FlagOutlined />}
@@ -530,11 +559,12 @@ export default function ExamPaperTake() {
           </div>
         )}
 
-        <div style={{ fontSize: isMobile ? 14 : 15, lineHeight: 1.8, marginBottom: 12, whiteSpace: 'pre-wrap' }}>
+        <div style={{ fontSize: isMobile ? 15 : 16, lineHeight: 1.85, marginBottom: 14, whiteSpace: 'pre-wrap', color: FB.text }}>
           {q.stem}
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {/* 选项：粉笔式「行」布局 —— 无边框、选中浅蓝底、hover 淡灰底 */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
           {(q.options || []).map((opt, i) => {
             const label = OPTION_LABELS[i] || String(i);
             const selected = myAnswer === label;
@@ -547,28 +577,39 @@ export default function ExamPaperTake() {
               ? (/^[A-Da-d]$/.test(opt.trim()) ? opt.trim() : label)
               : opt;
 
-            let bg = '#fff';
-            let border = '#e5e7eb';
+            // 粉笔式：未选透明底（靠 hover 提示），选中浅蓝底
+            let bg = 'transparent';
+            let markColor = 'transparent';
+            let markBorder = '#c5ccd8';
+            let markText = FB.textSub;
             if (res) {
-              if (isRight) { bg = '#f6ffed'; border = '#b7eb8f'; }
-              if (isMyWrong) { bg = '#fff2f0'; border = '#ffccc7'; }
-            } else if (selected) { bg = '#eff6ff'; border = '#1D4ED8'; }
+              if (isRight) { bg = '#f6ffed'; markColor = '#52c41a'; markBorder = '#52c41a'; markText = '#fff'; }
+              if (isMyWrong) { bg = '#fff2f0'; markColor = '#f5222d'; markBorder = '#f5222d'; markText = '#fff'; }
+            } else if (selected) {
+              bg = FB.selectedBg; markColor = FB.primaryLight; markBorder = FB.primaryLight; markText = '#fff';
+            }
 
             return (
               <div
                 key={label}
                 onClick={() => selectOption(q.seq, label)}
                 style={{
-                  display: 'flex', gap: 10, alignItems: 'flex-start', cursor: result ? 'default' : 'pointer',
-                  padding: '10px 12px', borderRadius: 8, border: `1px solid ${border}`, background: bg,
-                  fontSize: isMobile ? 14 : 15, lineHeight: 1.7, transition: 'all .15s',
+                  display: 'flex', gap: 10, alignItems: 'flex-start',
+                  cursor: result ? 'default' : 'pointer',
+                  padding: '9px 12px', borderRadius: 6, background: bg,
+                  fontSize: isMobile ? 14 : 15, lineHeight: 1.75, color: FB.text,
+                  transition: 'background .15s',
+                }}
+                onMouseEnter={(e) => {
+                  if (!result && !selected) e.currentTarget.style.background = FB.pageBg;
+                }}
+                onMouseLeave={(e) => {
+                  if (!result && !selected) e.currentTarget.style.background = 'transparent';
                 }}
               >
                 <span style={{
                   flexShrink: 0, width: 22, height: 22, borderRadius: '50%',
-                  border: `1px solid ${selected || isRight ? border : '#d9d9d9'}`,
-                  background: selected || isRight ? border : '#fff',
-                  color: selected || isRight ? '#fff' : '#666',
+                  border: `1px solid ${markBorder}`, background: markColor, color: markText,
                   display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                   fontSize: 12, fontWeight: 600,
                 }}>{label}</span>
@@ -576,7 +617,7 @@ export default function ExamPaperTake() {
                   {optText}
                 </span>
                 {res && isRight && <CheckCircleOutlined style={{ color: '#52c41a', marginTop: 4 }} />}
-                {isMyWrong && <CloseCircleOutlined style={{ color: '#ff4d4f', marginTop: 4 }} />}
+                {isMyWrong && <CloseCircleOutlined style={{ color: '#f5222d', marginTop: 4 }} />}
               </div>
             );
           })}
@@ -584,7 +625,7 @@ export default function ExamPaperTake() {
 
         {res && (
           <div style={{
-            marginTop: 12, padding: 12, borderRadius: 8,
+            marginTop: 12, padding: 12, borderRadius: 6,
             background: res.correct ? '#f6ffed' : '#fff7e6',
             border: `1px solid ${res.correct ? '#b7eb8f' : '#ffd591'}`,
           }}>
@@ -604,46 +645,52 @@ export default function ExamPaperTake() {
   };
 
   return (
-    <div style={{ paddingBottom: isMobile ? 80 : 24 }}>
-      {/* 顶部信息栏 */}
-      <Card
+    <div style={{
+      // 底部固定操作条的高度，避免最后一道题被压住
+      paddingBottom: 92,
+      background: FB.pageBg,
+      minHeight: '100%',
+      fontFamily: FB_FONT,
+      color: FB.text,
+    }}>
+      {/* 顶部工具条：粉笔式 —— 白底 + 底部细线，不用卡片阴影 */}
+      <div
         ref={headerRef}
-        size="small"
-        style={{ position: 'sticky', top: 0, zIndex: 20, marginBottom: 16, boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}
-        styles={{ body: { padding: isMobile ? '10px 12px' : '12px 16px' } }}
+        style={{
+          position: 'sticky', top: 0, zIndex: 20,
+          background: '#fff', borderBottom: `1px solid ${FB.border}`,
+          marginBottom: 16,
+        }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <Button size="small" icon={<ArrowLeftOutlined />} onClick={() => navigate('/exam-papers')}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: isMobile ? '10px 12px' : '12px 16px' }}>
+          <Button type="text" size="small" icon={<ArrowLeftOutlined />} onClick={() => navigate('/exam-papers')}
+            style={{ color: FB.textSub }}>
             {!isMobile && '返回'}
           </Button>
-          <Text strong ellipsis style={{ flex: 1, minWidth: 120, fontSize: isMobile ? 14 : 16 }}>
+          <Text strong ellipsis style={{ flex: 1, minWidth: 120, fontSize: isMobile ? 14 : 16, color: FB.text }}>
             {paper.title}
           </Text>
-          <Space size={8}>
-            <Tag icon={<ClockCircleOutlined />} color="blue">{fmtTime(elapsed)}</Tag>
-            <Text type="secondary" style={{ fontSize: 13 }}>
-              已答 {answeredCount}/{total}
-            </Text>
-            {isMobile && (
-              <Button size="small" icon={<DashboardOutlined />} onClick={() => setSheetOpen(true)}>答题卡</Button>
-            )}
-            <Button
-              type="primary" size="small" loading={submitting}
-              disabled={!!result} onClick={submit}
-            >
-              {result ? '已交卷' : '交卷'}
-            </Button>
-          </Space>
+          <Tag
+            icon={<ClockCircleOutlined />}
+            style={{
+              marginInlineEnd: 0, borderRadius: 4, fontSize: 12,
+              background: '#f2f5fb', borderColor: '#e3e9f5', color: FB.textSub,
+            }}
+          >
+            {fmtTime(elapsed)}
+          </Tag>
         </div>
         <Progress
           percent={total ? Math.round((answeredCount / total) * 100) : 0}
-          size="small" showInfo={false} style={{ margin: '6px 0 0' }}
+          size="small" showInfo={false}
+          style={{ margin: 0, lineHeight: 0 }}
+          strokeColor={FB.primaryLight} trailColor="#eef1f6"
         />
-      </Card>
+      </div>
 
       {/* 结果反馈 */}
       {result && (
-        <Card style={{ marginBottom: 16, borderRadius: 12 }} styles={{ body: { padding: 16 } }}>
+        <Card style={{ marginBottom: 16, borderRadius: 8, borderColor: FB.border }} styles={{ body: { padding: 16, background: '#fff' } }}>
           <Row gutter={16} align="middle">
             <Col flex="auto">
               <Space size={24} wrap>
@@ -674,39 +721,46 @@ export default function ExamPaperTake() {
         </Card>
       )}
 
-      {/* 分区导航 */}
-      <Card size="small" style={{ marginBottom: 16 }} styles={{ body: { padding: isMobile ? 10 : 12 } }}>
-        <Space size={[8, 8]} wrap>
-          {sections.map((s) => {
-            const done = s.questions.filter((q) => answers[q.seq]).length;
-            const active = activeSection === s.name;
-            return (
-              <Tag
-                key={s.name}
-                color={active ? 'blue' : undefined}
-                style={{ cursor: 'pointer', padding: '3px 10px', fontSize: 13 }}
-                onClick={() => { setActiveSection(s.name); scrollToSeq(s.questions[0].seq); }}
-              >
-                {s.name}（{done}/{s.count}）
-              </Tag>
-            );
-          })}
-        </Space>
-      </Card>
+      {/* 分区导航：粉笔式文字标签（选中为实心蓝底） */}
+      <div style={{
+        display: 'flex', gap: 8, flexWrap: 'wrap',
+        marginBottom: 16, padding: isMobile ? '8px 10px' : '10px 12px',
+        background: '#fff', borderRadius: 8, border: `1px solid ${FB.border}`,
+      }}>
+        {sections.map((s) => {
+          const done = s.questions.filter((q) => answers[q.seq]).length;
+          const active = activeSection === s.name;
+          return (
+            <div
+              key={s.name}
+              onClick={() => { setActiveSection(s.name); scrollToSeq(s.questions[0].seq); }}
+              style={{
+                cursor: 'pointer', padding: '4px 12px', borderRadius: 4, fontSize: 13, lineHeight: '20px',
+                background: active ? FB.primary : '#fff',
+                color: active ? '#fff' : FB.textSub,
+                border: `1px solid ${active ? FB.primary : FB.border}`,
+                transition: 'all .15s',
+              }}
+            >
+              {s.name}（{done}/{s.count}）
+            </div>
+          );
+        })}
+      </div>
 
       <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
-        {/* 题目区 */}
+        {/* 题目区（答题卡改为底部抽屉，题目区独占全宽） */}
         <div style={{ flex: 1, minWidth: 0 }}>
           {sections.map((s) => (
             <div key={s.name}>
               <div
                 style={{
-                  margin: '8px 0 12px', paddingLeft: 8, borderLeft: '3px solid #1D4ED8',
-                  fontSize: isMobile ? 15 : 16, fontWeight: 600,
+                  margin: '8px 0 12px', paddingLeft: 10, borderLeft: `3px solid ${FB.primary}`,
+                  fontSize: isMobile ? 15 : 16, fontWeight: 600, color: FB.text,
                 }}
               >
                 {s.name}
-                <Text type="secondary" style={{ fontWeight: 400, fontSize: 13, marginLeft: 8 }}>
+                <Text style={{ fontWeight: 400, fontSize: 13, marginLeft: 8, color: FB.textWeak }}>
                   共 {s.count} 题
                 </Text>
               </div>
@@ -733,10 +787,10 @@ export default function ExamPaperTake() {
                     <div style={{ flex: `0 0 ${MATERIAL_LEFT_W}`, minHeight: 0 }}>
                       <Card
                         size="small"
-                        style={{ height: '100%', borderRadius: 10, display: 'flex', flexDirection: 'column' }}
-                        styles={{ body: { padding: 14, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' } }}
+                        style={{ height: '100%', borderRadius: 8, borderColor: FB.border, display: 'flex', flexDirection: 'column' }}
+                        styles={{ body: { padding: 16, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', background: '#fff' } }}
                       >
-                        <div style={{ fontSize: 13, color: '#8c8c8c', marginBottom: 8, flexShrink: 0 }}>本篇资料</div>
+                        <div style={{ fontSize: 13, color: FB.textWeak, marginBottom: 8, flexShrink: 0 }}>本篇资料</div>
                         <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', paddingRight: 4 }}>
                           {renderMaterialBody(grp, { fontSize: 16, eager: true })}
                         </div>
@@ -757,8 +811,8 @@ export default function ExamPaperTake() {
                 ) : (
                   /* ── 窄屏：两栏会把题目挤到读不了，改为材料卡 + 题目流式堆叠 ── */
                   <div key={`grp-${grp.id}`}>
-                    <Card size="small" style={{ borderRadius: 10, marginBottom: 12 }} styles={{ body: { padding: 12 } }}>
-                      <div style={{ fontSize: 13, color: '#8c8c8c', marginBottom: 6 }}>本篇资料</div>
+                    <Card size="small" style={{ borderRadius: 8, marginBottom: 12, borderColor: FB.border }} styles={{ body: { padding: 14, background: '#fff' } }}>
+                      <div style={{ fontSize: 13, color: FB.textWeak, marginBottom: 6 }}>本篇资料</div>
                       {renderMaterialBody(grp, { fontSize: isMobile ? 15 : 16, eager: false })}
                     </Card>
                     {grp.questions.map((q) => renderQuestionCard(q, { hidePassage: true, hideMaterialImages: true }))}
@@ -769,51 +823,60 @@ export default function ExamPaperTake() {
           ))}
         </div>
 
-        {/* PC 端右侧答题卡 */}
-        {!isMobile && (
-          <div style={{ width: 220, flexShrink: 0 }}>
-            <Affix offsetTop={90}>
-              <Card size="small" style={{ borderRadius: 10 }} styles={{ body: { padding: 12 } }}>
-                {answerSheet}
-                <Button
-                  type="primary" block style={{ marginTop: 12 }} loading={submitting}
-                  disabled={!!result} onClick={submit}
-                >
-                  {result ? '已交卷' : '交卷并查看解析'}
-                </Button>
-              </Card>
-            </Affix>
-          </div>
-        )}
       </div>
 
-      {/* 移动端答题卡抽屉 + 底部操作条 */}
-      {isMobile && (
-        <>
-          <Drawer
-            title="答题卡" placement="bottom" open={sheetOpen}
-            onClose={() => setSheetOpen(false)} height="62%"
-            styles={{ body: { padding: 14 } }}
-          >
-            {answerSheet}
-          </Drawer>
-          <div style={{
-            position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 30,
-            background: '#fff', borderTop: '1px solid #eee', padding: '8px 12px',
-            display: 'flex', alignItems: 'center', gap: 10,
-            paddingBottom: 'calc(8px + env(safe-area-inset-bottom))',
-          }}>
-            <Text type="secondary" style={{ fontSize: 13 }}>已答 {answeredCount}/{total}</Text>
-            <div style={{ flex: 1 }}>
-              <Progress percent={total ? Math.round((answeredCount / total) * 100) : 0} size="small" showInfo={false} />
-            </div>
-            <Button size="small" icon={<DashboardOutlined />} onClick={() => setSheetOpen(true)}>答题卡</Button>
-            <Button type="primary" size="small" loading={submitting} disabled={!!result} onClick={submit}>
-              交卷
-            </Button>
-          </div>
-        </>
-      )}
+      {/* 答题卡：底部抽屉（可下拉/收起），PC 与移动端一致 */}
+      <Drawer
+        title="答题卡" placement="bottom" open={sheetOpen}
+        onClose={() => setSheetOpen(false)}
+        height={isMobile ? '62%' : '52%'}
+        styles={{ body: { padding: 16 } }}
+      >
+        {answerSheet}
+        <Button
+          type="primary" block style={{ marginTop: 14 }} loading={submitting}
+          disabled={!!result} onClick={submit}
+        >
+          {result ? '已交卷' : '交卷并查看解析'}
+        </Button>
+      </Drawer>
+
+      {/* 底部固定操作条：粉笔式 —— 答题卡入口 + 进度 + 交卷 */}
+      <div style={{
+        position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 30,
+        background: '#fff', borderTop: `1px solid ${FB.border}`,
+        boxShadow: '0 -2px 10px rgba(40,60,120,0.06)',
+        padding: '10px 16px',
+        display: 'flex', alignItems: 'center', gap: 12,
+        paddingBottom: 'calc(10px + env(safe-area-inset-bottom))',
+        fontFamily: FB_FONT,
+      }}>
+        <Button
+          size="small" icon={<DashboardOutlined />} onClick={() => setSheetOpen(true)}
+          style={{ borderRadius: 4, color: FB.primary, borderColor: FB.selectedBorder, background: '#fff' }}
+        >
+          答题卡
+          {unansweredCount > 0 && (
+            <span style={{ marginLeft: 6, color: '#f5222d' }}>{unansweredCount}</span>
+          )}
+        </Button>
+        <Text style={{ fontSize: 13, color: FB.textSub, whiteSpace: 'nowrap' }}>
+          已答 {answeredCount}/{total}
+        </Text>
+        <div style={{ flex: 1, minWidth: 60 }}>
+          <Progress
+            percent={total ? Math.round((answeredCount / total) * 100) : 0}
+            size="small" showInfo={false}
+            strokeColor={FB.primaryLight} trailColor="#eef1f6"
+          />
+        </div>
+        <Button
+          type="primary" size="small" loading={submitting} disabled={!!result} onClick={submit}
+          style={{ background: FB.primary, borderColor: FB.primary, borderRadius: 4 }}
+        >
+          {result ? '已交卷' : '交卷'}
+        </Button>
+      </div>
 
       {/* 截图大图：在当前页面内放大查看（不另开标签页，避免丢失作答进度） */}
       {previewImg && (
