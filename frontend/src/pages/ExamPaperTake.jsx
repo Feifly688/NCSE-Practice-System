@@ -334,8 +334,16 @@ export default function ExamPaperTake() {
    * 左右分栏时放进左栏内部的滚动容器；窄屏堆叠时单独成卡。
    * wordBreak 是必要的：资料分析常见一长串数字或连续单位，
    * 不断词会把容器撑宽导致横向溢出。
+   *
+   * 【为什么左栏的图不能懒加载】
+   * 左栏是「固定高度 + 内部滚动」的容器，图在容器内、容器在页面很下方：
+   * 浏览器按「元素是否进入视口」决定是否加载 → 图不加载 → 没有高度 →
+   * 容器不溢出 → 用户没有可滚动的空间 → 永远滚不到图 → 永远不加载。
+   * 资料分析的统计图表就卡在这个死循环里显示不出来。
+   * 所以左栏的图主动加载（整卷材料图只有十来张，代价可接受）；
+   * 窄屏堆叠时图在正常文档流里，懒加载没问题。
    */
-  const renderMaterialBody = (grp, fontSize) => (
+  const renderMaterialBody = (grp, { fontSize, eager }) => (
     <>
       {grp.passage && (
         <Paragraph
@@ -351,12 +359,13 @@ export default function ExamPaperTake() {
         </Paragraph>
       )}
       {(grp.images || []).map((src) => {
-        const url = paperImageUrl(src);        return (
+        const url = paperImageUrl(src);
+        return (
           <img
             key={src}
             src={url}
             alt="资料图表"
-            loading="lazy"
+            loading={eager ? 'eager' : 'lazy'}
             onClick={() => setPreviewImg(url)}
             style={{
               width: '100%', border: '1px solid #f0f0f0', borderRadius: 8,
@@ -729,7 +738,7 @@ export default function ExamPaperTake() {
                       >
                         <div style={{ fontSize: 13, color: '#8c8c8c', marginBottom: 8, flexShrink: 0 }}>本篇资料</div>
                         <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', paddingRight: 4 }}>
-                          {renderMaterialBody(grp, 16)}
+                          {renderMaterialBody(grp, { fontSize: 16, eager: true })}
                         </div>
                       </Card>
                     </div>
@@ -750,7 +759,7 @@ export default function ExamPaperTake() {
                   <div key={`grp-${grp.id}`}>
                     <Card size="small" style={{ borderRadius: 10, marginBottom: 12 }} styles={{ body: { padding: 12 } }}>
                       <div style={{ fontSize: 13, color: '#8c8c8c', marginBottom: 6 }}>本篇资料</div>
-                      {renderMaterialBody(grp, isMobile ? 15 : 16)}
+                      {renderMaterialBody(grp, { fontSize: isMobile ? 15 : 16, eager: false })}
                     </Card>
                     {grp.questions.map((q) => renderQuestionCard(q, { hidePassage: true, hideMaterialImages: true }))}
                   </div>
