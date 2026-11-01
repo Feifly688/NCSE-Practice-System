@@ -21,6 +21,7 @@
  */
 const axios = require('axios');
 const { safePost } = require('./ssrf');
+const { fetchFenbiPaper, parseExerciseUrl } = require('./fenbi');
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
@@ -39,124 +40,21 @@ const FENBI_DEVICE_EXTRAS = {
   touchPoints: '0',
 };
 
-/** 粉笔套题页：https://spa.fenbi.com/ti/exam/exercise/<key>?routecs=xingce&examcatid=... */
+/**
+ * 粉笔套题页适配器。
+ *
+ * 实现细节见 lib/fenbi.js（那里记录了 cookie 命名、device_id 下发、
+ * 静态地址参数拼接等一系列踩坑点）。这里只负责识别与转发。
+ */
 function matchFenbiExercise(url) {
   const host = url.hostname;
-  if (host !== 'spa.fenbi.com' && host !== 'tiku.fenbi.com') return null;
-  const m = url.pathname.match(/\/ti\/exam\/exercise\/([^/]+)/);
-  if (!m) return null;
-  return {
-    site: 'fenbi',
-    key: decodeURIComponent(m[1]),
-    routecs: url.searchParams.get('routecs') || 'xingce',
-  };
+  if (host !== 'spa.fenbi.com' && host !== 'tiku.fenbi.com' && host !== 'www.fenbi.com') return null;
+  return parseExerciseUrl(url) ? { site: 'fenbi' } : null;
 }
 
-/**
- * 取粉笔题目接口的设备 id。
- * 接口会忽略传入的 deviceId，返回服务端自己分配的一个。
- */
-async function fenbiDeviceId() {
-  const res = await safePost(
-    'https://login.fenbi.com/api/users/device/sid/create',
-    { pf: 'web', startupId: Date.now(), extras: FENBI_DEVICE_EXTRAS },
-    {
-      params: { ...FENBI_COMMON, deviceId: '' },
-      headers: {
-        'User-Agent': UA,
-        Accept: 'application/json, text/plain, */*',
-        'Content-Type': 'application/json',
-        Referer: 'https://spa.fenbi.com/',
-      },
-      timeout: 20000,
-      // 设备接口偶尔返回风控 JSON，禁用自动重试避免放大请求
-      validateStatus: (s) => s >= 200 && s < 500,
-    }
-  );
-  const deviceId = res.data && res.data.data && res.data.data.deviceId;
-  if (!deviceId) {
-    const err = new Error('粉笔设备初始化失败');
-    err.code = 'FENBI_DEVICE_FAILED';
-    err.detail = res.data && res.data.msg ? String(res.data.msg) : '';
-    throw err;
-  }
-  return deviceId;
-}
-
-/**
- * 调用粉笔题目接口，取回题目 HTML。
- *
- * @param {object} info matchFenbiExercise 的结果
- * @param {string} cookie 管理员提供的粉笔登录 Cookie（可为空）
- * @returns {Promise<{html: string}>}
- */
-async function fetchFenbiExercise(info, cookie) {
-  if (!cookie || !String(cookie).trim()) {
-    const err = new Error('粉笔题目接口需要登录');
-    err.code = 'FENBI_NEED_LOGIN';
-    err.detail = '该页面的题目数据来自需要登录的接口，未提供 Cookie 时只能拿到 401/453。';
-    throw err;
-  }
-
-  const deviceId = await fenbiDeviceId();
-
-  const headers = {
-    'User-Agent': UA,
-    Accept: 'application/json, text/plain, */*',
-    Referer: 'https://spa.fenbi.com/',
-  };
-  // Cookie 是用户自己的登录凭据，只在本次请求内使用
-  const raw = String(cookie).trim();
-  headers.Cookie = raw.startsWith('cookie:') ? raw.slice(7).trim() : raw;
-
-  const res = await axios.get('https://tiku.fenbi.com/combine/exercise/getExercise', {
-    params: {
-      format: 'html',
-      key: info.key,
-      routecs: info.routecs,
-      ...FENBI_COMMON,
-      deviceId,
-    },
-    headers,
-    timeout: 30000,
-    // 成功时返回的是 HTML 片段（接口用 format 参数控制 body 格式），
-    // 但 Content-Type 仍是 application/json —— 必须按文本取，否则解析会失败
-    responseType: 'text',
-    transformResponse: [(d) => d],
-    validateStatus: (s) => s >= 200 && s < 500,
-    proxy: false,
-  });
-
-  const body = String(res.data || '');
-  if (res.status === 401 || res.status === 453) {
-    const err = new Error('粉笔拒绝了本次请求');
-    err.code = 'FENBI_NEED_LOGIN';
-    // 453 是「无效 DeviceSid」：粉笔先校验设备凭据再校验登录态，
-    // 带 Cookie 时也可能先撞上 453 —— 两种情况都指向 Cookie 不可用
-    err.detail = res.status === 453
-      ? '粉笔未认可本次设备凭据，通常是 Cookie 无效或已过期。请在浏览器重新登录粉笔后重新复制 Cookie。'
-      : '未登录或 Cookie 已失效，请在浏览器重新登录粉笔后再复制 Cookie。';
-    throw err;
-  }
-  if (res.status >= 400) {
-    const err = new Error('粉笔题目接口返回异常');
-    err.code = 'FENBI_HTTP_ERROR';
-    err.detail = `HTTP ${res.status}`;
-    throw err;
-  }
-  if (!body.trim()) {
-    const err = new Error('粉笔返回了空内容');
-    err.code = 'FENBI_EMPTY';
-    throw err;
-  }
-  // 接口偶尔用 JSON 包裹一段错误说明
-  if (/^\s*\{/.test(body) && /"message"/.test(body.slice(0, 200))) {
-    const err = new Error('粉笔返回了错误信息');
-    err.code = 'FENBI_HTTP_ERROR';
-    err.detail = body.slice(0, 200);
-    throw err;
-  }
-  return { html: body };
+async function fetchFenbiExercise(info, cookie, extraUserid) {
+  const res = await fetchFenbiPaper(info.url, cookie, extraUserid);
+  return { html: res.text, meta: res };
 }
 
 /**
@@ -169,7 +67,7 @@ const ADAPTERS = [
     fetch: fetchFenbiExercise,
     // 管理员需要在表单里额外提供 Cookie
     needsCookie: true,
-    cookieHint: '粉笔题目需要登录。请在浏览器登录粉笔后按 F12 → Network → 任选一个 fenbi 请求 → Request Headers → 复制整行 cookie: 的值粘贴到下面。',
+    cookieHint: '粉笔题目需要登录。请在浏览器登录粉笔后按 F12 → Network → 任选一个 fenbi 请求 → Request Headers → 复制整行 cookie: 的值粘贴到下面（必须包含 sess 与 userid）。',
   },
 ];
 
@@ -181,8 +79,8 @@ async function fetchByAdapter(url, opts = {}) {
   for (const ad of ADAPTERS) {
     const info = ad.match(url);
     if (!info) continue;
-    const res = await ad.fetch(info, opts.cookie);
-    return { html: res.html, site: ad.name, info };
+    const res = await ad.fetch({ ...info, url: url.toString() }, opts.cookie, opts.userid);
+    return { html: res.html, site: ad.name, info, meta: res.meta };
   }
   return null;
 }

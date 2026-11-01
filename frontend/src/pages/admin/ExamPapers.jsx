@@ -155,7 +155,10 @@ export default function ExamPapers() {
       if (!values.title && r.data.title) {
         crawlForm.setFieldsValue({ title: r.data.title });
       }
-      message.success(`抓取成功：提取 ${r.data.textLength} 字，请确认下方内容后再导入`);
+      const extra = r.data.questionCount
+        ? `，含 ${r.data.questionCount} 道题${r.data.materialCount ? `、${r.data.materialCount} 份材料` : ''}`
+        : '';
+      message.success(`抓取成功：提取 ${r.data.textLength} 字${extra}，请确认下方内容后再导入`);
     } catch (err) {
       const d = err.response?.data;
       setCrawlError({ error: d?.error || '抓取失败', detail: d?.detail || '', needCookie: !!d?.needCookie });
@@ -176,8 +179,9 @@ export default function ExamPapers() {
         title: crawlForm.getFieldValue('title'),
         year: crawlForm.getFieldValue('year'),
         text: crawlResult.text,
+        cookie: crawlForm.getFieldValue('cookie') || '',
       }, { timeout: 120000 });
-      message.success(`导入成功：提取 ${r.data.textLength} 字，已开始 AI 拆题`);
+      message.success(r.data.message || `导入成功：提取 ${r.data.textLength} 字`);
       setAddOpen(false);
       setCrawlResult(null);
       crawlForm.resetFields();
@@ -482,9 +486,9 @@ export default function ExamPapers() {
                     message="仅支持公网可访问页面，内网地址会被拒绝（SSRF 防护）" />
 
                   <Form.Item name="cookie" label="站点 Cookie（仅需要登录的站点填写）"
-                    extra="粉笔等题库站的题目数据来自需要登录的接口，抓取时必须带上你自己账号的 Cookie。获取方式：浏览器登录粉笔 → F12 → Network → 任选一个 fenbi 请求 → Request Headers → 复制整行 cookie: 的值。Cookie 只用于本次抓取，不会保存到服务器。"
+                    extra="粉笔等题库站的题目数据来自需要登录的接口，抓取时必须带上你自己账号的 Cookie。获取方式：浏览器登录粉笔 → F12 → Network → 任选一个 fenbi 请求 → Request Headers → 复制整行 cookie: 的值。必须包含 sess 与 userid 两个字段（整行复制即可）。Cookie 只用于本次抓取，不会保存到服务器。"
                     rules={[{ max: 4000, message: 'Cookie 过长' }]}>
-                    <Input.TextArea rows={2} placeholder="cookie: 粘贴这里（可留空）" />
+                    <Input.TextArea rows={2} placeholder="sess=xxxx; userid=123456; …（整行粘贴，可留空）" />
                   </Form.Item>
 
                   {crawlError && (

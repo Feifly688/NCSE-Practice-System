@@ -29,6 +29,7 @@ const { normalizeQuestionStem } = require('../lib/questionStem');
 const { buildFingerprint, findDuplicate, matchQuestionNumbers, assignQuestionsToNumbers, diceSimilarity, stemPart } = require('../lib/questionDedupe');
 const { preprocessPaperText } = require('../lib/paperText');
 const { fetchByAdapter, adapterHints } = require('../lib/crawlSites');
+const { downloadImages } = require('../lib/fenbi');
 const { safeJson } = require('../lib/json');
 const { assertPublicUrl, safeGet } = require('../lib/ssrf');
 const { extractQuestionImages } = require('../lib/pdfRegions');
@@ -156,10 +157,21 @@ function extractArticle(html) {
  */
 async function crawlText(url, opts = {}) {
   const parsed = new URL(url);
-  const adapted = await fetchByAdapter(parsed, { cookie: opts.cookie });
+  const adapted = await fetchByAdapter(parsed, { cookie: opts.cookie, userid: opts.userid });
   if (adapted) {
-    const art = extractArticle(adapted.html);
-    return { ...art, site: adapted.site, adapted: true };
+    // 适配器给出的是结构化文本，不再走 HTML 提取
+    const meta = adapted.meta || {};
+    const text = String(adapted.html || '');
+    return {
+      title: meta.title || '',
+      text,
+      textLength: text.length,
+      // 结构化题目提升到顶层：结构化直入库与预览缓存都靠它
+      questions: meta.questions || [],
+      site: adapted.site,
+      adapted: true,
+      meta,
+    };
   }
 
   const { data } = await safeGet(url, {
@@ -1001,11 +1013,36 @@ router.post('/upload', upload.single('file'), asyncHandler(async (req, res) => {
 }));
 
 // ── 2. 联网爬取真题 ───────────────────────────────────
+// 预览阶段抓到的结构化数据暂存 5 分钟：确认导入时直接复用，
+// 既不用再抓一次粉笔（省一次请求、也不怕触发风控），
+// 又不会把凭据或整卷内容长期留在内存里。
+const crawlCache = new Map();
+const CRAWL_CACHE_TTL = 5 * 60 * 1000;
+function cacheKey(userId, url) {
+  return `${userId}:${url}`;
+}
+function cacheGet(key) {
+  const hit = crawlCache.get(key);
+  if (!hit) return null;
+  if (Date.now() - hit.at > CRAWL_CACHE_TTL) {
+    crawlCache.delete(key);
+    return null;
+  }
+  return hit.data;
+}
+function cacheSet(key, data) {
+  crawlCache.set(key, { at: Date.now(), data });
+  if (crawlCache.size > 20) {
+    // 只保留最近 20 条
+    const oldest = [...crawlCache.entries()].sort((a, b) => a[1].at - b[1].at)[0];
+    if (oldest) crawlCache.delete(oldest[0]);
+  }
+}
 // 分两步：先 /crawl/preview 抓取并预览，确认无误再 /crawl 入库。
 // 直接一步到底的问题是：抓取失败或抓到了错误页面时，试卷已经落库并触发了
 // AI 拆题，库里留下一条没法用的记录，管理员还得手动删。
 router.post('/crawl/preview', asyncHandler(async (req, res) => {
-  const { url, cookie } = req.body;
+  const { url, cookie, userid } = req.body;
   if (!url || !isPublicUrl(url)) return res.status(400).json({ error: '无效的或非公网的 URL' });
 
   // 命中需要 Cookie 的站点（粉笔等）且没带 Cookie → 直接提示，别白跑一次请求
@@ -1022,7 +1059,7 @@ router.post('/crawl/preview', asyncHandler(async (req, res) => {
 
   let crawled;
   try {
-    crawled = await crawlText(url, { cookie });
+    crawled = await crawlText(url, { cookie, userid });
   } catch (err) {
     // 把失败原因分类说明，管理员才知道是反爬、重定向还是网络问题
     const msg = err.message || '';
@@ -1054,6 +1091,10 @@ router.post('/crawl/preview', asyncHandler(async (req, res) => {
     });
   }
 
+  if (crawled.site === 'fenbi' && crawled.questions) {
+    cacheSet(cacheKey(req.user.userId, url), crawled);
+  }
+  const meta = crawled.meta || {};
   return res.json({
     title: crawled.title,
     text: crawled.text,
@@ -1062,20 +1103,31 @@ router.post('/crawl/preview', asyncHandler(async (req, res) => {
     site: crawled.site || null,
     // 粗略统计行首题号，让管理员一眼看出抓到的内容是不是试题
     detectedQuestions: (crawled.text.match(/^[ \t]*\d{1,3}[.、．]/gm) || []).length,
+    // 粉笔等结构化来源的额外信息（题数、材料数、答案数、说明）
+    questionCount: meta.questionCount || null,
+    materialCount: meta.materialCount || null,
+    answerCount: meta.answerCount || null,
+    answerNote: meta.answerNote || null,
   });
 }));
 
 router.post('/crawl', asyncHandler(async (req, res) => {
-  const { url, title, year, text, cookie } = req.body;
+  const { url, title, year, text, cookie, userid } = req.body;
   if (!url || !isPublicUrl(url)) return res.status(400).json({ error: '无效的或非公网的 URL' });
 
   // 预览步骤已经拿到正文就直接用，避免重复抓取（对方站点可能限流）
   let paperText = typeof text === 'string' ? text.trim() : '';
   let pageTitle = '';
+  let crawled = null;
+  // 粉笔这类结构化来源：优先用预览阶段缓存的结构化数据（前端只传了正文）
+  const cached = cacheGet(cacheKey(req.user.userId, url));
+  if (cached && cached.site === 'fenbi' && cached.questions) {
+    crawled = cached;
+    if (!paperText) paperText = cached.text || '';
+  }
   if (!paperText) {
-    let crawled;
     try {
-      crawled = await crawlText(url, { cookie });
+      crawled = await crawlText(url, { cookie, userid });
     } catch (err) {
       return res.status(400).json({
         error: '抓取失败：' + (err.code ? err.message : err.message),
@@ -1087,7 +1139,62 @@ router.post('/crawl', asyncHandler(async (req, res) => {
     pageTitle = crawled.title;
   }
 
-  const paperTitle = String(title || pageTitle || '').trim() || '未命名真题';
+  const paperTitle = String(title || (crawled && crawled.meta && crawled.meta.title) || pageTitle || '').trim() || '未命名真题';
+
+  // ── 粉笔等结构化来源：直接按原始结构入库，不再让 AI 重新拆一遍 ──
+  // 粉笔返回的就是结构化数据（题干/选项/材料/分区/题序），再过一遍模型
+  // 只会引入字段错位与缺答案 —— 那正是整卷导入最常见的坑。
+  if (crawled && crawled.site === 'fenbi' && Array.isArray(crawled.questions) && crawled.questions.length) {
+    const rows = crawled.questions;
+    const id = await withConnection(async (conn) => {
+      const [r] = await conn.query(
+        `INSERT INTO exam_paper (title, year, source, source_url, origin, raw_text, parse_status, parsed_count, creator_user_id)
+         VALUES (?,?,?,?,'crawl',?,'success',?,?)`,
+        [paperTitle, Number(year) || null, '粉笔题库', url, paperText, rows.length, req.user.userId]
+      );
+      return r.insertId;
+    });
+
+    // 图片落到整卷目录（命名 q<题号>-m.png / q<题号>-1.png）
+    let fileMap = new Map();
+    try {
+      fileMap = await downloadImages(rows, path.join(PAPER_FILES_DIR, PAPER_IMAGE_SUBDIR, String(id)));
+    } catch (err) {
+      console.error('[exam] 粉笔图片下载失败:', err.message);
+    }
+
+    await withConnection(async (conn) => {
+      for (const q of rows) {
+        const names = fileMap.get(q.seq) || [];
+        // 材料图只挂在组首题上（前端据此把同组题归到一起）；题图属于本题
+        const isGroupHead = names.some((n) => /-m(-\d+)?\.png$/.test(n));
+        const own = names.filter((n) => !/-m(-\d+)?\.png$/.test(n));
+        const material = names.filter((n) => /-m(-\d+)?\.png$/.test(n));
+        await conn.query(
+          `INSERT INTO exam_paper_question
+           (exam_paper_id, seq, section, qtype, difficulty, passage, stem, options_json, answer, explanation, image_url)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+          [id, q.seq, q.section, q.qtype, q.difficulty, q.passage, q.stem,
+            JSON.stringify(q.options), q.answer, q.explanation,
+            [...(isGroupHead ? material : []), ...own].join(',') || null]
+        );
+      }
+    });
+
+    const answered = rows.filter((q) => q.answer).length;
+    return res.json({
+      id,
+      title: paperTitle,
+      textLength: paperText.length,
+      questionCount: rows.length,
+      answerCount: answered,
+      parse_status: 'success',
+      message: answered > 0
+        ? `已按粉笔原始结构导入 ${rows.length} 道题（含 ${answered} 道官方答案），无需 AI 拆题`
+        : `已按粉笔原始结构导入 ${rows.length} 道题；粉笔未开放该练习的答案，题目待补答案`,
+    });
+  }
+
   const id = await ingestPaper({
     title: paperTitle,
     year: Number(year) || null,
