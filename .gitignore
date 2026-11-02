@@ -21,3 +21,4 @@ backend/uploads/
 
 # 真题拆题调试脚本（本地复现/排错用，非生产必需，不入库）
 backend/scripts/_*.js
+backend/fenbi_bundle/
