@@ -51,33 +51,81 @@ function isAnswerRight(yourAnswer, rightAnswer) {
 }
 
 // GET /api/exam-papers —— 可作答的整卷列表
+//
+// 筛选维度参照粉笔「历年试卷」页的标签栏：
+//   examLevel（国考/省考/…）、region（各省份）、paperType（推荐/模拟题/历年真题）、year
+// 来源属性（source / origin / source_url）**不对普通用户展示**，仅管理员可见。
 router.get('/', asyncHandler(async (req, res) => {
   const page = Math.max(Number(req.query.page) || 1, 1);
   const pageSize = Math.min(Number(req.query.pageSize) || 20, 100);
   const offset = (page - 1) * pageSize;
 
+  const examLevel = req.query.examLevel ? String(req.query.examLevel) : '';
+  const region = req.query.region ? String(req.query.region) : '';
+  const paperType = req.query.paperType ? String(req.query.paperType) : '';
+  const year = req.query.year ? Number(req.query.year) : null;
+  const keyword = req.query.keyword ? String(req.query.keyword).trim() : '';
+
+  const isAdmin = req.user && req.user.role === 'admin';
+
   const data = await withConnection(async (conn) => {
+    const where = ["p.parse_status IN ('success','partial')"];
+    const params = [];
+
+    // 维度筛选：既支持 exam_paper 上的直列，也支持 exam_paper_category 关联表
+    const dimFilter = (dim, value) => {
+      if (!value) return;
+      where.push(
+        `(p.\`${dim}\` = ? OR EXISTS (SELECT 1 FROM exam_paper_category c
+           WHERE c.exam_paper_id = p.id AND c.dim = ? AND c.value = ?))`
+      );
+      params.push(value, dim, value);
+    };
+    dimFilter('exam_level', examLevel);
+    dimFilter('region', region);
+    dimFilter('paper_type', paperType);
+
+    if (Number.isInteger(year) && year > 1900) {
+      where.push('p.year = ?');
+      params.push(year);
+    }
+    if (keyword) {
+      where.push('p.title LIKE ?');
+      params.push(`%${keyword}%`);
+    }
+
+    const whereSql = `WHERE ${where.join(' AND ')}`;
+
     const [countRows] = await conn.query(
-      "SELECT COUNT(*) AS total FROM exam_paper WHERE parse_status IN ('success','partial')"
+      `SELECT COUNT(*) AS total FROM exam_paper p ${whereSql}`,
+      params
     );
     const [rows] = await conn.query(
-      `SELECT id, title, year, source, origin, parsed_count, parse_status, created_at
-       FROM exam_paper WHERE parse_status IN ('success','partial')
-       ORDER BY id DESC LIMIT ? OFFSET ?`,
-      [pageSize, offset]
+      `SELECT p.id, p.title, p.year, p.exam_level, p.region, p.paper_type,
+              p.parsed_count, p.difficulty, p.parse_status, p.created_at
+              ${isAdmin ? ', p.source, p.origin, p.source_url' : ''}
+         FROM exam_paper p
+         ${whereSql}
+        ORDER BY p.year DESC, p.id DESC
+        LIMIT ? OFFSET ?`,
+      [...params, pageSize, offset]
     );
     return { papers: rows, total: countRows[0].total };
   });
 
-  return res.json({ ...data, page, pageSize });
+  return res.json({ ...data, page, pageSize, canSeeSource: isAdmin });
 }));
 
 // GET /api/exam-papers/:id —— 整卷结构（不含答案与解析）
 router.get('/:id', asyncHandler(async (req, res) => {
   const id = Number(req.params.id);
   const data = await withConnection(async (conn) => {
+    const isAdmin = req.user && req.user.role === 'admin';
     const [rows] = await conn.query(
-      'SELECT id, title, year, source, origin, raw_text, parsed_count, parse_status FROM exam_paper WHERE id = ?',
+      `SELECT id, title, year, raw_text, parsed_count, parse_status,
+              exam_level, region, paper_type, difficulty
+              ${isAdmin ? ', source, origin, source_url' : ''}
+         FROM exam_paper WHERE id = ?`,
       [id]
     );
     const paper = rows[0] || null;

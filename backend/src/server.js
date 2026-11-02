@@ -14,6 +14,7 @@ const adminRoutes = require('./routes/admin');
 const generateRoutes = require('./routes/generate');
 const statsRoutes = require('./routes/stats');
 const examPaperRoutes = require('./routes/exampaper');
+const taxonomyRoutes = require('./routes/taxonomy');
 const examPaperTakeRoutes = require('./routes/exampaperTake');
 
 const app = express();
@@ -66,6 +67,7 @@ app.use('/api/stats', statsRoutes);
 app.use('/api/admin/exam-papers', examPaperRoutes);
 // 用户端：整卷阅览与答题（/api/exam-papers）
 app.use('/api/exam-papers', examPaperTakeRoutes);
+app.use('/api/taxonomy', taxonomyRoutes);
 
 // Health 端点
 app.get('/api/health', async (_req, res) => {

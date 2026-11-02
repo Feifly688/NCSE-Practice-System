@@ -1,0 +1,136 @@
+import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+
+/**
+ * 日夜模式（参照粉笔的配色）。
+ *
+ * 粉笔的深色配色实测（styles-*.css 的 dark 段）：
+ *   页面底 #1b1d26 / 卡片底 #23252f / 正文 #e8e9ed / 次要 #9a9eab
+ *   主色在深色下提亮为 #5b8cff，选中底 rgba(91,140,255,.16)
+ *
+ * 三种模式：light（强制日间）/ dark（强制夜间）/ system（跟随系统）
+ */
+
+const STORAGE_KEY = 'ncse_theme';
+
+export const THEMES = {
+  light: {
+    name: 'light',
+    isDark: false,
+    // 页面层级
+    pageBg: '#f7f9fc',
+    cardBg: '#ffffff',
+    cardBgAlt: '#f2f5fb',
+    // 文字
+    text: '#292a2d',
+    textSub: '#3c464f',
+    textWeak: '#868ea8',
+    textInverse: '#ffffff',
+    // 品牌色
+    primary: '#385dca',
+    primaryLight: '#3c7cfc',
+    selectedBg: '#edf6ff',
+    selectedBorder: '#cbdfff',
+    // 描边
+    border: '#e8ecf3',
+    cardBorder: '#f0f3fa',
+    divider: '#eef1f6',
+    // 语义色
+    success: '#52c41a',
+    warning: '#faad14',
+    error: '#ff4d4f',
+    accent: '#ffbc22',
+    // 遮罩
+    mask: 'rgba(0,0,0,0.45)',
+    shadow: '0 12px 30px rgba(15, 23, 42, 0.06)',
+  },
+  dark: {
+    name: 'dark',
+    isDark: true,
+    pageBg: '#1b1d26',
+    cardBg: '#23252f',
+    cardBgAlt: '#2b2e3a',
+    text: '#e8e9ed',
+    textSub: '#c3c6d0',
+    textWeak: '#9a9eab',
+    textInverse: '#1b1d26',
+    primary: '#5b8cff',
+    primaryLight: '#7aa2ff',
+    selectedBg: 'rgba(91,140,255,0.16)',
+    selectedBorder: 'rgba(91,140,255,0.42)',
+    border: '#333644',
+    cardBorder: '#383b49',
+    divider: '#2f3240',
+    success: '#5ec46a',
+    warning: '#e8b339',
+    error: '#f06a6a',
+    accent: '#ffbc22',
+    mask: 'rgba(0,0,0,0.62)',
+    shadow: '0 12px 30px rgba(0,0,0,0.36)',
+  },
+};
+
+const ThemeContext = createContext(null);
+
+function readStoredTheme() {
+  try {
+    const v = localStorage.getItem(STORAGE_KEY);
+    if (v === 'light' || v === 'dark' || v === 'system') return v;
+  } catch (e) { /* 隐私模式可能禁写 */ }
+  return 'system';
+}
+
+function systemPrefersDark() {
+  return typeof window !== 'undefined'
+    && typeof window.matchMedia === 'function'
+    && window.matchMedia('(prefers-color-scheme: dark)').matches;
+}
+
+export function ThemeProvider({ children }) {
+  const [mode, setMode] = useState(readStoredTheme);
+  const [systemDark, setSystemDark] = useState(systemPrefersDark);
+
+  // 跟随系统时监听系统主题变化
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return undefined;
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const onChange = (e) => setSystemDark(e.matches);
+    if (mq.addEventListener) {
+      mq.addEventListener('change', onChange);
+      return () => mq.removeEventListener('change', onChange);
+    }
+    mq.addListener(onChange);
+    return () => mq.removeListener(onChange);
+  }, []);
+
+  const resolved = mode === 'system' ? (systemDark ? 'dark' : 'light') : mode;
+
+  useEffect(() => {
+    try { localStorage.setItem(STORAGE_KEY, mode); } catch (e) { /* 忽略 */ }
+    document.documentElement.setAttribute('data-theme', resolved);
+    document.documentElement.style.colorScheme = resolved;
+    // body 自身也要跟着变 —— MainLayout 的 Layout 有底色，
+    // 但 body 的默认白底会在页面留白处透出来。
+    const t = THEMES[resolved];
+    document.body.style.backgroundColor = t.pageBg;
+    document.body.style.color = t.text;
+  }, [mode, resolved]);
+
+  const value = useMemo(() => ({
+    mode,
+    resolved,
+    isDark: resolved === 'dark',
+    tokens: THEMES[resolved],
+    setMode,
+    toggle: () => setMode(resolved === 'dark' ? 'light' : 'dark'),
+  }), [mode, resolved]);
+
+  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
+}
+
+export function useTheme() {
+  const ctx = useContext(ThemeContext);
+  if (!ctx) throw new Error('useTheme 必须在 ThemeProvider 内使用');
+  return ctx;
+}
+
+export default ThemeContext;

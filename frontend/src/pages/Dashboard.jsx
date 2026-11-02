@@ -117,7 +117,7 @@ export default function Dashboard() {
                     <Typography.Text type="secondary">{item.total} 题{item.status !== 'in_progress' && ` · 答对 ${item.correct} 题`}</Typography.Text>
                     <Typography.Text type="secondary" style={{ fontSize: 12 }}>{new Date(item.started_at).toLocaleString('zh-CN')}</Typography.Text>
                   </Space>
-                  {item.status === 'in_progress' && <Button type="primary" size="small" icon={<PlayCircleOutlined />} onClick={() => navigate('/practice?session=' + item.id)}>继续答题</Button>}
+                  {item.status === 'in_progress' && <Button type="primary" size="small" icon={<PlayCircleOutlined />} onClick={() => navigate('/practice/do?session=' + item.id)}>继续答题</Button>}
                 </div>
               </List.Item>
             )}

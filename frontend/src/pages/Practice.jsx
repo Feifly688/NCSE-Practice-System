@@ -5,6 +5,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import { parseOptions, cleanOption, formatTime } from '../utils';
 import { useResponsive } from '../hooks/useResponsive';
+import { useTheme } from '../contexts/ThemeContext';
 import QuestionFeedback from '../components/QuestionFeedback';
 
 const { Title, Text, Paragraph } = Typography;
@@ -13,9 +14,22 @@ export default function Practice() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { isMobile } = useResponsive();
+  const { tokens, isDark } = useTheme();
   const resumeSessionId = searchParams.get('session');
   const viewMode = searchParams.get('view');
   const wrongRedo = searchParams.get('wrongredo') === 'true';
+
+  // 专项练习传进来的刷题参数（分类 / 题型 / 难度 / 题量）
+  const poolParam = searchParams.get('pool') || '';
+  const catParam = searchParams.get('categories') || '';
+  const qtypeParam = searchParams.get('qtypes') || '';
+  const diffParam = searchParams.get('difficulty') || '';
+  const countParam = Number(searchParams.get('count')) || 0;
+  const categoryName = searchParams.get('categoryName') || '';
+  // 带这些参数进来 = 从专项练习页发起，直接开始出题
+  const fromTaxonomy = Boolean(poolParam && (catParam || countParam || qtypeParam || diffParam));
+  // 分类名（用于顶部提示当前在刷什么）
+  const catLabel = categoryName || (catParam ? `分类 ${catParam}` : '');
 
   const [step, setStep] = useState('setup');
   const [subjects, setSubjects] = useState([]);
@@ -42,6 +56,9 @@ export default function Practice() {
   const [ratedCount, setRatedCount] = useState(0);
   const timerRef = useRef(null);
   const autoSaveRef = useRef(null);
+  // 供「从专项练习页带参数进来直接开练」的 effect 调用
+  const startPracticeRef = useRef(null);
+  const autoStartedRef = useRef(false);
   const answersRef = useRef(answers);
   const elapsedRef = useRef(elapsed);
   answersRef.current = answers;
@@ -61,6 +78,13 @@ export default function Practice() {
       loadSession(resumeSessionId);
     }
   }, [resumeSessionId]);
+
+  // 从专项练习页带参数进来 → 直接开练（不显示设置界面）
+  useEffect(() => {
+    if (!fromTaxonomy || autoStartedRef.current) return;
+    autoStartedRef.current = true;
+    startPracticeRef.current();
+  }, [fromTaxonomy]);
 
   // 计时器
   useEffect(() => {
@@ -252,25 +276,57 @@ export default function Practice() {
   }
 
   async function startPractice() {
-    if (!selectedSubject) { message.warning('请选择科目'); return; }
     setStep('loading');
     try {
-      const subject = subjects.find(s => s.id === selectedSubject);
-      const r = await api.get('/questions/random', { params: { count, subject: subject.slug, qtype: filterQtype } });
-      if (r.data.questions.length === 0) { message.error('该科目暂无题目'); setStep('setup'); return; }
+      let qs = [];
+      let subjectIdForSession = selectedSubject;
 
-      // 如果实际题目数少于请求数，提示用户
-      if (r.data.questions.length < count) {
-        message.warning(`该科目只有 ${r.data.questions.length} 道题，将全部练习`);
+      if (fromTaxonomy) {
+        // 专项练习：按分类/题型/难度抽题（走 taxonomy 池）
+        const diff = diffParam ? diffParam.split(',').map(Number).filter(Number.isFinite) : null;
+        const r = await api.post('/taxonomy/pick', {
+          pool: poolParam,
+          categoryIds: catParam ? catParam.split(',').map(Number).filter(Boolean) : [],
+          qtypes: qtypeParam ? qtypeParam.split(',').filter(Boolean) : [],
+          difficultyRange: diff && diff.length === 2 ? diff : null,
+          count: countParam || count,
+        });
+        if (!r.data.questions.length) {
+          message.error('该条件下没有可练习的题目');
+          setStep('setup');
+          return;
+        }
+        qs = r.data.questions.map((q) => ({
+          id: q.id,
+          stem: q.stem,
+          passage: q.passage,
+          options_json: JSON.stringify(q.options || []),
+          qtype: q.qtype,
+          difficulty: q.difficulty,
+          subject_id: q.subjectId,
+        }));
+        // 分类练习的题不一定属于某个 subject，会话用第一个可用 subject
+        subjectIdForSession = qs[0].subject_id || selectedSubject || 1;
+        if (r.data.questions.length < (countParam || count)) {
+          message.info(`该条件下共 ${r.data.available} 道题，已随机抽取 ${r.data.questions.length} 道`);
+        }
+      } else {
+        if (!selectedSubject) { message.warning('请选择科目'); setStep('setup'); return; }
+        const subject = subjects.find(s => s.id === selectedSubject);
+        const r = await api.get('/questions/random', { params: { count, subject: subject.slug, qtype: filterQtype } });
+        if (r.data.questions.length === 0) { message.error('该科目暂无题目'); setStep('setup'); return; }
+        if (r.data.questions.length < count) {
+          message.warning(`该科目只有 ${r.data.questions.length} 道题，将全部练习`);
+        }
+        qs = r.data.questions;
       }
 
-      const qs = r.data.questions;
       setQuestions(qs);
       setAnswers({});
       setCurrentIndex(0);
 
       // 创建答题会话
-      const startRes = await api.post('/practice/start', { subject_id: selectedSubject, questions: qs });
+      const startRes = await api.post('/practice/start', { subject_id: subjectIdForSession, questions: qs });
       setSessionId(startRes.data.session_id);
 
       setStartTime(Date.now());
@@ -280,6 +336,7 @@ export default function Practice() {
       setStep('doing');
     } catch (err) { message.error('获取题目失败'); setStep('setup'); }
   }
+  startPracticeRef.current = startPractice;
 
   function selectAnswer(questionId, value) {
     setAnswers(prev => ({ ...prev, [questionId]: value }));
@@ -374,9 +431,12 @@ export default function Practice() {
   if (step === 'setup') {
     return (
       <div style={{ maxWidth: 560, margin: isMobile ? '8px auto' : '32px auto', padding: '0 4px' }}>
-        <Card style={{ borderRadius: 16, border: '1px solid #e2e8f0', boxShadow: '0 12px 30px rgba(15, 23, 42, 0.06)' }} bodyStyle={{ padding: isMobile ? 20 : 28 }}>
+        <Card style={{
+          borderRadius: 16, border: `1px solid ${tokens.cardBorder}`,
+          background: tokens.cardBg, boxShadow: tokens.shadow,
+        }} styles={{ body: { padding: isMobile ? 20 : 28 } }}>
           <div style={{ textAlign: 'center', marginBottom: 28 }}>
-            <div style={{ width: 58, height: 58, margin: '0 auto 14px', display: 'grid', placeItems: 'center', borderRadius: 16, color: '#1d4ed8', background: '#eff6ff' }}>
+            <div style={{ width: 58, height: 58, margin: '0 auto 14px', display: 'grid', placeItems: 'center', borderRadius: 16, color: tokens.primary, background: tokens.selectedBg }}>
               <FileTextOutlined style={{ fontSize: 28 }} />
             </div>
             <Title level={3} style={{ margin: '0 0 6px', fontSize: isMobile ? 21 : 24 }}>开始练习</Title>
@@ -467,11 +527,11 @@ export default function Practice() {
               {wrongRedo ? (
                 <>
                   <Button type="primary" icon={<ReloadOutlined />} onClick={() => navigate('/wrong-book')}>返回错题本</Button>
-                  <Button onClick={() => { setStep('setup'); navigate('/practice'); }}>普通练习</Button>
+                  <Button onClick={() => { setStep('setup'); navigate('/practice/do'); }}>普通练习</Button>
                 </>
               ) : (
                 <>
-                  <Button type="primary" icon={<ReloadOutlined />} onClick={() => { setStep('setup'); navigate('/practice'); }}>再来一次</Button>
+                  <Button type="primary" icon={<ReloadOutlined />} onClick={() => { setStep('setup'); navigate('/practice/do'); }}>再来一次</Button>
                   <Button onClick={() => navigate('/history')}>返回历史</Button>
                 </>
               )}
@@ -549,8 +609,23 @@ export default function Practice() {
 
   return (
     <div style={{ maxWidth: 900, margin: '0 auto', padding: isMobile ? '0 2px' : '0 16px' }}>
+      {/* 分类练习提示：当前在刷哪个分类 */}
+      {catLabel && (
+        <div style={{
+          marginBottom: 12, padding: '8px 14px', borderRadius: 8,
+          background: tokens.selectedBg, color: tokens.primary, fontSize: 13,
+          border: `1px solid ${tokens.selectedBorder}`,
+        }}>
+          正在练习：{catLabel}
+        </div>
+      )}
+
       {/* Top bar */}
-      <Card size="small" style={{ marginBottom: 16, position: 'sticky', top: 72, zIndex: 10, borderRadius: 12, boxShadow: '0 6px 18px rgba(15, 23, 42, 0.08)' }} bodyStyle={{ padding: isMobile ? '10px 12px' : '12px 16px' }}>
+      <Card size="small" style={{
+        marginBottom: 16, position: 'sticky', top: 72, zIndex: 10, borderRadius: 12,
+        borderColor: tokens.cardBorder, background: tokens.cardBg,
+        boxShadow: isDark ? '0 6px 18px rgba(0,0,0,0.36)' : '0 6px 18px rgba(15, 23, 42, 0.08)',
+      }} styles={{ body: { padding: isMobile ? '10px 12px' : '12px 16px' } }}>
         <div style={{
           display: 'flex', justifyContent: 'space-between', alignItems: 'center',
           flexWrap: isMobile ? 'wrap' : 'nowrap', gap: isMobile ? 8 : 0,
@@ -568,7 +643,7 @@ export default function Practice() {
             )}
             {wrongRedo && <Text type="secondary">错题练习</Text>}
           </Space>
-          <Progress percent={progress} size="small" showInfo={!isMobile} strokeColor="#2563eb" trailColor="#e2e8f0" style={{ flex: 1, margin: isMobile ? '0' : '0 16px', minWidth: isMobile ? 80 : undefined }} />
+          <Progress percent={progress} size="small" showInfo={!isMobile} strokeColor={tokens.primaryLight} trailColor={tokens.divider} style={{ flex: 1, margin: isMobile ? '0' : '0 16px', minWidth: isMobile ? 80 : undefined }} />
           <Space size={isMobile ? 6 : 8}>
             <Text type="secondary">{answeredCount}/{questions.length}</Text>
             <Button size="small" onClick={() => setShowAnswerCard(true)}>答题卡</Button>
@@ -578,7 +653,7 @@ export default function Practice() {
 
       {/* Pause overlay */}
       {paused && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.75)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: tokens.mask, zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
           <Card style={{ textAlign: 'center', width: '100%', maxWidth: 420 }}>
             <PauseCircleOutlined style={{ fontSize: isMobile ? 48 : 64, color: '#1890ff', marginBottom: 16 }} />
             <Title level={3} style={{ margin: 0 }}>练习已暂停</Title>
@@ -592,17 +667,22 @@ export default function Practice() {
       )}
 
       {/* Question card */}
-      <Card style={{ borderRadius: 16, border: '1px solid #e2e8f0' }} bodyStyle={{ padding: isMobile ? 18 : 28 }}>
+      <Card style={{ borderRadius: 16, border: `1px solid ${tokens.cardBorder}`, background: tokens.cardBg }}
+        styles={{ body: { padding: isMobile ? 18 : 28 } }}>
         <div style={{ marginBottom: 16 }}>
           <Tag color="blue">第 {currentIndex + 1} 题</Tag>
           {q.qtype && <Tag>{q.qtype}</Tag>}
         </div>
 
         {q.passage && (
-          <div style={{ marginBottom: 20, padding: isMobile ? 14 : 16, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, lineHeight: 1.9, fontSize: 15 }}>{q.passage}</div>
+          <div style={{
+            marginBottom: 20, padding: isMobile ? 14 : 16,
+            background: tokens.cardBgAlt, border: `1px solid ${tokens.border}`,
+            borderRadius: 10, lineHeight: 1.9, fontSize: 15, color: tokens.text,
+          }}>{q.passage}</div>
         )}
 
-        <Text strong style={{ fontSize: isMobile ? 16 : 17, lineHeight: 1.7, display: 'block', marginBottom: 20 }}>{q.stem}</Text>
+        <Text strong style={{ fontSize: isMobile ? 16 : 17, lineHeight: 1.7, display: 'block', marginBottom: 20, color: tokens.text }}>{q.stem}</Text>
 
         <Radio.Group value={answers[q.id]} onChange={e => selectAnswer(q.id, e.target.value)} style={{ width: '100%' }}>
           <Space direction="vertical" style={{ width: '100%' }} size={12}>
@@ -612,14 +692,16 @@ export default function Practice() {
               return (
                 <Radio key={i} value={letter} style={{
                   width: '100%', padding: isMobile ? '13px 14px' : '15px 16px',
-                  border: '1px solid ' + (isSelected ? '#2563eb' : '#e2e8f0'),
+                  border: '1px solid ' + (isSelected ? tokens.primaryLight : tokens.border),
                   borderRadius: 10, margin: 0,
-                  background: isSelected ? '#eff6ff' : '#fff',
+                  background: isSelected ? tokens.selectedBg : tokens.cardBg,
                   display: 'flex', alignItems: 'center',
                   transition: 'all 0.18s ease',
-                  boxShadow: isSelected ? '0 0 0 3px rgba(37, 99, 235, 0.1)' : 'none',
+                  boxShadow: isSelected ? `0 0 0 3px ${isDark ? 'rgba(91,140,255,0.18)' : 'rgba(37, 99, 235, 0.1)'}` : 'none',
                 }}>
-                  <Text style={{ fontSize: 15, lineHeight: 1.65 }}><strong style={{ color: isSelected ? '#1d4ed8' : undefined }}>{letter}.</strong> {cleanOption(opt)}</Text>
+                  <Text style={{ fontSize: 15, lineHeight: 1.65, color: tokens.text }}>
+                    <strong style={{ color: isSelected ? tokens.primary : tokens.text }}>{letter}.</strong> {cleanOption(opt)}
+                  </Text>
                 </Radio>
               );
             })}

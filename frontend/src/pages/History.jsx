@@ -95,12 +95,12 @@ export default function History() {
                     <td style={{ padding: '10px 16px', textAlign: 'center' }}>
                       {isInProgress ? (
                         <Button type="primary" size="small" icon={<PlayCircleOutlined />}
-                          onClick={() => navigate('/practice?session=' + s.id)}>
+                          onClick={() => navigate('/practice/do?session=' + s.id)}>
                           继续答题
                         </Button>
                       ) : (
                         <Button size="small" icon={<EyeOutlined />}
-                          onClick={() => navigate('/practice?session=' + s.id + '&view=result')}>
+                          onClick={() => navigate('/practice/do?session=' + s.id + '&view=result')}>
                           查看详情
                         </Button>
                       )}

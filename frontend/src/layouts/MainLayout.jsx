@@ -3,7 +3,9 @@ import { Layout, Menu, Button, Space, Typography, Dropdown, Drawer } from 'antd'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { HomeOutlined, EditOutlined, HistoryOutlined, DashboardOutlined, SettingOutlined, LogoutOutlined, LoginOutlined, UserAddOutlined, UserOutlined, BookOutlined, StarFilled, TrophyOutlined, MenuOutlined, FileTextOutlined } from '@ant-design/icons';
 import { useAuth } from '../contexts/AuthContext';
+import { useTheme } from '../contexts/ThemeContext';
 import { useResponsive } from '../hooks/useResponsive';
+import ThemeToggle from '../components/ThemeToggle';
 
 const { Header, Content, Footer } = Layout;
 
@@ -11,6 +13,7 @@ export default function MainLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, isAuthenticated, isAdmin, logout, openAuth } = useAuth();
+  const { tokens, isDark } = useTheme();
   const { isMobile } = useResponsive();
   const [drawerOpen, setDrawerOpen] = useState(false);
 
@@ -83,7 +86,7 @@ export default function MainLayout() {
   );
 
   return (
-    <Layout style={{ minHeight: '100vh', background: isHome ? '#0a0a0f' : '#f8f9fb' }}>
+    <Layout style={{ minHeight: '100vh', background: isHome ? '#0a0a0f' : tokens.pageBg }}>
       {showHeader && (
         <>
           <Header
@@ -128,6 +131,8 @@ export default function MainLayout() {
         {!isMobile && navMenu}
 
         <Space style={{ marginLeft: 'auto' }} size={isMobile ? 4 : 8}>
+          {/* 日夜模式切换：页头右侧，与粉笔一致 */}
+          <ThemeToggle />
           {isAuthenticated ? (
             <Dropdown menu={{ items: userMenuItems }} placement="bottomRight">
               <Button
@@ -209,9 +214,9 @@ export default function MainLayout() {
 
       <Footer style={{
         textAlign: 'center',
-        color: isHome ? 'rgba(255,255,255,0.35)' : '#999',
-        background: isHome ? '#0a0a0f' : '#f8f9fb',
-        borderTop: isHome ? '1px solid rgba(255,255,255,0.06)' : '1px solid #eee',
+        color: isHome ? 'rgba(255,255,255,0.35)' : tokens.textWeak,
+        background: isHome ? '#0a0a0f' : tokens.cardBg,
+        borderTop: isHome ? '1px solid rgba(255,255,255,0.06)' : tokens.border,
         fontSize: isMobile ? 12 : 14,
       }}>
         NCSE 公务员考试练习系统 &copy; 2026

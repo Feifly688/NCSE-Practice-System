@@ -10,6 +10,7 @@ import {
 } from '@ant-design/icons';
 import api from '../services/api';
 import { useResponsive } from '../hooks/useResponsive';
+import { useTheme } from '../contexts/ThemeContext';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -93,34 +94,50 @@ function fmtTime(sec) {  const m = Math.floor(sec / 60);
  *   分隔线 #e8ecf3、强调黄 #ffbc22
  * 目的是让整卷答题页的观感与粉笔一致，而不是 antd 默认蓝 + 默认圆角卡片。
  */
-// 粉笔设计 token —— 取自粉笔线上样式表与真实页面计算样式
-const FB = {
-  primary: '#385dca',
-  primaryLight: '#3c7cfc',
-  // 题型标签实测色：文字 rgb(71,117,254) = #4775fe，底 rgba(60,124,252,.04)
-  tagText: '#4775fe',
-  tagBg: 'rgba(60,124,252,0.04)',
-  selectedBg: '#edf6ff',
-  selectedBorder: '#cbdfff',
-  pageBg: '#f7f9fc',
-  text: '#292a2d',
-  textSub: '#3c464f',
-  textWeak: '#868ea8',
-  border: '#e8ecf3',
-  // 粉笔卡片描边实测 rgb(240,243,250)
-  cardBorder: '#f0f3fa',
-  accent: '#ffbc22',
-};
+/**
+ * 粉笔设计 token —— 取自粉笔线上样式表与真实页面计算样式。
+ *
+ * 日间/夜间两套值由 ThemeContext 提供（contexts/ThemeContext.jsx），
+ * 这里按当前主题派生一份 FB 别名，保持本文件原有的 FB.xxx 写法不变。
+ */
 const FB_FONT = '"Noto Sans SC", system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif';
 
-/** 答题状态配色：与粉笔答题卡一致（未答白底灰边 / 已答蓝底 / 标记黄底） */
-const CARD_STATUS_COLOR = {
-  answered: { bg: FB.primaryLight, color: '#fff', border: FB.primaryLight },
-  marked: { bg: '#fff8e6', color: '#d48806', border: '#ffe08a' },
-  unanswered: { bg: '#fff', color: FB.textWeak, border: '#e3e7ee' },
-  correct: { bg: '#52c41a', color: '#fff', border: '#52c41a' },
-  wrong: { bg: '#f5222d', color: '#fff', border: '#f5222d' },
-};
+/** 由主题 token 派生粉笔式别名 */
+function makeFB(t) {
+  return {
+    primary: t.primary,
+    primaryLight: t.primaryLight,
+    // 题型标签实测色：文字 rgb(71,117,254) = #4775fe，底 rgba(60,124,252,.04)
+    tagText: t.isDark ? '#7aa2ff' : '#4775fe',
+    tagBg: t.isDark ? 'rgba(91,140,255,0.14)' : 'rgba(60,124,252,0.04)',
+    selectedBg: t.selectedBg,
+    selectedBorder: t.selectedBorder,
+    pageBg: t.pageBg,
+    text: t.text,
+    textSub: t.textSub,
+    textWeak: t.textWeak,
+    border: t.border,
+    cardBorder: t.cardBorder,
+    accent: t.accent,
+    cardBg: t.cardBg,
+    cardBgAlt: t.cardBgAlt,
+    divider: t.divider,
+    isDark: t.isDark,
+  };
+}
+
+/** 答题状态配色：与粉笔答题卡一致（未答浅底灰边 / 已答蓝底 / 标记黄底） */
+function makeCardStatusColor(FB) {
+  return {
+    answered: { bg: FB.primaryLight, color: '#fff', border: FB.primaryLight },
+    marked: FB.isDark
+      ? { bg: 'rgba(250,173,20,0.16)', color: '#e8b339', border: 'rgba(250,173,20,0.42)' }
+      : { bg: '#fff8e6', color: '#d48806', border: '#ffe08a' },
+    unanswered: { bg: FB.cardBg, color: FB.textWeak, border: FB.border },
+    correct: { bg: '#52c41a', color: '#fff', border: '#52c41a' },
+    wrong: { bg: '#f5222d', color: '#fff', border: '#f5222d' },
+  };
+}
 
 /**
  * 材料题（资料分析 / 一拖五）两栏布局的尺寸常量。
@@ -149,6 +166,10 @@ export default function ExamPaperTake() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { isMobile, width } = useResponsive();
+  // 主题 token → 粉笔式配色（FB / 答题卡状态色），日夜切换时整页跟随
+  const { tokens } = useTheme();
+  const FB = makeFB(tokens);
+  const CARD_STATUS_COLOR = makeCardStatusColor(FB);
   // 窗口够宽才做「左材料 / 右小题」分栏，否则材料单独成卡堆在题目上方
   const materialSplit = width >= MATERIAL_SPLIT_MIN_W;
 
@@ -400,7 +421,7 @@ export default function ExamPaperTake() {
             onClick={() => setPreviewImg(url)}
             style={{
               width: '100%', border: '1px solid #f0f0f0', borderRadius: 8,
-              background: '#fff', cursor: 'zoom-in', display: 'block', marginBottom: 8,
+              background: FB.cardBg, cursor: 'zoom-in', display: 'block', marginBottom: 8,
             }}
           />
         );
@@ -428,8 +449,8 @@ export default function ExamPaperTake() {
         size="small"
         style={{
           marginBottom: 14, borderRadius: 8,
-          borderColor: isWrong ? '#ffccc7' : FB.cardBorder,
-          background: '#fff',
+          borderColor: isWrong ? (FB.isDark ? '#7a2f2a' : '#ffccc7') : FB.cardBorder,
+          background: FB.cardBg,
         }}
         styles={{ body: { padding: isMobile ? '12px 14px 16px' : '12px 20px 16px' } }}
       >
@@ -451,7 +472,7 @@ export default function ExamPaperTake() {
           )}
           <span
             onClick={() => toggleMark(q.seq)}
-            style={{ marginLeft: 'auto', cursor: 'pointer', color: marked[q.seq] ? FB.accent : '#c8cdd6' }}
+            style={{ marginLeft: 'auto', cursor: 'pointer', color: marked[q.seq] ? FB.accent : (FB.isDark ? '#5a5f6e' : '#c8cdd6') }}
             title="标记此题"
           >
             {marked[q.seq] ? <FlagFilled /> : <FlagOutlined />}
@@ -498,7 +519,7 @@ export default function ExamPaperTake() {
                       onClick={() => setPreviewImg(url)}
                       style={{
                         width: '100%', maxWidth: '100%', border: '1px solid #f0f0f0',
-                        borderRadius: 8, background: '#fff', cursor: 'zoom-in', display: 'block',
+                        borderRadius: 8, background: FB.cardBg, cursor: 'zoom-in', display: 'block',
                       }}
                     />
                   );
@@ -524,7 +545,7 @@ export default function ExamPaperTake() {
                   onClick={() => setPreviewImg(url)}
                   style={{
                     width: '100%', maxWidth: '100%', border: '1px solid #f0f0f0',
-                    borderRadius: 8, background: '#fff', cursor: 'zoom-in', display: 'block',
+                    borderRadius: 8, background: FB.cardBg, cursor: 'zoom-in', display: 'block',
                   }}
                 />
               );
@@ -553,7 +574,7 @@ export default function ExamPaperTake() {
                       onClick={() => setPreviewImg(url)}
                       style={{
                         width: '100%', maxWidth: '100%', border: '1px solid #f0f0f0',
-                        borderRadius: 8, background: '#fff', cursor: 'zoom-in', display: 'block',
+                        borderRadius: 8, background: FB.cardBg, cursor: 'zoom-in', display: 'block',
                       }}
                     />
                   );
@@ -587,8 +608,14 @@ export default function ExamPaperTake() {
             let markBorder = '#c5ccd8';
             let markText = FB.textSub;
             if (res) {
-              if (isRight) { bg = '#f6ffed'; markColor = '#52c41a'; markBorder = '#52c41a'; markText = '#fff'; }
-              if (isMyWrong) { bg = '#fff2f0'; markColor = '#f5222d'; markBorder = '#f5222d'; markText = '#fff'; }
+              if (isRight) {
+                bg = FB.isDark ? 'rgba(82,196,26,0.14)' : '#f6ffed';
+                markColor = '#52c41a'; markBorder = '#52c41a'; markText = '#fff';
+              }
+              if (isMyWrong) {
+                bg = FB.isDark ? 'rgba(245,34,45,0.16)' : '#fff2f0';
+                markColor = '#f5222d'; markBorder = '#f5222d'; markText = '#fff';
+              }
             } else if (selected) {
               bg = FB.selectedBg; markColor = FB.primaryLight; markBorder = FB.primaryLight; markText = '#fff';
             }
@@ -656,7 +683,7 @@ export default function ExamPaperTake() {
             {res.explanation && (
               <div style={{
                 marginTop: 20, padding: 20, borderRadius: 8,
-                background: '#fff', border: `1px solid ${FB.cardBorder}`,
+                background: FB.cardBg, border: `1px solid ${FB.cardBorder}`,
                 fontSize: 14, lineHeight: 1.8, color: 'rgba(0,0,0,0.85)',
                 whiteSpace: 'pre-wrap', wordBreak: 'break-word',
               }}>
@@ -694,7 +721,7 @@ export default function ExamPaperTake() {
         ref={headerRef}
         style={{
           position: 'sticky', top: 0, zIndex: 20,
-          background: '#fff', borderBottom: `1px solid ${FB.cardBorder}`,
+          background: FB.cardBg, borderBottom: `1px solid ${FB.cardBorder}`,
           marginBottom: 16,
         }}
       >
@@ -743,7 +770,7 @@ export default function ExamPaperTake() {
 
       {/* 结果反馈 */}
       {result && (
-        <Card style={{ marginBottom: 16, borderRadius: 8, borderColor: FB.border }} styles={{ body: { padding: 16, background: '#fff' } }}>
+        <Card style={{ marginBottom: 16, borderRadius: 8, borderColor: FB.border }} styles={{ body: { padding: 16, background: FB.cardBg } }}>
           <Row gutter={16} align="middle">
             <Col flex="auto">
               <Space size={24} wrap>
@@ -778,7 +805,7 @@ export default function ExamPaperTake() {
       <div style={{
         display: 'flex', gap: 8, flexWrap: 'wrap',
         marginBottom: 16, padding: isMobile ? '8px 10px' : '10px 12px',
-        background: '#fff', borderRadius: 8, border: `1px solid ${FB.border}`,
+        background: FB.cardBg, borderRadius: 8, border: `1px solid ${FB.border}`,
       }}>
         {sections.map((s) => {
           const done = s.questions.filter((q) => answers[q.seq]).length;
@@ -842,7 +869,7 @@ export default function ExamPaperTake() {
                       <Card
                         size="small"
                         style={{ height: '100%', borderRadius: 8, borderColor: FB.border, display: 'flex', flexDirection: 'column' }}
-                        styles={{ body: { padding: 16, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', background: '#fff' } }}
+                        styles={{ body: { padding: 16, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', background: FB.cardBg } }}
                       >
                         <div style={{ fontSize: 13, color: FB.textWeak, marginBottom: 8, flexShrink: 0 }}>本篇资料</div>
                         <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', paddingRight: 4 }}>
@@ -865,7 +892,7 @@ export default function ExamPaperTake() {
                 ) : (
                   /* ── 窄屏：两栏会把题目挤到读不了，改为材料卡 + 题目流式堆叠 ── */
                   <div key={`grp-${grp.id}`}>
-                    <Card size="small" style={{ borderRadius: 8, marginBottom: 12, borderColor: FB.border }} styles={{ body: { padding: 14, background: '#fff' } }}>
+                    <Card size="small" style={{ borderRadius: 8, marginBottom: 12, borderColor: FB.border }} styles={{ body: { padding: 14, background: FB.cardBg } }}>
                       <div style={{ fontSize: 13, color: FB.textWeak, marginBottom: 6 }}>本篇资料</div>
                       {renderMaterialBody(grp, { fontSize: isMobile ? 15 : 16, eager: false })}
                     </Card>
@@ -889,7 +916,7 @@ export default function ExamPaperTake() {
         height={isMobile ? '62%' : '46%'}
         closable={false}
         styles={{
-          body: { padding: '16px 20px 20px', background: '#fff' },
+          body: { padding: '16px 20px 20px', background: FB.cardBg },
           wrapper: { boxShadow: 'none' },
           content: {
             borderTopLeftRadius: 12,
@@ -925,7 +952,7 @@ export default function ExamPaperTake() {
       {/* 底部固定操作条：粉笔式 —— 答题卡入口 + 进度 + 交卷 */}
       <div style={{
         position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 30,
-        background: '#fff', borderTop: `1px solid ${FB.border}`,
+        background: FB.cardBg, borderTop: `1px solid ${FB.border}`,
         boxShadow: '0 -2px 10px rgba(40,60,120,0.06)',
         padding: '10px 16px',
         display: 'flex', alignItems: 'center', gap: 12,
@@ -934,7 +961,7 @@ export default function ExamPaperTake() {
       }}>
         <Button
           size="small" icon={<DashboardOutlined />} onClick={() => setSheetOpen(true)}
-          style={{ borderRadius: 4, color: FB.primary, borderColor: FB.selectedBorder, background: '#fff' }}
+          style={{ borderRadius: 4, color: FB.primary, borderColor: FB.selectedBorder, background: FB.cardBg }}
         >
           答题卡
           {unansweredCount > 0 && (

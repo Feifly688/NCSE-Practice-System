@@ -3,3 +3,5 @@ node_modules/
 .env.local
 dist/
 tmp_*.json
+# 抓取接口的调试快照（响应原文），只留本地
+fbcat_*.json
