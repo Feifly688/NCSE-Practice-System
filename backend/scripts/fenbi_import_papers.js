@@ -55,7 +55,17 @@ const BASE_HEADERS = { 'User-Agent': UA, Referer: 'https://www.fenbi.com/', Acce
 let DEVICE_ID = '';
 let cookieHeader = '';
 
+/**
+ * 设备凭据：优先用 FB_DEVICE / FB_PERSIST（浏览器里复制的真实设备，会话最稳）；
+ * 没有才走 sid/create 自建设备。
+ */
 async function initDevice() {
+  if (process.env.FB_DEVICE) {
+    DEVICE_ID = process.env.FB_DEVICE;
+    cookieHeader = `sess=${SESS}; userid=${UID}; device_id=${DEVICE_ID}` +
+      (process.env.FB_PERSIST ? `; persistent=${process.env.FB_PERSIST}` : '');
+    return;
+  }
   const sid = await axios.post('https://login.fenbi.com/api/users/device/sid/create', {
     pf: 'web',
     startupId: Date.now(),
