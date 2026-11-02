@@ -74,7 +74,7 @@ async function initDevice() {
   cookieHeader = `sess=${SESS}; userid=${UID}; device_id=${DEVICE_ID}`;
 }
 
-/** 带设备重试的 GET/POST */
+/** 带设备重试的 GET/POST；403「频率过高」抛 RATE_LIMITED */
 async function fbRequest(method, url, params, data, formType) {
   for (let attempt = 0; attempt < 2; attempt++) {
     const r = await axios({ method, url, params: { ...COMMON, deviceId: DEVICE_ID, ...params }, data,
@@ -85,6 +85,11 @@ async function fbRequest(method, url, params, data, formType) {
       await initDevice();
       await sleep(1500);
       continue;
+    }
+    if (r.status === 403 && /频率过高|频繁/.test(String(r.data))) {
+      const e = new Error('创建练习频率过高');
+      e.code = 'RATE_LIMITED';
+      throw e;
     }
     if (r.status !== 200) throw new Error(`HTTP ${r.status} ${url.split('?')[0]}: ${String(r.data).slice(0, 80)}`);
     return JSON.parse(r.data);
@@ -126,24 +131,37 @@ async function findExisting(conn, key, title) {
   return byTitle.length ? byTitle[0].id : null;
 }
 
-/** 导入单张卷 */
+/** 导入单张卷；触发限流时按递增等待重试 */
 async function importPaper(paper) {
-  // ① 建练习（已有练习的卷直接用现有 key）
+  // ① 建练习（已有练习的卷直接用现有 key）；限流时退避重试
   let key = paper.key;
   if (!key) {
-    const created = await fbRequest('post', 'https://tiku.fenbi.com/api/xingce/exercises',
-      {}, `type=1&paperId=${paper.id}&exerciseTimeMode=2`, true);
-    key = created.key;
-    if (!key) throw new Error('创建练习未返回 key');
-    await sleep(400);
+    for (let attempt = 1; attempt <= 6; attempt++) {
+      try {
+        const created = await fbRequest('post', 'https://tiku.fenbi.com/api/xingce/exercises',
+          {}, `type=1&paperId=${paper.id}&exerciseTimeMode=2`, true);
+        key = created.key;
+        break;
+      } catch (e) {
+        if (e.code !== 'RATE_LIMITED') throw e;
+        const wait = Math.min(30000 * attempt, 90000);
+        console.log(`   [限流] 等待 ${Math.round(wait / 1000)}s 后重试（第 ${attempt} 次）…`);
+        await sleep(wait);
+      }
+    }
+    if (!key) throw new Error('创建练习未返回 key（限流重试耗尽）');
+    await sleep(2500);
   }
 
   // ② 空卷提交（提交后 getSolution 才带官方答案；已提交的卷这一步报错无妨）
   try {
     await fbRequest('post', 'https://tiku.fenbi.com/combine/exercise/submit',
       { key, routecs: 'xingce' }, {});
-    await sleep(400);
-  } catch (e) { /* 已提交/幂等失败都忽略 */ }
+    await sleep(500);
+  } catch (e) {
+    if (e.code === 'RATE_LIMITED') { await sleep(30000); }
+    /* 其他错误（已提交/幂等失败）都忽略 */
+  }
 
   // ③ 拉结构化数据（fetchFenbiPaper 内部先 getSolution 后 getExercise）
   const url = `https://spa.fenbi.com/ti/exam/solution/${key}?routecs=xingce`;
@@ -229,7 +247,7 @@ async function importPaper(paper) {
       // 登录态失效就没必要继续了
       if (e.code === 'FENBI_NEED_LOGIN') { console.log('Cookie 失效，终止。'); break; }
     }
-    await sleep(800);
+    await sleep(1500);
   }
 
   console.log(`\n== 完成 == 导入 ${imported}，跳过 ${skipped}，失败 ${failed}`);
