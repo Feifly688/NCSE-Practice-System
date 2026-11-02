@@ -133,23 +133,25 @@ async function findExisting(conn, key, title) {
 
 /** 导入单张卷；触发限流时按递增等待重试 */
 async function importPaper(paper) {
-  // ① 建练习（已有练习的卷直接用现有 key）；限流时退避重试
+  // ① 建练习（已有练习的卷直接用现有 key）；限流时冷却探测
   let key = paper.key;
   if (!key) {
-    for (let attempt = 1; attempt <= 6; attempt++) {
+    let attempt = 0;
+    while (!key) {
+      attempt++;
+      if (attempt > 40) throw new Error('限流冷却超过 5 小时，放弃本张（重跑会再试）');
       try {
         const created = await fbRequest('post', 'https://tiku.fenbi.com/api/xingce/exercises',
           {}, `type=1&paperId=${paper.id}&exerciseTimeMode=2`, true);
         key = created.key;
-        break;
       } catch (e) {
         if (e.code !== 'RATE_LIMITED') throw e;
-        const wait = Math.min(30000 * attempt, 90000);
-        console.log(`   [限流] 等待 ${Math.round(wait / 1000)}s 后重试（第 ${attempt} 次）…`);
+        // 前 3 次短退避；之后每 10 分钟探一次（窗口恢复即继续，不浪费请求）
+        const wait = attempt <= 3 ? attempt * 30000 : 600000;
+        console.log(`   [限流] 第 ${attempt} 次，等 ${Math.round(wait / 1000)}s…（${new Date().toLocaleTimeString('zh-CN')}）`);
         await sleep(wait);
       }
     }
-    if (!key) throw new Error('创建练习未返回 key（限流重试耗尽）');
     // 粉笔对建练习有频率窗口（实测 ~10 张/分钟就触发 403），
     // 5.5s 一张 ≈ 11 张/分钟，贴着上限慢走比反复撞墙再退避更稳
     await sleep(5500);
