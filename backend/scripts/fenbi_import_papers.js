@@ -150,7 +150,9 @@ async function importPaper(paper) {
       }
     }
     if (!key) throw new Error('创建练习未返回 key（限流重试耗尽）');
-    await sleep(2500);
+    // 粉笔对建练习有频率窗口（实测 ~10 张/分钟就触发 403），
+    // 5.5s 一张 ≈ 11 张/分钟，贴着上限慢走比反复撞墙再退避更稳
+    await sleep(5500);
   }
 
   // ② 空卷提交（提交后 getSolution 才带官方答案；已提交的卷这一步报错无妨）
