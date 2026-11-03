@@ -42,6 +42,14 @@ const LIMIT = Number(argOf('--limit', '0')) || 0; // 0 = 不限
 const DRY_RUN = ARGS.includes('--dry-run');
 
 const LABEL_NAMES = { 1: '国考真题', 2039: '政法干警', 3588: '选调', 2972: '国考模拟题', 2906: '省考模拟题' };
+// 按粉笔标签直接定分类（比标题推断可靠：省考模拟卷标题未必带「模拟」字样）
+const LABEL_DIMS = {
+  1:    { exam_level: 'national',    paper_type: '历年真题' },
+  2039: { exam_level: '政法干警',     paper_type: '历年真题' },
+  3588: { exam_level: '选调生',       paper_type: '历年真题' },
+  2972: { exam_level: 'national',    paper_type: '模拟题' },
+  2906: { exam_level: 'provincial',  paper_type: '模拟题' },
+};
 const PAPER_FILES_DIR = path.resolve(__dirname, '../uploads/papers');
 const PAPER_IMAGE_SUBDIR = 'paper-images';
 
@@ -191,10 +199,13 @@ async function importPaper(paper) {
   const paperText = crawled.text || '';
 
   return withConnection(async (conn) => {
+    const dims = LABEL_DIMS[paper.label] || {};
     const [r] = await conn.query(
-      `INSERT INTO exam_paper (title, year, source, source_url, origin, raw_text, parse_status, parsed_count)
-       VALUES (?,?, '粉笔题库', ?, 'crawl', ?, 'success', ?)`,
-      [paper.name, year, url, paperText, rows.length]);
+      `INSERT INTO exam_paper (title, year, source, source_url, origin, raw_text, parse_status, parsed_count,
+                               exam_level, paper_type, difficulty)
+       VALUES (?,?, '粉笔题库', ?, 'crawl', ?, 'success', ?, ?, ?, ?)`,
+      [paper.name, year, url, paperText, rows.length,
+        dims.exam_level || null, dims.paper_type || null, paper.difficulty || null]);
     const paperId = r.insertId;
 
     // 图片落盘

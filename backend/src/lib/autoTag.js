@@ -177,7 +177,8 @@ async function tagExamPaperQuestions() {
       // 考试级别
       let examLevel = q.exam_level || '';
       if (!examLevel) {
-        if (/省考|省公务员|各省/.test(title)) examLevel = '省考';
+        if (/政法干警/.test(title)) examLevel = '政法干警';
+        else if (/省考|省公务员|各省/.test(title)) examLevel = '省考';
         else if (/事业单位/.test(title)) examLevel = '事业单位';
         else if (/选调|遴选/.test(title)) examLevel = '选调生';
         else if (/国家公务|国考/.test(title)) examLevel = '国考';
@@ -206,9 +207,9 @@ async function tagExamPaperQuestions() {
       // 试卷类型
       let paperType = q.paper_type || '';
       if (!paperType) {
-        if (/模拟题|模考/.test(title)) paperType = '国考模拟题';
-        else if (/真题|笔试|录用考试/.test(title)) paperType = '历年真题';
-        else paperType = '推荐';
+        if (/模考|模拟|预测/.test(title)) paperType = '模拟题';
+        else if (/真题|笔试|录用考试|选调|政法干警|基层工作考试/.test(title)) paperType = '历年真题';
+        else paperType = '历年真题';
       }
       paperCatRows.push({ paperId: q.exam_paper_id, dim: 'paper_type', value: paperType });
     }
