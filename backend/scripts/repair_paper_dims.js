@@ -38,8 +38,12 @@ function inferDims(title) {
     for (const r of rows) {
       const d = inferDims(r.title);
       if (!d.exam_level && !d.paper_type) continue;
+      // 「推荐」是旧规则的错误兜底值、「国考模拟题」命名不规范 —— 都强制覆盖
       await conn.query(
-        'UPDATE exam_paper SET exam_level = COALESCE(exam_level, ?), paper_type = COALESCE(paper_type, ?) WHERE id = ?',
+        `UPDATE exam_paper SET
+           exam_level = COALESCE(exam_level, ?),
+           paper_type = CASE WHEN paper_type IN ('推荐', '国考模拟题') OR paper_type IS NULL THEN ? ELSE paper_type END
+         WHERE id = ?`,
         [d.exam_level, d.paper_type, r.id]);
       ids.push(r.id);
       fixed++;
