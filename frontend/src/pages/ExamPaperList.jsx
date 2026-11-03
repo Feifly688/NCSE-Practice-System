@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, List, Tag, Button, Empty, Spin, Typography, message, Input, Segmented } from 'antd';
+import { Card, List, Tag, Button, Empty, Spin, Typography, message, Input, Segmented, Pagination } from 'antd';
 import { FileTextOutlined, RightOutlined, SearchOutlined } from '@ant-design/icons';
 import api from '../services/api';
 import { useResponsive } from '../hooks/useResponsive';
@@ -32,6 +32,8 @@ export default function ExamPaperList() {
   const [dim, setDim] = useState('exam_level');   // 当前展示的分类维度
   const [active, setActive] = useState('');        // 选中的分类值（空 = 全部）
   const [keyword, setKeyword] = useState('');
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 20; // 卷子多了以后按页浏览（爬完有 3700+ 套）
 
   // 加载筛选项（维度 → 各分类值 + 数量）
   useEffect(() => {
@@ -40,16 +42,22 @@ export default function ExamPaperList() {
       .catch(() => {});
   }, []);
 
-  // 加载试卷列表
+  // 加载试卷列表（切筛选/搜索时回第一页）
   useEffect(() => {
-    load();
+    setPage(1);
+    load(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, dim, keyword]);
 
-  async function load() {
+  useEffect(() => {
+    if (page > 1) load(page);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page]);
+
+  async function load(targetPage) {
     setLoading(true);
     try {
-      const params = { page: 1, pageSize: 50 };
+      const params = { page: targetPage || page || 1, pageSize: PAGE_SIZE };
       if (active) {
         // region / exam_level / paper_type 用各自的字段名
         const field = dim === 'exam_level' ? 'examLevel' : dim;
@@ -209,6 +217,18 @@ export default function ExamPaperList() {
                 </List.Item>
               )}
             />
+            {total > PAGE_SIZE && (
+              <div style={{ marginTop: 16, display: 'flex', justifyContent: 'center' }}>
+                <Pagination
+                  current={page}
+                  pageSize={PAGE_SIZE}
+                  total={total}
+                  showSizeChanger={false}
+                  showQuickJumper={total > 200}
+                  onChange={(p) => setPage(p)}
+                />
+              </div>
+            )}
           </>
         )}
       </Card>
