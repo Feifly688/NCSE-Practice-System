@@ -65,6 +65,8 @@ router.get('/', asyncHandler(async (req, res) => {
   const paperType = req.query.paperType ? String(req.query.paperType) : '';
   const year = req.query.year ? Number(req.query.year) : null;
   const keyword = req.query.keyword ? String(req.query.keyword).trim() : '';
+  // 粉笔原始标签（历年试卷页的扁平标签栏，value=粉笔 labelId）
+  const fenbiLabel = req.query.label ? String(req.query.label) : '';
 
   const isAdmin = req.user && req.user.role === 'admin';
 
@@ -84,6 +86,12 @@ router.get('/', asyncHandler(async (req, res) => {
     dimFilter('exam_level', examLevel);
     dimFilter('region', region);
     dimFilter('paper_type', paperType);
+    if (fenbiLabel) {
+      where.push(
+        'EXISTS (SELECT 1 FROM exam_paper_category c WHERE c.exam_paper_id = p.id AND c.dim = ? AND c.value = ?)'
+      );
+      params.push('fenbi_label', fenbiLabel);
+    }
 
     if (Number.isInteger(year) && year > 1900) {
       where.push('p.year = ?');

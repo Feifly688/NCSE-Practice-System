@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, List, Tag, Button, Empty, Spin, Typography, message, Input, Segmented, Pagination } from 'antd';
+import { Card, List, Tag, Button, Empty, Spin, Typography, message, Input, Pagination } from 'antd';
 import { FileTextOutlined, RightOutlined, SearchOutlined } from '@ant-design/icons';
 import api from '../services/api';
 import { useResponsive } from '../hooks/useResponsive';
@@ -29,25 +29,24 @@ export default function ExamPaperList() {
   const [papers, setPapers] = useState([]);
   const [total, setTotal] = useState(0);
   const [filters, setFilters] = useState({});
-  const [dim, setDim] = useState('exam_level');   // 当前展示的分类维度
-  const [active, setActive] = useState('');        // 选中的分类值（空 = 全部）
+  const [active, setActive] = useState('');        // 选中的粉笔标签（'' = 推荐/全部）
   const [keyword, setKeyword] = useState('');
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 20; // 卷子多了以后按页浏览（爬完有 3700+ 套）
 
-  // 加载筛选项（维度 → 各分类值 + 数量）
+  // 加载筛选项（fenbi_label 维度 = 粉笔原版标签栏，含各标签卷数）
   useEffect(() => {
     api.get('/taxonomy/paper-filters')
       .then((r) => setFilters(r.data.filters || {}))
       .catch(() => {});
   }, []);
 
-  // 加载试卷列表（切筛选/搜索时回第一页）
+  // 加载试卷列表（切标签/搜索时回第一页）
   useEffect(() => {
     setPage(1);
     load(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, dim, keyword]);
+  }, [active, keyword]);
 
   useEffect(() => {
     if (page > 1) load(page);
@@ -58,11 +57,7 @@ export default function ExamPaperList() {
     setLoading(true);
     try {
       const params = { page: targetPage || page || 1, pageSize: PAGE_SIZE };
-      if (active) {
-        // region / exam_level / paper_type 用各自的字段名
-        const field = dim === 'exam_level' ? 'examLevel' : dim;
-        params[field] = active;
-      }
+      if (active) params.label = active;   // 粉笔原始标签 id
       if (keyword.trim()) params.keyword = keyword.trim();
       const r = await api.get('/exam-papers', { params });
       setPapers(r.data.papers || []);
@@ -74,16 +69,8 @@ export default function ExamPaperList() {
     }
   }
 
-  /** 维度标签栏（粉笔的标签行） */
-  const dimTabs = useMemo(() => (
-    [
-      { key: 'exam_level', label: '考试级别' },
-      { key: 'paper_type', label: '试卷类型' },
-      { key: 'region', label: '地区' },
-    ].filter((d) => (filters[d.key] || []).length)
-  ), [filters]);
-
-  const currentValues = filters[dim] || [];
+  // 粉笔原版扁平标签栏：推荐 + fenbi_label 字典（原版顺序）
+  const labelTabs = useMemo(() => (filters.fenbi_label || []), [filters]);
 
   return (
     <div>
@@ -93,15 +80,9 @@ export default function ExamPaperList() {
       </Text>
 
       <Card style={{ borderRadius: 12, borderColor: tokens.cardBorder, background: tokens.cardBg }}>
-        {/* 分类维度切换 + 标签栏（粉笔历年试卷页的结构） */}
+        {/* 粉笔原版扁平标签栏：推荐 / 国考 / 国考模拟题 / 省考模拟题 / 各省 / 深圳市考 / 广州市考 / 政法干警 / 选调 */}
         <div style={{ marginBottom: 14 }}>
-          <div style={{ marginBottom: 10, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <Segmented
-              size="small"
-              value={dim}
-              onChange={(v) => { setDim(v); setActive(''); }}
-              options={dimTabs.map((d) => ({ value: d.key, label: d.label }))}
-            />
+          <div style={{ marginBottom: 10 }}>
             <Input
               size="small"
               allowClear
@@ -125,7 +106,7 @@ export default function ExamPaperList() {
             >
               推荐
             </button>
-            {currentValues.map((v) => {
+            {labelTabs.map((v) => {
               const on = active === v.value;
               return (
                 <button

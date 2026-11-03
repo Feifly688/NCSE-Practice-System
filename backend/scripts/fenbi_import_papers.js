@@ -229,6 +229,13 @@ async function importPaper(paper) {
           JSON.stringify(q.options), q.answer, q.explanation,
           [...(isGroupHead ? material : []), ...own].join(',') || null]);
     }
+
+    // 粉笔原始标签（列表页扁平标签栏按此筛选）
+    if (paper.label) {
+      await conn.query(
+        "INSERT IGNORE INTO exam_paper_category (exam_paper_id, dim, value) VALUES (?, 'fenbi_label', ?)",
+        [paperId, String(paper.label)]);
+    }
     return { paperId, questions: rows.length, answered };
   });
 }
