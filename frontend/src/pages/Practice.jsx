@@ -356,7 +356,13 @@ export default function Practice() {
       } else {
         message.error(detail || '获取题目失败，请稍后重试');
       }
-      setStep('setup');
+      // 自动出题（快速练习/智能组卷/AI生成题）失败时回题库页，别停在空白设置页
+      if (fromTaxonomy) {
+        setStep('setup');
+        navigate('/practice', { replace: true });
+      } else {
+        setStep('setup');
+      }
     }
   }
   startPracticeRef.current = startPractice;
