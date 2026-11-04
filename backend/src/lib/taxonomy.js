@@ -58,6 +58,7 @@ async function getCategoryTree(userId, pool) {
       `SELECT c.id, c.parent_id, c.level, c.name, c.slug, c.dim, c.sort_order,
               (SELECT COUNT(*) FROM question_category_map m
                 JOIN question q ON q.id = m.ref_id
+                     AND q.status = 'approved'
                      AND (q.source_exam IS NULL OR q.source_exam NOT LIKE '%AI生成%')
                 WHERE m.category_id = c.id AND m.pool = ?) AS total_count
          FROM question_category c
