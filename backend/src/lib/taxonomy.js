@@ -55,26 +55,67 @@ async function getCategoryTree(userId, pool) {
 
   return withConnection(async (conn) => {
     const [rows] = await conn.query(
-      `SELECT c.id, c.parent_id, c.level, c.name, c.slug, c.dim, c.sort_order,
-              (SELECT COUNT(*) FROM question_category_map m
-                JOIN question q ON q.id = m.ref_id
-                     AND q.status = 'approved'
-                     AND (q.source_exam IS NULL OR q.source_exam NOT LIKE '%AI生成%') AND q.source_article_id IS NULL
-                WHERE m.category_id = c.id AND m.pool = ?) AS total_count
+      `SELECT c.id, c.parent_id, c.level, c.name, c.slug, c.dim, c.sort_order
          FROM question_category c
-        ORDER BY c.level, c.sort_order, c.id`,
-      [poolKey]
+        ORDER BY c.level, c.sort_order, c.id`
     );
 
-    // 用户已练过的题：按分类聚合
-    const doneMap = await getDoneCounts(conn, userId, poolKey, rows.map((r) => r.id));
+    // 每个分类「直挂」的题目集合（按题目去重，跨层级不重复计数）。
+    // 背景：一道题会同时挂一级模块和二级题型两张映射，若按映射行数逐层求和，
+    // 模块总数会翻倍（言语 4326 显示成 8652）；而二级下还可能有直挂 + 空三级
+    // 考点并存的情形。所以统一改为「子树内去重题目数」。
+    let refJoin = '';
+    let refParams = [];
+    if (poolKey === 'question') {
+      refJoin = "JOIN question q ON q.id = m.ref_id AND q.status = 'approved'\n" +
+        "             AND (q.source_exam IS NULL OR q.source_exam NOT LIKE '%AI生成%') AND q.source_article_id IS NULL";
+    }
+    const [mapRows] = await conn.query(
+      `SELECT m.category_id, m.ref_id
+         FROM question_category_map m
+         ${refJoin}
+        WHERE m.pool = ?`,
+      [poolKey, ...refParams]
+    );
+    const direct = new Map(); // categoryId -> Set(questionId)
+    for (const r of mapRows) {
+      if (!direct.has(r.category_id)) direct.set(r.category_id, new Set());
+      direct.get(r.category_id).add(Number(r.ref_id));
+    }
 
-    // 统计挂在子分类上的题，对父分类也要累加（粉笔的「全部」是子树汇总）
-    const totalById = new Map();
-    rows.forEach((r) => totalById.set(r.id, Number(r.total_count) || 0));
+    // 用户已练过的题：每分类的去重集合
+    const doneSets = await getDoneSets(conn, userId, poolKey);
+
+    // 子树（含自身）内的去重题目数 / 已练数
+    const childrenOf = new Map();
+    rows.forEach((r) => {
+      if (r.parent_id) {
+        if (!childrenOf.has(r.parent_id)) childrenOf.set(r.parent_id, []);
+        childrenOf.get(r.parent_id).push(r.id);
+      }
+    });
+    const subtreeIds = (rootId) => {
+      const out = [];
+      const stack = [rootId];
+      while (stack.length) {
+        const cur = stack.pop();
+        out.push(cur);
+        for (const cid of childrenOf.get(cur) || []) stack.push(cid);
+      }
+      return out;
+    };
 
     const byId = new Map();
     rows.forEach((r) => {
+      const ids = subtreeIds(r.id);
+      const t = new Set();
+      const d = new Set();
+      for (const cid of ids) {
+        const dt = direct.get(cid);
+        if (dt) for (const x of dt) t.add(x);
+        const dd = doneSets.get(cid);
+        if (dd) for (const x of dd) d.add(x);
+      }
       byId.set(r.id, {
         id: r.id,
         parentId: r.parent_id,
@@ -83,20 +124,10 @@ async function getCategoryTree(userId, pool) {
         slug: r.slug,
         dim: r.dim,
         sortOrder: r.sort_order,
-        totalCount: Number(r.total_count) || 0,
-        doneCount: doneMap.get(r.id) || 0,
+        totalCount: t.size,
+        doneCount: d.size,
         children: [],
       });
-    });
-
-    // 自底向上汇总 totalCount / doneCount 到父节点
-    const byLevelDesc = [...byId.values()].sort((a, b) => b.level - a.level);
-    byLevelDesc.forEach((node) => {
-      if (!node.parentId) return;
-      const parent = byId.get(node.parentId);
-      if (!parent) return;
-      parent.totalCount += node.totalCount;
-      parent.doneCount += node.doneCount;
     });
 
     // 组树
@@ -110,10 +141,10 @@ async function getCategoryTree(userId, pool) {
   });
 }
 
-/** 统计用户在各分类下已练的题数 */
-async function getDoneCounts(conn, userId, poolKey, categoryIds) {
-  const out = new Map();
-  if (!userId || !categoryIds.length) return out;
+/** 统计用户在各分类下已练的题目集合（按题目去重，供分类树做子树汇总） */
+async function getDoneSets(conn, userId, poolKey) {
+  const out = new Map(); // categoryId -> Set(refId)
+  if (!userId) return out;
 
   // 练习记录里的题目：practice_session.meta_json.question_ids
   const [sessions] = await conn.query(
@@ -136,34 +167,30 @@ async function getDoneCounts(conn, userId, poolKey, categoryIds) {
   }
   if (!doneRefs.size) return out;
 
-  // 按分类聚合已练数
-  const placeholders = categoryIds.map(() => '?').join(',');
-  const [rows] = await conn.query(
-    `SELECT m.category_id, COUNT(DISTINCT m.ref_id) AS c
-       FROM question_category_map m
-      WHERE m.pool = ? AND m.category_id IN (${placeholders})
-      GROUP BY m.category_id`,
-    [poolKey, ...categoryIds]
-  );
-  rows.forEach((r) => out.set(r.category_id, Number(r.c) || 0));
-
-  // 精确匹配用户已练的 ref_id（上面是分类内总题数里含未练的，改为按 ref 精确统计）
   const refIds = [...doneRefs]
     .filter((k) => k.startsWith(`${poolKey}:`))
     .map((k) => Number(k.slice(poolKey.length + 1)))
     .filter((n) => Number.isFinite(n));
   if (!refIds.length) return out;
 
-  const ph2 = refIds.map(() => '?').join(',');
-  const [exact] = await conn.query(
-    `SELECT m.category_id, COUNT(DISTINCT m.ref_id) AS c
+  let refJoin = '';
+  const params = [poolKey, ...refIds];
+  if (poolKey === 'question') {
+    refJoin = "JOIN question q ON q.id = m.ref_id AND q.status = 'approved'\n" +
+      "             AND (q.source_exam IS NULL OR q.source_exam NOT LIKE '%AI生成%') AND q.source_article_id IS NULL";
+  }
+  const ph = refIds.map(() => '?').join(',');
+  const [rows] = await conn.query(
+    `SELECT m.category_id, m.ref_id
        FROM question_category_map m
-      WHERE m.pool = ? AND m.ref_id IN (${ph2})
-      GROUP BY m.category_id`,
-    [poolKey, ...refIds]
+       ${refJoin}
+      WHERE m.pool = ? AND m.ref_id IN (${ph})`,
+    params
   );
-  out.clear();
-  exact.forEach((r) => out.set(r.category_id, Number(r.c) || 0));
+  for (const r of rows) {
+    if (!out.has(r.category_id)) out.set(r.category_id, new Set());
+    out.get(r.category_id).add(Number(r.ref_id));
+  }
   return out;
 }
 
