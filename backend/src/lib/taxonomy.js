@@ -22,6 +22,16 @@ const POOLS = {
     statusField: 'status',
     statusValue: 'approved',
     extraFields: ['qtype', 'difficulty', 'subject_id'],
+    // 专项练习只用爬取/回流题 —— AI 生成的题走独立入口（generated 池）
+    extraWhere: "(t.source_exam IS NULL OR t.source_exam NOT LIKE '%AI生成%')",
+  },
+  generated: {
+    table: 'question',
+    statusField: 'status',
+    statusValue: 'approved',
+    extraFields: ['qtype', 'difficulty', 'subject_id'],
+    extraWhere: "t.source_exam LIKE '%AI生成%'",
+    requiresMap: false, // 生成题不进分类树，抽题不 JOIN 分类映射
   },
   exam_paper_question: {
     table: 'exam_paper_question',
@@ -47,6 +57,8 @@ async function getCategoryTree(userId, pool) {
     const [rows] = await conn.query(
       `SELECT c.id, c.parent_id, c.level, c.name, c.slug, c.dim, c.sort_order,
               (SELECT COUNT(*) FROM question_category_map m
+                JOIN question q ON q.id = m.ref_id
+                     AND (q.source_exam IS NULL OR q.source_exam NOT LIKE '%AI生成%')
                 WHERE m.category_id = c.id AND m.pool = ?) AS total_count
          FROM question_category c
         ORDER BY c.level, c.sort_order, c.id`,
@@ -338,22 +350,28 @@ async function pickQuestionsByConfig(config) {
       where.push(`t.${cfg.statusField} = ?`);
       params.push(cfg.statusValue);
     }
+    if (cfg.extraWhere) {
+      where.push(`(${cfg.extraWhere})`);
+    }
+    const needMap = cfg.requiresMap !== false || (config.categoryIds && config.categoryIds.length > 0);
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
     // RAND() 让每次刷题的顺序与组合都不同（粉笔的「去练习」是随机的）
     // 同上：GROUP BY 列与 SELECT 一致，question 池不带 t.section
-    const secCol2 = poolKey === 'question' ? 't.subject_id' : 't.subject_id, t.section';
+    const secCol2 = poolKey === 'exam_paper_question' ? 't.subject_id, t.section' : 't.subject_id';
+    const mapJoin = needMap ? 'JOIN question_category_map m ON m.pool = ? AND m.ref_id = t.id' : '';
+    const mapParam = needMap ? [poolKey] : [];
     const [rows] = await conn.query(
-      `SELECT t.id, t.qtype, t.difficulty${poolKey === 'question' ? ', t.subject_id' : ', t.section'},
+      `SELECT t.id, t.qtype, t.difficulty, t.subject_id,
               t.stem, t.passage, t.options_json, t.answer, t.explanation
          FROM ${cfg.table} t
-         JOIN question_category_map m ON m.pool = ? AND m.ref_id = t.id
+         ${mapJoin}
         ${whereSql}
         GROUP BY t.id, t.qtype, t.difficulty, ${secCol2},
                  t.stem, t.passage, t.options_json, t.answer, t.explanation
         ORDER BY RAND()
         LIMIT ${count}`,
-      [poolKey, ...params]
+      [...mapParam, ...params]
     );
     return rows;
   });

@@ -78,10 +78,26 @@ export default function History() {
             ) : (
               sessions.map((s, idx) => {
                 const isInProgress = s.status === 'in_progress';
+                // 整卷真题的作答也统一记录在练习历史里（meta 带卷名）
+                const isExam = s.mode === 'exam_paper';
+                let examMeta = null;
+                if (isExam && s.meta_json) {
+                  try { examMeta = typeof s.meta_json === 'string' ? JSON.parse(s.meta_json) : s.meta_json; } catch (e) { /* 忽略 */ }
+                }
+                const title = (examMeta && examMeta.paper_title) || null;
                 return (
                   <tr key={s.id} style={{ background: idx % 2 === 0 ? '#fff' : '#fafafa' }}>
                     <td style={{ padding: '10px 16px' }}>{s.id}</td>
-                    <td style={{ padding: '10px 16px' }}><Tag color="blue">{s.subject_name}</Tag></td>
+                    <td style={{ padding: '10px 16px' }}>
+                      {isExam ? (
+                        <Space size={6} wrap>
+                          <Tag color="orange">整卷真题</Tag>
+                          <span style={{ maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block', verticalAlign: 'middle' }}>{title}</span>
+                        </Space>
+                      ) : (
+                        <Tag color="blue">{s.subject_name}</Tag>
+                      )}
+                    </td>
                     <td style={{ padding: '10px 16px', textAlign: 'center' }}>
                       {isInProgress ? <Tag color="orange">答题中</Tag> : <Tag color="green">已完成</Tag>}
                     </td>

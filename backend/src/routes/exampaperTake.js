@@ -319,6 +319,7 @@ router.post('/:id/submit', asyncHandler(async (req, res) => {
   const id = Number(req.params.id);
   const answers = req.body && req.body.answers;
   if (!answers || typeof answers !== 'object') return res.status(400).json({ error: '缺少作答数据' });
+  const durationSec = Math.max(0, Number(req.body.duration_sec) || 0);
 
   // 注意：withConnection 透传 conn.query 的返回值，需解构出结果行数组
   const [rows] = await withConnection((conn) => conn.query(
@@ -360,6 +361,104 @@ router.post('/:id/submit', asyncHandler(async (req, res) => {
     if (r.correct) bySection[k].correct++;
   }
 
+  // ── 统一答题记录：整卷成绩写进 practice_session / practice_answer ──
+  // 参考粉笔：做过的真题与专项练习混排在「练习历史」里，统计一起算。
+  // 题目映射 (paper, seq) → question.id：优先按回流标记，
+  // 回流时因指纹重复被跳过的题按 fingerprint 找回（同一道题的规范副本）。
+  let sessionId = null;
+  try {
+    const { buildFingerprint } = require('../lib/questionDedupe');
+    const [reflowed] = await withConnection((conn) => conn.query(
+      'SELECT id, source_paper_seq FROM question WHERE source_paper_id = ?', [id]));
+    const bySeq = new Map(reflowed.map((r) => [Number(r.source_paper_seq), r.id]));
+    const missing = rows.filter((q) => !bySeq.has(q.seq));
+    if (missing.length) {
+      const fps = missing.map((q) => buildFingerprint({
+        qtype: q.qtype, stem: q.stem, options: safeJson(q.options_json, []), answer: q.answer,
+      }));
+      const [found] = await withConnection((conn) => conn.query(
+        `SELECT id, fingerprint FROM question WHERE fingerprint IN (${fps.map(() => '?').join(',')})`, fps));
+      const byFp = new Map(found.map((r) => [r.fingerprint, r.id]));
+      missing.forEach((q, i) => { if (byFp.get(fps[i])) bySeq.set(q.seq, byFp.get(fps[i])); });
+    }
+    const mapped = rows.filter((q) => bySeq.has(q.seq));
+    if (mapped.length) {
+      sessionId = await withConnection(async (conn) => {
+        const [q0] = await conn.query('SELECT subject_id FROM question WHERE id = ?', [bySeq.get(mapped[0].seq)]);
+        const subjectId = (q0[0] && q0[0].subject_id) || 1;
+        const [paperRow] = await conn.query('SELECT title FROM exam_paper WHERE id = ?', [id]);
+        const paperTitle = (paperRow[0] && paperRow[0].title) || `整卷 #${id}`;
+
+        let mCorrect = 0;
+        const answerRows = [];
+        const answerParams = [];
+        const wrongIds = [];
+        const savedAnswers = {};
+        const questionIds = [];
+        for (const q of mapped) {
+          const your = answers[String(q.seq)] ?? answers[q.seq] ?? null;
+          const right = isAnswerRight(your, q.answer);
+          const qid = bySeq.get(q.seq);
+          questionIds.push(qid);
+          if (right) mCorrect++;
+          else wrongIds.push(qid);
+          // 答案按 question id 存（与普通练习的 meta 结构一致，结果页复用同一渲染）
+          if (your) savedAnswers[qid] = your;
+          answerRows.push('(?,?,?,?,?)');
+          answerParams.push(null, qid, your || null, right ? 1 : 0, 0);
+        }
+        const mScore = mapped.length > 0 ? Number(((mCorrect / mapped.length) * 100).toFixed(2)) : 0;
+        const now = Date.now();
+        const fmt = (ts) => new Date(ts).toISOString().slice(0, 19).replace('T', ' ');
+        const meta = {
+          exam: true,
+          paper_id: id,
+          paper_title: paperTitle,
+          question_ids: questionIds,
+          answers: savedAnswers,
+          elapsed_sec: durationSec,
+          full_total: total,       // 整卷口径（含个别未回流题）
+          full_correct: correct,
+        };
+
+        await conn.beginTransaction();
+        try {
+          const [sr] = await conn.query(
+            `INSERT INTO practice_session (user_id, subject_id, mode, total, correct, duration_sec, score, started_at, finished_at, meta_json, status)
+             VALUES (?,?,?,?,?,?,?,?,?,?, 'completed')`,
+            [req.user.userId, subjectId, 'exam_paper', mapped.length, mCorrect, durationSec, mScore,
+              fmt(now - durationSec * 1000), fmt(now), JSON.stringify(meta)]);
+          const sid = sr.insertId;
+          // answerParams 是扁平数组：第 i 行的参数在 [i*5, i*5+5)，行内首列是 session_id
+          for (let i = 0; i < mapped.length; i++) answerParams[i * 5] = sid;
+          await conn.query(
+            `INSERT INTO practice_answer (session_id, question_id, user_answer, is_correct, time_spent_sec)
+             VALUES ${answerRows.join(',')}`,
+            answerParams
+          );
+          if (wrongIds.length) {
+            const ph = wrongIds.map(() => '(?, ?, 1, 0)').join(',');
+            const wp = [];
+            for (const qid of wrongIds) wp.push(req.user.userId, qid);
+            await conn.query(
+              `INSERT INTO wrong_book (user_id, question_id, wrong_count, mastered) VALUES ${ph}
+               ON DUPLICATE KEY UPDATE wrong_count = wrong_count + 1, mastered = 0`,
+              wp
+            );
+          }
+          await conn.commit();
+          return sid;
+        } catch (err) {
+          await conn.rollback();
+          throw err;
+        }
+      });
+    }
+  } catch (e) {
+    // 记录写入失败不阻断交卷 —— 判分结果照常返回，错误进日志排查
+    console.error('[exam] 写入统一答题记录失败:', e.message);
+  }
+
   return res.json({
     paperId: id,
     total,
@@ -369,6 +468,7 @@ router.post('/:id/submit', asyncHandler(async (req, res) => {
     score,
     bySection,
     results,
+    sessionId,
   });
 }));
 

@@ -11,6 +11,7 @@ import {
 import api from '../services/api';
 import { useResponsive } from '../hooks/useResponsive';
 import { useTheme } from '../contexts/ThemeContext';
+import ThemeToggle from '../components/ThemeToggle';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -291,7 +292,7 @@ export default function ExamPaperTake() {
       onOk: async () => {
         setSubmitting(true);
         try {
-          const r = await api.post(`/exam-papers/${id}/submit`, { answers });
+          const r = await api.post(`/exam-papers/${id}/submit`, { answers, duration_sec: elapsed });
           setResult(r.data);
           setSheetOpen(false);
           window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -749,6 +750,8 @@ export default function ExamPaperTake() {
             </span>
           </div>
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
+            {/* 日夜模式切换：作答中也能随手切（偏好持久化到账号） */}
+            <ThemeToggle style={{ color: FB.textSub }} />
             <Tag
               icon={<ClockCircleOutlined />}
               style={{

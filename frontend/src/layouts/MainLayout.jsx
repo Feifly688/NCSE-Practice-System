@@ -36,12 +36,12 @@ export default function MainLayout() {
   if (isAuthenticated) {
     menuItems.push(
       { key: '/dashboard', icon: <DashboardOutlined />, label: '仪表盘' },
-      { key: '/practice', icon: <EditOutlined />, label: '答题' },
+      { key: '/practice', icon: <EditOutlined />, label: '题库' },
       { key: '/history', icon: <HistoryOutlined />, label: '历史' },
       { key: '/wrong-book', icon: <BookOutlined />, label: '错题本' },
       { key: '/favorites', icon: <StarFilled />, label: '收藏' },
       { key: '/leaderboard', icon: <TrophyOutlined />, label: '排行榜' },
-      { key: '/exam-papers', icon: <FileTextOutlined />, label: '整卷真题' },
+      // 整卷真题不进导航 —— 与粉笔一致，从「题库」页的「历年试卷」入口进入
     );
   }
   if (isAdmin) {

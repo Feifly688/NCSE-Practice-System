@@ -76,7 +76,11 @@ function readStoredTheme() {
     const v = localStorage.getItem(STORAGE_KEY);
     if (v === 'light' || v === 'dark' || v === 'system') return v;
   } catch (e) { /* 隐私模式可能禁写 */ }
-  return 'system';
+  return null; // null = 用户从未主动选过，此时可采纳服务端偏好
+}
+
+function isLogin() {
+  try { return !!localStorage.getItem('user'); } catch (e) { return false; }
 }
 
 function systemPrefersDark() {
@@ -86,10 +90,27 @@ function systemPrefersDark() {
 }
 
 export function ThemeProvider({ children }) {
-  const [mode, setMode] = useState(readStoredTheme);
+  // readStoredTheme 返回 null 表示用户没选过 —— 先按 system，等登录后采纳服务端偏好
+  const [mode, setModeState] = useState(() => readStoredTheme() || 'system');
   const [systemDark, setSystemDark] = useState(systemPrefersDark);
 
-  // 跟随系统时监听系统主题变化
+  // ① 登录状态下拉取服务端主题偏好：本机没主动选过才采纳（本机选择优先）
+  useEffect(() => {
+    if (readStoredTheme() || !isLogin()) return undefined;
+    let cancelled = false;
+    fetch('/api/auth/me', { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        const t = j && j.user && j.user.theme;
+        if (!cancelled && (t === 'light' || t === 'dark' || t === 'system')) {
+          setModeState(t);
+        }
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  // ② 跟随系统时监听系统主题变化
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return undefined;
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
@@ -114,6 +135,19 @@ export function ThemeProvider({ children }) {
     document.body.style.backgroundColor = t.pageBg;
     document.body.style.color = t.text;
   }, [mode, resolved]);
+
+  /** 切主题：写本机 + 登录状态下静默上报服务端（换设备也生效） */
+  const setMode = (next) => {
+    setModeState(next);
+    if (isLogin()) {
+      fetch('/api/auth/theme', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ mode: next }),
+      }).catch(() => {});
+    }
+  };
 
   const value = useMemo(() => ({
     mode,

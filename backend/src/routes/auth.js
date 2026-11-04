@@ -172,11 +172,23 @@ router.get('/session-policy', (_req, res) => {
 // GET /api/auth/me
 router.get('/me', requireAuth, asyncHandler(async (req, res) => {
   const user = await withConnection(async (conn) => {
-    const [rows] = await conn.query('SELECT id, username, email, nickname, role, status, created_at FROM `user` WHERE id = ?', [req.user.userId]);
+    const [rows] = await conn.query('SELECT id, username, email, nickname, role, status, created_at, theme FROM `user` WHERE id = ?', [req.user.userId]);
     return rows[0] || null;
   });
   if (!user) return res.status(404).json({ error: '用户不存在' });
   return res.json({ user });
+}));
+
+// PUT /api/auth/theme —— 主题偏好持久化（换设备登录后仍生效）
+router.put('/theme', requireAuth, asyncHandler(async (req, res) => {
+  const mode = String(req.body.mode || '');
+  if (!['light', 'dark', 'system'].includes(mode)) {
+    return res.status(400).json({ error: '无效的主题模式' });
+  }
+  await withConnection(async (conn) => {
+    await conn.query('UPDATE `user` SET theme = ? WHERE id = ?', [mode, req.user.userId]);
+  });
+  return res.json({ success: true });
 }));
 
 // PUT /api/auth/profile

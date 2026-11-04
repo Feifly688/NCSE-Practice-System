@@ -27,6 +27,7 @@ const { Title, Text } = Typography;
 const ENTRY_CARDS = [
   { key: 'quick', name: '快速练习', desc: '按模块随机抽题，立即开练', color: '#385dca', icon: <ThunderboltOutlined />, to: '/practice' },
   { key: 'paper', name: '历年试卷', desc: '完整真题卷，按分类筛选', color: '#0f9d58', icon: <FileTextOutlined />, to: '/exam-papers' },
+  { key: 'generated', name: 'AI 生成题', desc: 'AI 生成的专项题目，独立题池', color: '#8b5cf6', icon: <ThunderboltOutlined />, to: '/practice/do?pool=generated&count=10' },
   { key: 'custom', name: '智能组卷', desc: '自定义范围与题量', color: '#d98324', icon: <SettingOutlined /> },
 ];
 

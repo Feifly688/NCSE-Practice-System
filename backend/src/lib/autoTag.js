@@ -31,23 +31,60 @@ const SECTION_TO_MODULE = {
   资料分析: 'module-data',
 };
 
-/** 题型关键词 → 二级分类 slug（按模块区分） */
+/**
+ * 题型规则 → 二级分类 slug。
+ *
+ * 规则按「真题标准句式」编写 —— 真题题干是模板化的：
+ *   图形推理必说「从所给的四个选项中…问号处」、定义判断必有「上述定义」、
+ *   逻辑填空必有「填入画横线部分最恰当」、资料分析材料必有「同比/比重」等。
+ * 旧版规则按「逻辑填空/图形推理」这类词面匹配，真题题干不含这些词，
+ * 导致 90%+ 的题挂不上二级分类（专项练习里看不到题型分组）。
+ * 每个模块内先匹配到先用；最后一条通常是兜底。
+ */
 const QTYPE_RULES = {
   'module-logic': [
-    [/图形|空间重构|立体/, 'logic-graphic'],
-    [/定义/, 'logic-definition'],
-    [/类比|逻辑关系/, 'logic-analogy'],
-    [/逻辑|推理|判断/, 'logic-reasoning'],
+    [/把下面的六个图形|图形分类|立体折叠|纸盒|剖面图|三视图|六面体/, 'logic-graphic'],
+    [/从所给的四个选项中.{0,12}(选择|选出一个?)最合适.{0,8}(填入问号处|呈现一定的规律)/, 'logic-graphic'],
+    [/问号处/, 'logic-graphic'],
+    [/根据上述定义|属于.{0,8}定义|不符合.{0,10}定义|定义的关键信息|这一定义/, 'logic-definition'],
+    [/对于.{1,12}相当于|内在逻辑关系.{0,10}(相近|相似)|词项间|与之(关系|逻辑).{0,8}(相近|相似)|(最为|最)相似的一组/, 'logic-analogy'],
+    [/可以推出|无法(推出|断定)的是|哪项如果为真|如果为真|最能(削弱|加强|支持|质疑|反驳)|前提|假设|论证|真假话|逻辑错误|最能解释/, 'logic-reasoning'],
+    [/以上说法|由此可以|据(此|此可以)判断/, 'logic-reasoning'],
+    [/.*/, 'logic-reasoning'], // 判断推理兜底：四种题型中逻辑判断占比最高
   ],
   'module-verbal': [
-    [/逻辑填空|填空/, 'verbal-fill'],
-    [/片段|阅读理解|主旨|意图|细节|标题|词句/, 'verbal-reading'],
-    [/语句|排序|衔接/, 'verbal-sentence'],
-    [/篇章/, 'verbal-passage'],
+    [/填入画横线|填入横线部分|依次填入|填入下面横线|最恰当的一组|填入.{0,6}最恰当/, 'verbal-fill'],
+    [/重新排列|语序(最)?连贯|句子(的顺序|排序)|语句(排序|填空)|接语|上下文衔接|横线处的?语句/, 'verbal-sentence'],
+    [/篇章|以下(几段|几段文字|文字)，完成|阅读以下文字/, 'verbal-passage'],
+    [/意在(说明|强调)|文段|这段文字|主旨|主要(说明|介绍了|强调了)|关键词|标题|细节|作者(的态度|观点)|概括(最)?(准确|恰当)/, 'verbal-reading'],
+    [/.*/, 'verbal-reading'], // 言语兜底：片段阅读占比最高
   ],
   'module-quantity': [
-    [/数学运算|计算/, 'quantity-math'],
-    [/数字推理|数列/, 'quantity-number'],
+    [/数列/, 'quantity-number'],
+    [/.*/, 'quantity-math'], // 数量关系兜底：数学运算
+  ],
+  'module-data': [
+    [/能够(推出|得出|判断)|下列说法(正确|错误|不正确|可以|一定)/, 'data-comprehensive'],
+    [/比重|占比|占.{0,10}(比例|比重)|占全部|占总/, 'data-proportion'],
+    [/平均|人均|每(百|万|千|个|人|只|件)|均值/, 'data-average'],
+    [/倍数|之比|倍/, 'data-ratio'],
+    [/增长量|增加(了?)?[0-9一二三四五六七八九十]+.{0,4}(亿元|万元|万吨|万人|个)|多多少/, 'data-increment'],
+    [/同比|环比|增长率|增长速度|增速|增幅|增长最快|增长.{0,6}%/, 'data-growth'],
+    [/.*/, 'data-comprehensive'], // 资料分析兜底：综合分析
+  ],
+  'module-politics': [
+    [/马克思主义|唯物|辩证|认识论|剩余价值|资本主|社会主义(革命|改造)/, 'politics-marxism'],
+    [/毛泽东|新民主主义|毛中特|遵义会议|井冈山/, 'politics-maozhong'],
+    [/新时代|中国特色社会|习近平|治国理政|中国式现代化|二十大/, 'politics-thought'],
+    [/.*/, 'politics-current'], // 政治理论兜底：时事政治
+  ],
+  'module-common': [
+    [/法律|刑法|民法|宪法|行政法|诉讼|犯罪|合同|劳动(合同|法)|监察|法制/, 'common-law'],
+    [/地理|气候|地形|山(脉|川|峰)|河流|经纬|国情|省份|资源分布/, 'common-geography'],
+    [/历史|朝代|战争|文化(遗产|常识)?|文学|诗人|古籍|传统(节日|习俗)/, 'common-history'],
+    [/科技|物理|化学|生物|航天|病毒|基因|计算机|信息技术|科学(技术|原理)/, 'common-science'],
+    [/经济|通货膨胀|货币|财政|市场调节|供给|需求|GDP|汇率/, 'common-economy'],
+    [/.*/, 'common-politics'], // 常识兜底：政治常识
   ],
 };
 
@@ -282,7 +319,7 @@ async function tagSingleQuestions() {
     };
 
     const [questions] = await conn.query(
-      "SELECT id, subject_id, qtype, stem, section_name FROM question WHERE status = 'approved'"
+      "SELECT id, subject_id, qtype, stem, passage, section_name FROM question WHERE status = 'approved' AND (source_exam IS NULL OR source_exam NOT LIKE '%AI生成%')"
     );
 
     const mapRows = [];
@@ -293,18 +330,12 @@ async function tagSingleQuestions() {
       if (!moduleSlug || !bySlug.has(moduleSlug)) continue;
       mapRows.push({ catId: bySlug.get(moduleSlug).id, pool: 'question', refId: q.id });
 
-      // 二级：题型规则优先
+      // 二级：按真题标准句式匹配（题干 + 材料正文 —— 资料分析的信号词多在材料里）
       const qtypeRules = QTYPE_RULES[moduleSlug] || [];
       let second = null;
+      const text = `${q.stem || ''} ${q.passage || ''}`;
       for (const [re, slug] of qtypeRules) {
-        if (re.test(String(q.qtype || ''))) { second = slug; break; }
-      }
-      // 再按题干关键词
-      if (!second) {
-        const text = `${q.stem || ''} ${q.section_name || ''}`;
-        for (const [re, slug] of qtypeRules) {
-          if (re.test(text)) { second = slug; break; }
-        }
+        if (re.test(text)) { second = slug; break; }
       }
       if (!second) {
         const guessed = guessByText(text_for(q));
