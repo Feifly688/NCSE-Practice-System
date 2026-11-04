@@ -14,9 +14,10 @@
  *
  * 用法（服务器）：
  *   FB_SESSION=<sess> FB_UID=<userid> node scripts/fenbi_import_papers.js \
- *     [--labels 1,2039,3588,2972,2906] [--limit N] [--dry-run]
+ *     [--labels 1,2039,3588] [--limit N] [--dry-run]
  *
  * 标签：1=国考真题 2039=政法干警 3588=选调 2972=国考模拟题 2906=省考模拟题
+ * 默认只爬真题标签 —— 模拟卷已全部下架，不再爬取（要爬需显式 --labels 指定）。
  */
 const path = require('path');
 require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
@@ -37,7 +38,7 @@ const argOf = (name, def) => {
   const i = ARGS.indexOf(name);
   return i >= 0 && ARGS[i + 1] ? ARGS[i + 1] : def;
 };
-const LABELS = (argOf('--labels', '1,2039,3588,2972,2906')).split(',').map(Number).filter(Boolean);
+const LABELS = (argOf('--labels', '1,2039,3588')).split(',').map(Number).filter(Boolean);
 const LIMIT = Number(argOf('--limit', '0')) || 0; // 0 = 不限
 const DRY_RUN = ARGS.includes('--dry-run');
 

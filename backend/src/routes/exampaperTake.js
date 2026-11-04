@@ -71,7 +71,7 @@ router.get('/', asyncHandler(async (req, res) => {
   const isAdmin = req.user && req.user.role === 'admin';
 
   const data = await withConnection(async (conn) => {
-    const where = ["p.parse_status IN ('success','partial')"];
+    const where = ["p.parse_status IN ('success','partial')", 'p.is_hidden = 0'];
     const params = [];
 
     // 维度筛选：既支持 exam_paper 上的直列，也支持 exam_paper_category 关联表
@@ -131,13 +131,15 @@ router.get('/:id', asyncHandler(async (req, res) => {
     const isAdmin = req.user && req.user.role === 'admin';
     const [rows] = await conn.query(
       `SELECT id, title, year, raw_text, parsed_count, parse_status,
-              exam_level, region, paper_type, difficulty
+              exam_level, region, paper_type, difficulty, is_hidden
               ${isAdmin ? ', source, origin, source_url' : ''}
          FROM exam_paper WHERE id = ?`,
       [id]
     );
     const paper = rows[0] || null;
     if (!paper) return null;
+    // 模拟卷等已隐藏的卷：管理员可见，普通用户当作不存在
+    if (paper.is_hidden && !isAdmin) return null;
     if (!['success', 'partial'].includes(paper.parse_status)) {
       return { forbidden: true, parse_status: paper.parse_status };
     }
@@ -323,11 +325,15 @@ router.post('/:id/submit', asyncHandler(async (req, res) => {
 
   // 注意：withConnection 透传 conn.query 的返回值，需解构出结果行数组
   const [rows] = await withConnection((conn) => conn.query(
-    `SELECT seq, section, qtype, difficulty, stem, options_json, answer, explanation
-     FROM exam_paper_question WHERE exam_paper_id = ? ORDER BY seq`,
+    `SELECT q.seq, q.section, q.qtype, q.difficulty, q.stem, q.options_json, q.answer, q.explanation, p.is_hidden
+     FROM exam_paper_question q JOIN exam_paper p ON p.id = q.exam_paper_id
+     WHERE q.exam_paper_id = ? ORDER BY q.seq`,
     [id]
   ));
   if (rows.length === 0) return res.status(404).json({ error: '该试卷没有可判分的题目' });
+  if (rows[0].is_hidden && (!req.user || req.user.role !== 'admin')) {
+    return res.status(403).json({ error: '该试卷已下架，无法作答' });
+  }
 
   let correct = 0;
   const results = rows.map((q) => {

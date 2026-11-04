@@ -70,7 +70,9 @@ export default function ExamPaperList() {
   }
 
   // 粉笔原版扁平标签栏：推荐 + fenbi_label 字典（原版顺序）
-  const labelTabs = useMemo(() => (filters.fenbi_label || []), [filters]);
+  // 模拟题标签（国考模拟题 2972 / 省考模拟题 2906）不上架，直接不渲染
+  const HIDDEN_LABELS = new Set(['2972', '2906']);
+  const labelTabs = useMemo(() => (filters.fenbi_label || []).filter((t) => !HIDDEN_LABELS.has(t.value)), [filters]);
 
   return (
     <div>

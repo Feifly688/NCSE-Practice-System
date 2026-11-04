@@ -180,9 +180,10 @@ router.get('/paper-dict', requireAuth, asyncHandler(async (req, res) => {
 router.get('/paper-filters', requireAuth, asyncHandler(async (req, res) => {
   // withConnection 返回 [rows, fields]，必须取第一项
   const [rows] = await withConnection(async (conn) => conn.query(
-    `SELECT dim, value, COUNT(DISTINCT exam_paper_id) AS c
-       FROM exam_paper_category
-      GROUP BY dim, value`
+    `SELECT m.dim, m.value, COUNT(DISTINCT m.exam_paper_id) AS c
+       FROM exam_paper_category m
+       JOIN exam_paper p ON p.id = m.exam_paper_id AND p.is_hidden = 0
+      GROUP BY m.dim, m.value`
   ));
   const [dict] = await withConnection(async (conn) => conn.query(
     'SELECT dim, value, label FROM paper_category_dict ORDER BY dim, sort_order, id'
