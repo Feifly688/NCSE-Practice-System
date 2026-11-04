@@ -7,6 +7,7 @@ import { parseOptions, cleanOption, formatTime } from '../utils';
 import { useResponsive } from '../hooks/useResponsive';
 import { useTheme } from '../contexts/ThemeContext';
 import QuestionFeedback from '../components/QuestionFeedback';
+import ThemeToggle from '../components/ThemeToggle';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -14,7 +15,7 @@ export default function Practice() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { isMobile } = useResponsive();
-  const { tokens, isDark } = useTheme();
+  const { tokens, isDark, setAnswerScope } = useTheme();
   const resumeSessionId = searchParams.get('session');
   const viewMode = searchParams.get('view');
   const wrongRedo = searchParams.get('wrongredo') === 'true';
@@ -25,11 +26,17 @@ export default function Practice() {
   const qtypeParam = searchParams.get('qtypes') || '';
   const diffParam = searchParams.get('difficulty') || '';
   const countParam = Number(searchParams.get('count')) || 0;
+  const yearsParam = searchParams.get('years') || '';          // 智能组卷：near5 / near10
+  const subjectParam = Number(searchParams.get('subject')) || 0; // AI 生成题：科目 id
+  const smartParam = searchParams.get('smart') === '1';
   const categoryName = searchParams.get('categoryName') || '';
   // 带这些参数进来 = 从专项练习页发起，直接开始出题
-  const fromTaxonomy = Boolean(poolParam && (catParam || countParam || qtypeParam || diffParam));
+  const fromTaxonomy = Boolean(poolParam && (catParam || countParam || qtypeParam || diffParam || yearsParam || subjectParam));
   // 分类名（用于顶部提示当前在刷什么）
-  const catLabel = categoryName || (catParam ? `分类 ${catParam}` : '');
+  const yearLabel = { near3: '近3年', near5: '近5年', near10: '近10年' }[yearsParam] || '';
+  const catLabel = categoryName || (catParam ? `分类 ${catParam}` : '')
+    || (smartParam ? `智能组卷${yearLabel ? `（${yearLabel}）` : ''}` : '')
+    || (poolParam === 'generated' ? 'AI 生成题' : '');
 
   const [step, setStep] = useState('setup');
   const [subjects, setSubjects] = useState([]);
@@ -63,6 +70,12 @@ export default function Practice() {
   const elapsedRef = useRef(elapsed);
   answersRef.current = answers;
   elapsedRef.current = elapsed;
+
+  // 主题只在答题界面生效；离开答题页自动恢复日间
+  useEffect(() => {
+    setAnswerScope(true);
+    return () => setAnswerScope(false);
+  }, [setAnswerScope]);
 
   // 加载科目列表
   useEffect(() => {
@@ -289,6 +302,8 @@ export default function Practice() {
           categoryIds: catParam ? catParam.split(',').map(Number).filter(Boolean) : [],
           qtypes: qtypeParam ? qtypeParam.split(',').filter(Boolean) : [],
           difficultyRange: diff && diff.length === 2 ? diff : null,
+          subjectIds: subjectParam ? [subjectParam] : [],
+          yearMode: yearsParam || null,
           count: countParam || count,
         });
         if (!r.data.questions.length) {
@@ -334,7 +349,15 @@ export default function Practice() {
       setPausedElapsed(0);
       setPaused(false);
       setStep('doing');
-    } catch (err) { message.error('获取题目失败'); setStep('setup'); }
+    } catch (err) {
+      const detail = err?.response?.data?.error;
+      if (poolParam === 'generated' && (detail || '').includes('没有可练习的题目')) {
+        message.warning('暂无可练习的 AI 生成题，请先在管理后台生成并审核题目');
+      } else {
+        message.error(detail || '获取题目失败，请稍后重试');
+      }
+      setStep('setup');
+    }
   }
   startPracticeRef.current = startPractice;
 
@@ -431,6 +454,9 @@ export default function Practice() {
   if (step === 'setup') {
     return (
       <div style={{ maxWidth: 560, margin: isMobile ? '8px auto' : '32px auto', padding: '0 4px' }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+          <ThemeToggle />
+        </div>
         <Card style={{
           borderRadius: 16, border: `1px solid ${tokens.cardBorder}`,
           background: tokens.cardBg, boxShadow: tokens.shadow,
@@ -505,6 +531,9 @@ export default function Practice() {
   if (step === 'result') {
     return (
       <div style={{ maxWidth: 900, margin: '0 auto', padding: '0 16px' }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+          <ThemeToggle />
+        </div>
         <Card style={{ marginBottom: 16, textAlign: 'center' }}>
           <div style={{ marginBottom: 16 }}>
             {result.score >= 80 ? <CheckCircleOutlined style={{ fontSize: isMobile ? 48 : 64, color: '#52c41a' }} /> :
@@ -552,14 +581,14 @@ export default function Practice() {
           return (
             <Card key={q.id} style={{ marginBottom: 12, borderLeft: '4px solid ' + (isCorrect ? '#52c41a' : '#ff4d4f') }}>
               <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><div><Tag color={isCorrect ? 'green' : 'red'}>{isCorrect ? '正确' : '错误'}</Tag><Text type="secondary"> 第 {idx + 1} 题</Text></div><Button size="small" icon={<StarOutlined />} onClick={async () => { try { await api.post('/practice/favorites', { question_id: q.id }); message.success('已收藏'); } catch(e) { message.error('收藏失败'); } }}>收藏</Button></div>
-              {q.passage && <div style={{ marginBottom: 12, padding: 12, background: '#fafafa', borderRadius: 6, lineHeight: 1.8 }}>{q.passage}</div>}
+              {q.passage && <div style={{ marginBottom: 12, padding: 12, background: tokens.cardBgAlt, borderRadius: 6, lineHeight: 1.8 }}>{q.passage}</div>}
               <Text strong>{q.stem}</Text>
               <div style={{ marginTop: 12 }}>
                 {parseOptions(q.options_json).map((opt, i) => {
                   const letter = String.fromCharCode(65 + i);
-                  let bg = '#fff', border = '1px solid #f0f0f0';
+                  let bg = tokens.cardBg, border = `1px solid ${tokens.border}`;
                   if (letter === q.answer) { bg = '#f6ffed'; border = '1px solid #b7eb8f'; }
-                  if (letter === userAns && !isCorrect) { bg = '#fff2f0'; border = '1px solid #ffccc7'; }
+                  if (letter === userAns && !isCorrect) { bg = isDark ? 'rgba(245,34,45,0.16)' : '#fff2f0'; border = isDark ? '1px solid rgba(245,34,45,0.4)' : '1px solid #ffccc7'; }
                   return (
                     <div key={i} style={{ padding: '8px 12px', marginBottom: 4, borderRadius: 6, background: bg, border }}>
                       <Text type={letter === q.answer ? 'success' : (letter === userAns && !isCorrect ? 'danger' : undefined)}>
@@ -570,12 +599,12 @@ export default function Practice() {
                 })}
               </div>
               <div style={{ marginTop: 8 }}><Text type="secondary">你的答案：{userAns || '未答'} | 正确答案：{q.answer}</Text></div>
-              {q.explanation && <div style={{ marginTop: 8, padding: '8px 12px', background: '#e6f7ff', borderRadius: 6 }}><Text type="secondary">解析：{q.explanation}</Text></div>}
+              {q.explanation && <div style={{ marginTop: 8, padding: '8px 12px', background: isDark ? 'rgba(91,140,255,0.12)' : '#e6f7ff', borderRadius: 6 }}><Text type="secondary">解析：{q.explanation}</Text></div>}
               {/* AI 解析入口：入口文案与配色对全部题目保持一致，
                   后端再按答题对错生成不同侧重点的讲解内容 */}
               <div style={{ marginTop: 8 }}>
                 {aiAnalysis[q.id] ? (
-                  <div style={{ padding: '8px 12px', background: '#fff7e6', borderRadius: 6, border: '1px solid #ffd591' }}>
+                  <div style={{ padding: '8px 12px', background: isDark ? 'rgba(250,173,20,0.12)' : '#fff7e6', borderRadius: 6, border: isDark ? '1px solid rgba(250,173,20,0.4)' : '1px solid #ffd591' }}>
                     <Text strong style={{ color: '#fa8c16' }}>AI 解析：</Text>
                     <Text style={{ display: 'block', marginTop: 4 }}>{aiAnalysis[q.id]}</Text>
                   </div>
@@ -609,6 +638,9 @@ export default function Practice() {
 
   return (
     <div style={{ maxWidth: 900, margin: '0 auto', padding: isMobile ? '0 2px' : '0 16px' }}>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+        <ThemeToggle />
+      </div>
       {/* 分类练习提示：当前在刷哪个分类 */}
       {catLabel && (
         <div style={{
@@ -727,8 +759,8 @@ export default function Practice() {
             return (
               <Button key={idx} size="small" type={isCurrent ? 'primary' : 'default'} style={{
                 width: 40, height: 40,
-                background: isCurrent ? '#1890ff' : isAnswered ? '#52c41a' : '#fff',
-                color: isCurrent || isAnswered ? '#fff' : '#000',
+                background: isCurrent ? '#1890ff' : isAnswered ? '#52c41a' : tokens.cardBg,
+                color: isCurrent || isAnswered ? '#fff' : tokens.text,
                 border: isCurrent || isAnswered ? 'none' : '1px solid #d9d9d9'
               }} onClick={() => goToQuestion(idx)}>{idx + 1}</Button>
             );
@@ -737,7 +769,7 @@ export default function Practice() {
         <Divider />
         <Space>
           <div><div style={{ width: 16, height: 16, background: '#52c41a', borderRadius: 3, display: 'inline-block', marginRight: 4 }} /> 已答</div>
-          <div><div style={{ width: 16, height: 16, background: '#fff', border: '1px solid #d9d9d9', borderRadius: 3, display: 'inline-block', marginRight: 4 }} /> 未答</div>
+          <div><div style={{ width: 16, height: 16, background: tokens.cardBg, border: `1px solid ${tokens.border}`, borderRadius: 3, display: 'inline-block', marginRight: 4 }} /> 未答</div>
           <div><div style={{ width: 16, height: 16, background: '#1890ff', borderRadius: 3, display: 'inline-block', marginRight: 4 }} /> 当前</div>
         </Space>
       </Modal>

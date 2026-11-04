@@ -5,7 +5,6 @@ import { HomeOutlined, EditOutlined, HistoryOutlined, DashboardOutlined, Setting
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { useResponsive } from '../hooks/useResponsive';
-import ThemeToggle from '../components/ThemeToggle';
 
 const { Header, Content, Footer } = Layout;
 
@@ -131,8 +130,7 @@ export default function MainLayout() {
         {!isMobile && navMenu}
 
         <Space style={{ marginLeft: 'auto' }} size={isMobile ? 4 : 8}>
-          {/* 日夜模式切换：页头右侧，与粉笔一致 */}
-          <ThemeToggle />
+          {/* 日夜模式切换只在答题界面内提供（Practice / ExamPaperTake），不再全局生效 */}
           {isAuthenticated ? (
             <Dropdown menu={{ items: userMenuItems }} placement="bottomRight">
               <Button

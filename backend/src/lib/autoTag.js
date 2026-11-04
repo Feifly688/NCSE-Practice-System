@@ -319,7 +319,7 @@ async function tagSingleQuestions() {
     };
 
     const [questions] = await conn.query(
-      "SELECT id, subject_id, qtype, stem, passage, section_name FROM question WHERE status = 'approved' AND (source_exam IS NULL OR source_exam NOT LIKE '%AI生成%')"
+      "SELECT id, subject_id, qtype, stem, passage, section_name FROM question WHERE status = 'approved' AND (source_exam IS NULL OR source_exam NOT LIKE '%AI生成%') AND source_article_id IS NULL"
     );
 
     const mapRows = [];

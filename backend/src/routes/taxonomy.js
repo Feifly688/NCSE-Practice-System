@@ -27,6 +27,21 @@ function parseIds(value) {
     .filter((n) => Number.isInteger(n) && n > 0);
 }
 
+// GET /api/taxonomy/generated-subjects
+// AI 生成题独立入口：按科目列出已上架生成题及数量（生成题不进分类树）
+router.get('/generated-subjects', requireAuth, asyncHandler(async (_req, res) => {
+  const [rows] = await withConnection((conn) => conn.query(
+    `SELECT s.id, s.name, s.slug, COUNT(q.id) AS count
+       FROM subject s
+       LEFT JOIN question q ON q.subject_id = s.id
+            AND q.status = 'approved' AND (q.source_exam LIKE '%AI生成%' OR q.source_article_id IS NOT NULL)
+      GROUP BY s.id, s.name, s.slug
+      ORDER BY s.id`
+  ));
+  const total = rows.reduce((n, r) => n + Number(r.count || 0), 0);
+  res.json({ subjects: rows, total });
+}));
+
 /**
  * GET /api/taxonomy/categories
  * 分类树（带已练/总数）
@@ -99,6 +114,8 @@ router.post('/pick', requireAuth, asyncHandler(async (req, res) => {
     difficultyRange: rawRange,
     count: rawCount,
     excludeAnswered,
+    subjectIds: rawSubjectIds,
+    yearMode: rawYearMode,
   } = req.body || {};
 
   const pool = pickPool(rawPool);
@@ -108,6 +125,10 @@ router.post('/pick', requireAuth, asyncHandler(async (req, res) => {
     ? rawRange.map(Number).filter((n) => Number.isFinite(n))
     : null;
   const count = Math.min(Math.max(Number(rawCount) || 10, 1), 200);
+  const subjectIds = parseIds(rawSubjectIds).slice(0, 20);
+  // 智能组卷：出题年份（不限 / 近5年 / 近10年），只对 question 池生效
+  const span = { near3: 3, near5: 5, near10: 10 }[String(rawYearMode || '')] || 0;
+  const yearFrom = span ? new Date().getFullYear() - span : null;
 
   // 分类 id 展开成子树（选二级分类时含三级）
   let expanded = categoryIds;
@@ -127,6 +148,8 @@ router.post('/pick', requireAuth, asyncHandler(async (req, res) => {
     categoryIds: expanded,
     qtypes,
     difficultyRange: range,
+    subjectIds,
+    yearFrom,
   });
 
   if (!available) {
@@ -135,6 +158,7 @@ router.post('/pick', requireAuth, asyncHandler(async (req, res) => {
 
   const rows = await pickQuestionsByConfig({
     pool, categoryIds: expanded, qtypes, difficultyRange: range, count,
+    subjectIds, yearFrom,
   });
 
   res.json({

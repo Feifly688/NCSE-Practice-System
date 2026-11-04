@@ -93,6 +93,9 @@ export function ThemeProvider({ children }) {
   // readStoredTheme 返回 null 表示用户没选过 —— 先按 system，等登录后采纳服务端偏好
   const [mode, setModeState] = useState(() => readStoredTheme() || 'system');
   const [systemDark, setSystemDark] = useState(systemPrefersDark);
+  // 只有答题界面（/practice/do、/exam-papers/:id）会打开这个开关；
+  // 其余页面恒定日间 —— 日夜模式不再全局生效。
+  const [answerScope, setAnswerScope] = useState(false);
 
   // ① 登录状态下拉取服务端主题偏好：本机没主动选过才采纳（本机选择优先）
   useEffect(() => {
@@ -124,17 +127,23 @@ export function ThemeProvider({ children }) {
   }, []);
 
   const resolved = mode === 'system' ? (systemDark ? 'dark' : 'light') : mode;
+  // 非答题界面一律日间；答题界面才应用用户选择的主题
+  const effective = answerScope ? resolved : 'light';
 
   useEffect(() => {
     try { localStorage.setItem(STORAGE_KEY, mode); } catch (e) { /* 忽略 */ }
-    document.documentElement.setAttribute('data-theme', resolved);
-    document.documentElement.style.colorScheme = resolved;
-    // body 自身也要跟着变 —— MainLayout 的 Layout 有底色，
-    // 但 body 的默认白底会在页面留白处透出来。
-    const t = THEMES[resolved];
-    document.body.style.backgroundColor = t.pageBg;
-    document.body.style.color = t.text;
-  }, [mode, resolved]);
+    const t = THEMES[effective];
+    if (answerScope) {
+      document.documentElement.setAttribute('data-theme', effective);
+      document.body.style.backgroundColor = t.pageBg;
+      document.body.style.color = t.text;
+    } else {
+      document.documentElement.setAttribute('data-theme', 'light');
+      document.body.style.backgroundColor = '#f7f9fc';
+      document.body.style.color = '#292a2d';
+    }
+    document.documentElement.style.colorScheme = effective;
+  }, [mode, effective, answerScope]);
 
   /** 切主题：写本机 + 登录状态下静默上报服务端（换设备也生效） */
   const setMode = (next) => {
@@ -152,11 +161,12 @@ export function ThemeProvider({ children }) {
   const value = useMemo(() => ({
     mode,
     resolved,
-    isDark: resolved === 'dark',
-    tokens: THEMES[resolved],
+    isDark: effective === 'dark',
+    tokens: THEMES[effective],
     setMode,
+    setAnswerScope,
     toggle: () => setMode(resolved === 'dark' ? 'light' : 'dark'),
-  }), [mode, resolved]);
+  }), [mode, resolved, effective]);
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }

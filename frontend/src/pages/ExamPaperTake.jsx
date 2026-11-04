@@ -168,8 +168,13 @@ export default function ExamPaperTake() {
   const navigate = useNavigate();
   const { isMobile, width } = useResponsive();
   // 主题 token → 粉笔式配色（FB / 答题卡状态色），日夜切换时整页跟随
-  const { tokens } = useTheme();
+  const { tokens, setAnswerScope } = useTheme();
   const FB = makeFB(tokens);
+  // 主题只在答题界面生效；离开自动恢复日间
+  useEffect(() => {
+    setAnswerScope(true);
+    return () => setAnswerScope(false);
+  }, [setAnswerScope]);
   const CARD_STATUS_COLOR = makeCardStatusColor(FB);
   // 窗口够宽才做「左材料 / 右小题」分栏，否则材料单独成卡堆在题目上方
   const materialSplit = width >= MATERIAL_SPLIT_MIN_W;
@@ -345,7 +350,7 @@ export default function ExamPaperTake() {
         sections.map((s) => (
           <div key={s.name} style={{ marginBottom: 14 }}>
             <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 6 }}>
-              <span style={{ fontSize: 16, color: '#000', fontWeight: 600 }}>{s.name}</span>
+              <span style={{ fontSize: 16, color: FB.text, fontWeight: 600 }}>{s.name}</span>
               <span style={{ fontSize: 14, color: FB.textWeak }}>（{s.questions.length}题）</span>
             </div>
             {renderCardGrid(s.questions.map((q) => ({ ...q, section: s.name })))}
@@ -457,7 +462,7 @@ export default function ExamPaperTake() {
       >
         {/* 标题行：粉笔式 —— 题号是纯黑的「N.」，题型是淡蓝底的文字标签 */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 15, lineHeight: 1.57, color: '#000', fontWeight: 500 }}>
+          <span style={{ fontSize: 15, lineHeight: 1.57, color: FB.text, fontWeight: 500 }}>
             {q.seq}.
           </span>
           <span style={{
@@ -482,7 +487,7 @@ export default function ExamPaperTake() {
 
         {q.passage && !opts.hidePassage && (
           <Paragraph style={{
-            background: '#fafafa', border: '1px solid #f0f0f0', borderRadius: 8,
+            background: FB.cardBgAlt, border: `1px solid ${FB.border}`, borderRadius: 8,
             padding: 12, marginBottom: 12, fontSize: 14, lineHeight: 1.8, whiteSpace: 'pre-wrap',
           }}>
             {q.passage}
@@ -503,7 +508,7 @@ export default function ExamPaperTake() {
               <div style={{ marginTop: 8 }}>
                 {q.materialRef.passage && (
                   <Paragraph style={{
-                    background: '#fafafa', border: '1px solid #f0f0f0', borderRadius: 8,
+                    background: FB.cardBgAlt, border: `1px solid ${FB.border}`, borderRadius: 8,
                     padding: 12, marginBottom: 8, fontSize: 14, lineHeight: 1.8, whiteSpace: 'pre-wrap',
                   }}>
                     {q.materialRef.passage}
@@ -685,11 +690,11 @@ export default function ExamPaperTake() {
               <div style={{
                 marginTop: 20, padding: 20, borderRadius: 8,
                 background: FB.cardBg, border: `1px solid ${FB.cardBorder}`,
-                fontSize: 14, lineHeight: 1.8, color: 'rgba(0,0,0,0.85)',
+                fontSize: 14, lineHeight: 1.8, color: FB.text,
                 whiteSpace: 'pre-wrap', wordBreak: 'break-word',
               }}>
                 <div style={{
-                  fontSize: 14, fontWeight: 600, color: '#000',
+                  fontSize: 14, fontWeight: 600, color: FB.text,
                   marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6,
                 }}>
                   <span style={{
@@ -741,7 +746,7 @@ export default function ExamPaperTake() {
             pointerEvents: 'none', padding: '0 120px',
           }}>
             <span style={{
-              fontSize: isMobile ? 13 : 15, color: 'rgba(0,0,0,0.85)',
+              fontSize: isMobile ? 13 : 15, color: FB.text,
               display: 'inline-block', maxWidth: '100%',
               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
               verticalAlign: 'middle',
@@ -756,7 +761,7 @@ export default function ExamPaperTake() {
               icon={<ClockCircleOutlined />}
               style={{
                 marginInlineEnd: 0, borderRadius: 4, fontSize: 12,
-                background: '#f2f5fb', borderColor: '#e3e9f5', color: FB.textSub,
+                background: FB.cardBgAlt, borderColor: FB.border, color: FB.textSub,
               }}
             >
               {fmtTime(elapsed)}
@@ -767,7 +772,7 @@ export default function ExamPaperTake() {
           percent={total ? Math.round((answeredCount / total) * 100) : 0}
           size="small" showInfo={false}
           style={{ margin: 0, lineHeight: 0 }}
-          strokeColor={FB.primaryLight} trailColor="#eef1f6"
+          strokeColor={FB.primaryLight} trailColor={FB.divider}
         />
       </div>
 
@@ -819,7 +824,7 @@ export default function ExamPaperTake() {
               onClick={() => { setActiveSection(s.name); scrollToSeq(s.questions[0].seq); }}
               style={{
                 cursor: 'pointer', padding: '4px 12px', borderRadius: 4, fontSize: 13, lineHeight: '20px',
-                background: active ? FB.primary : '#fff',
+                background: active ? FB.primary : FB.cardBg,
                 color: active ? '#fff' : FB.textSub,
                 border: `1px solid ${active ? FB.primary : FB.border}`,
                 transition: 'all .15s',
@@ -839,7 +844,7 @@ export default function ExamPaperTake() {
               <div
                 style={{
                   margin: '8px 0 12px', fontSize: isMobile ? 15 : 16,
-                  fontWeight: 600, color: '#000',
+                  fontWeight: 600, color: FB.text,
                   display: 'flex', alignItems: 'baseline', gap: 8,
                 }}
               >
@@ -935,7 +940,7 @@ export default function ExamPaperTake() {
           marginBottom: 14, paddingBottom: 10,
           borderBottom: `1px solid ${FB.cardBorder}`,
         }}>
-          <span style={{ fontSize: 15, fontWeight: 600, color: '#000' }}>答题卡</span>
+          <span style={{ fontSize: 15, fontWeight: 600, color: FB.text }}>答题卡</span>
           <span
             onClick={() => setSheetOpen(false)}
             style={{ fontSize: 13, color: FB.textWeak, cursor: 'pointer' }}
@@ -978,7 +983,7 @@ export default function ExamPaperTake() {
           <Progress
             percent={total ? Math.round((answeredCount / total) * 100) : 0}
             size="small" showInfo={false}
-            strokeColor={FB.primaryLight} trailColor="#eef1f6"
+            strokeColor={FB.primaryLight} trailColor={FB.divider}
           />
         </div>
         <Button
@@ -1008,7 +1013,7 @@ export default function ExamPaperTake() {
               alt="原卷截图大图"
               style={{
                 maxWidth: '100%', maxHeight: 'calc(100vh - 110px)', objectFit: 'contain',
-                background: '#fff', borderRadius: 8, display: 'block', cursor: 'default',
+                background: FB.cardBg, borderRadius: 8, display: 'block', cursor: 'default',
               }}
             />
             <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>

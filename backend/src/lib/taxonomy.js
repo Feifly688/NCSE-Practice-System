@@ -23,14 +23,14 @@ const POOLS = {
     statusValue: 'approved',
     extraFields: ['qtype', 'difficulty', 'subject_id'],
     // 专项练习只用爬取/回流题 —— AI 生成的题走独立入口（generated 池）
-    extraWhere: "(t.source_exam IS NULL OR t.source_exam NOT LIKE '%AI生成%')",
+    extraWhere: "(t.source_exam IS NULL OR t.source_exam NOT LIKE '%AI生成%') AND t.source_article_id IS NULL",
   },
   generated: {
     table: 'question',
     statusField: 'status',
     statusValue: 'approved',
     extraFields: ['qtype', 'difficulty', 'subject_id'],
-    extraWhere: "t.source_exam LIKE '%AI生成%'",
+    extraWhere: "(t.source_exam LIKE '%AI生成%' OR t.source_article_id IS NOT NULL)",
     requiresMap: false, // 生成题不进分类树，抽题不 JOIN 分类映射
   },
   exam_paper_question: {
@@ -59,7 +59,7 @@ async function getCategoryTree(userId, pool) {
               (SELECT COUNT(*) FROM question_category_map m
                 JOIN question q ON q.id = m.ref_id
                      AND q.status = 'approved'
-                     AND (q.source_exam IS NULL OR q.source_exam NOT LIKE '%AI生成%')
+                     AND (q.source_exam IS NULL OR q.source_exam NOT LIKE '%AI生成%') AND q.source_article_id IS NULL
                 WHERE m.category_id = c.id AND m.pool = ?) AS total_count
          FROM question_category c
         ORDER BY c.level, c.sort_order, c.id`,
@@ -258,18 +258,35 @@ async function countQuestions(opts) {
       where.push('t.difficulty BETWEEN ? AND ?');
       params.push(Math.min(min, max), Math.max(min, max));
     }
+    if (opts.subjectIds && opts.subjectIds.length) {
+      const ph = opts.subjectIds.map(() => '?').join(',');
+      where.push(`t.subject_id IN (${ph})`);
+      params.push(...opts.subjectIds);
+    }
+    if (opts.yearFrom && poolKey === 'question') {
+      where.push('t.year >= ?');
+      params.push(opts.yearFrom);
+    }
     if (cfg.statusField) {
       where.push(`t.${cfg.statusField} = ?`);
       params.push(cfg.statusValue);
     }
+    if (cfg.extraWhere) {
+      where.push(`(${cfg.extraWhere})`);
+    }
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
+    // 生成题池没有分类映射（requiresMap=false），计数时不能 JOIN 映射表，
+    // 否则可用数永远是 0 —— AI 生成题入口报「获取题目失败」的根因。
+    const mapJoin = cfg.requiresMap === false
+      ? ''
+      : `JOIN question_category_map m ON m.pool = '${poolKey}' AND m.ref_id = t.id`;
     const [[row]] = await conn.query(
       `SELECT COUNT(DISTINCT t.id) AS c
          FROM ${cfg.table} t
-         JOIN question_category_map m ON m.pool = ? AND m.ref_id = t.id
+         ${mapJoin}
         ${whereSql}`,
-      [poolKey, ...params]
+      params
     );
     return Number(row.c) || 0;
   });
@@ -346,6 +363,15 @@ async function pickQuestionsByConfig(config) {
       const [min, max] = config.difficultyRange;
       where.push('t.difficulty BETWEEN ? AND ?');
       params.push(Math.min(min, max), Math.max(min, max));
+    }
+    if (config.subjectIds && config.subjectIds.length) {
+      const ph = config.subjectIds.map(() => '?').join(',');
+      where.push(`t.subject_id IN (${ph})`);
+      params.push(...config.subjectIds);
+    }
+    if (config.yearFrom && poolKey === 'question') {
+      where.push('t.year >= ?');
+      params.push(config.yearFrom);
     }
     if (cfg.statusField) {
       where.push(`t.${cfg.statusField} = ?`);
