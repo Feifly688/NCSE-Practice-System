@@ -60,7 +60,6 @@ export default function SpecialPractice() {
   // 智能组卷：先选出题年份，再由系统自动抽题生成试卷
   const [smartOpen, setSmartOpen] = useState(false);
   const [smartYear, setSmartYear] = useState('all');
-  const [smartCount, setSmartCount] = useState(20);
 
   // AI 生成题：先选科目，再配置题量/难度
   const [aiOpen, setAiOpen] = useState(false);
@@ -379,17 +378,18 @@ export default function SpecialPractice() {
           />
         </div>
         <div style={{ marginBottom: 18 }}>
-          <Text strong style={{ color: tokens.text, display: 'block', marginBottom: 10 }}>试卷题量</Text>
-          <InputNumber min={5} max={200} value={smartCount} onChange={(v) => setSmartCount(v || 20)} style={{ width: '100%' }} />
+          <Text strong style={{ color: tokens.text, display: 'block', marginBottom: 10 }}>试卷结构（国考行测 · 固定 130 题）</Text>
+          <div style={{ padding: '10px 14px', borderRadius: 8, background: tokens.cardBgAlt, fontSize: 13, lineHeight: 2, color: tokens.textSub }}>
+            政治理论 20 · 常识判断 15 · 言语理解与表达 30<br />
+            数量关系 10 · 判断推理 35 · 资料分析 20
+          </div>
         </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
           <Button onClick={() => setSmartOpen(false)}>取消</Button>
           <Button type="primary" onClick={() => {
             const params = new URLSearchParams();
-            params.set('pool', 'question');
-            params.set('count', String(smartCount));
-            if (smartYear !== 'all') params.set('years', smartYear);
             params.set('smart', '1');
+            if (smartYear !== 'all') params.set('years', smartYear);
             setSmartOpen(false);
             navigate(`/practice/do?${params.toString()}`);
           }}>生成试卷</Button>

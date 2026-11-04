@@ -68,6 +68,15 @@ async function loadQuestionsByIds(conn, ids) {
   return ids.map((id) => byId.get(id)).filter(Boolean);
 }
 
+// POST /api/practice/smart-paper —— 智能组卷：按国考行测 130 题结构自动抽题
+// 不直接建会话：题目下发给前端后走既有 /practice/start 建会话（与其余入口同一条链路）
+router.post('/smart-paper', requireAuth, asyncHandler(async (req, res) => {
+  const { pickSmartPaper } = require('../lib/taxonomy');
+  const yearMode = String(req.body?.yearMode || '');
+  const result = await pickSmartPaper({ yearMode });
+  res.json(result);
+}));
+
 // POST /api/practice/start
 // 只接收题目 id 列表：答案一律由服务端在判分时从 question 表读取，
 // 客户端提交的题目对象里的 answer 字段会被丢弃。

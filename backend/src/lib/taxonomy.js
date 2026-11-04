@@ -194,6 +194,58 @@ async function getDoneSets(conn, userId, poolKey) {
   return out;
 }
 
+
+/**
+ * 智能组卷：按国考行测 130 题标准结构，从各模块抽取固定题数。
+ * 结构取自本库 2025/2026 年国考真题卷（地市级/行政执法卷 130 题）实测分区：
+ *   政治理论20 / 常识判断15 / 言语理解与表达30 / 数量关系10 / 判断推理35 / 资料分析20
+ * 某模块（含年份过滤后）题量不足时按实际可用抽取，不凑数。
+ */
+const SMART_PAPER_TEMPLATE = [
+  { section: '政治理论', subjectSlug: 'politics_theory', count: 20 },
+  { section: '常识判断', subjectSlug: 'common_knowledge', count: 15 },
+  { section: '言语理解与表达', subjectSlug: 'verbal_comprehension', count: 30 },
+  { section: '数量关系', subjectSlug: 'quantity_relation', count: 10 },
+  { section: '判断推理', subjectSlug: 'logic_reasoning', count: 35 },
+  { section: '资料分析', subjectSlug: 'data_analysis', count: 20 },
+];
+
+async function pickSmartPaper(opts = {}) {
+  const span = { near3: 3, near5: 5, near10: 10 }[String(opts.yearMode || '')] || 0;
+  const yearFrom = span ? new Date().getFullYear() - span : null;
+
+  return withConnection(async (conn) => {
+    const [subjects] = await conn.query('SELECT id, slug FROM subject');
+    const bySlug = new Map(subjects.map((x) => [x.slug, x.id]));
+
+    const sections = [];
+    const questions = [];
+    for (const t of SMART_PAPER_TEMPLATE) {
+      const sid = bySlug.get(t.subjectSlug);
+      const params = [];
+      let yearSql = '';
+      if (sid) {
+        params.push(sid);
+        if (yearFrom) { yearSql = 'AND year >= ?'; params.push(yearFrom); }
+      }
+      const [rows] = sid
+        ? await conn.query(
+          `SELECT id, subject_id, qtype, difficulty, passage, stem, options_json
+             FROM question
+            WHERE status = 'approved' AND subject_id = ?
+              AND (source_exam IS NULL OR source_exam NOT LIKE '%AI生成%') AND source_article_id IS NULL
+              ${yearSql}
+            ORDER BY RAND() LIMIT ${t.count}`,
+          params
+        )
+        : [];
+      sections.push({ section: t.section, target: t.count, picked: rows.length });
+      questions.push(...rows);
+    }
+    return { questions, sections, total: questions.length };
+  });
+}
+
 /**
  * 列出某分类下的题目（可直接用于组卷）。
  *
@@ -440,4 +492,5 @@ module.exports = {
   getCategoryAncestry,
   getCategoryDescendants,
   pickQuestionsByConfig,
+  pickSmartPaper,
 };
