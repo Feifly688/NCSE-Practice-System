@@ -54,18 +54,53 @@ function extractQuestionIds(meta) {
   return ids;
 }
 
+/**
+ * 批量取题目的分类元信息：level 1 模块、level 2 二级分类。
+ * 题目经 question_category_map(pool='question') 关联；同层挂多张标签时
+ * 用 MIN(name) 取稳定值即可（纯展示用途）。
+ */
+async function loadQuestionTaxonomy(conn, ids) {
+  const map = new Map();
+  if (!ids.length) return map;
+  const [rows] = await conn.query(
+    `SELECT m.ref_id, c.level, MIN(c.name) AS name
+       FROM question_category_map m
+       JOIN question_category c ON c.id = m.category_id
+      WHERE m.pool = 'question' AND m.ref_id IN (?) AND c.level IN (1, 2)
+      GROUP BY m.ref_id, c.level`,
+    [ids]
+  );
+  for (const r of rows) {
+    const id = Number(r.ref_id);
+    if (!map.has(id)) map.set(id, {});
+    map.get(id)[r.level === 1 ? 'module_name' : 'category_name'] = r.name;
+  }
+  return map;
+}
+
 /** 按给定顺序取出题目完整数据（判分用权威答案 + 结果页展示用字段） */
 async function loadQuestionsByIds(conn, ids) {
   if (!ids.length) return [];
   const [rows] = await conn.query(
-    `SELECT id, subject_id, qtype, difficulty, passage, stem, options_json,
-            answer, explanation, source_exam
-     FROM question WHERE id IN (?)`,
+    `SELECT q.id, q.subject_id, q.qtype, q.difficulty, q.passage, q.stem, q.options_json,
+            q.answer, q.explanation, q.source_exam, q.source_article_id,
+            a.title AS article_title
+       FROM question q
+       LEFT JOIN article a ON a.id = q.source_article_id
+      WHERE q.id IN (?)`,
     [ids]
   );
   const byId = new Map(rows.map((r) => [r.id, r]));
   // 保持客户端出题顺序（IN 查询不保证顺序）
-  return ids.map((id) => byId.get(id)).filter(Boolean);
+  const ordered = ids.map((id) => byId.get(id)).filter(Boolean);
+  const tax = await loadQuestionTaxonomy(conn, ordered.map(q => q.id));
+  return ordered.map((q) => ({
+    ...q,
+    // 题目来源：优先真题卷名，其次来源文章标题；都没有则留空，由前端不展示
+    source: q.source_exam || q.article_title || '',
+    module_name: tax.get(q.id)?.module_name || '',
+    category_name: tax.get(q.id)?.category_name || '',
+  }));
 }
 
 // POST /api/practice/smart-paper —— 智能组卷：按国考行测 130 题结构自动抽题
@@ -243,6 +278,10 @@ router.post('/submit', requireAuth, asyncHandler(async (req, res) => {
         answer: q.answer,
         explanation: q.explanation,
         source_exam: q.source_exam,
+        // 结果页每题展示用元信息；答题阶段接口不下发这些字段
+        source: q.source || '',
+        module_name: q.module_name || '',
+        category_name: q.category_name || '',
       })),
     };
   });

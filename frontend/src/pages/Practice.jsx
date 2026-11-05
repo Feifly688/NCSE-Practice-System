@@ -6,7 +6,6 @@ import api from '../services/api';
 import { parseOptions, cleanOption, formatTime } from '../utils';
 import { useResponsive } from '../hooks/useResponsive';
 import { useTheme } from '../contexts/ThemeContext';
-import QuestionFeedback from '../components/QuestionFeedback';
 import ThemeToggle from '../components/ThemeToggle';
 
 const { Title, Text, Paragraph } = Typography;
@@ -59,9 +58,6 @@ export default function Practice() {
   const [paused, setPaused] = useState(false);
   const [sessionId, setSessionId] = useState(null);
   const [answerDetails, setAnswerDetails] = useState([]);
-  // 结果页评分：key 为 question_id，value 为 { rating, feedback, updated_at }
-  const [feedbacks, setFeedbacks] = useState({});
-  const [ratedCount, setRatedCount] = useState(0);
   const timerRef = useRef(null);
   const autoSaveRef = useRef(null);
   // 供「从专项练习页带参数进来直接开练」的 effect 调用
@@ -188,6 +184,8 @@ export default function Practice() {
     try {
       const r = await api.get('/practice/session/' + sid);
       const { session, questions: qs, answers: ans, elapsed_sec, answerDetails: details } = r.data;
+      // 会话接口返回的完整题目带来源/模块/二级分类，结果页按 id 补齐到每题
+      const metaById = new Map((qs || []).map(q => [Number(q.id), q]));
 
       if (viewMode === 'result' && session.status === 'completed') {
         // 查看结果模式。
@@ -199,10 +197,14 @@ export default function Practice() {
         const source = details.length > 0
           ? details
           : (qs || []).map(q => ({ question_id: q.id, user_answer: (ans || {})[q.id], correct_answer: q.answer }));
-        setQuestions(source.map(d => ({
-          id: d.question_id, stem: d.stem, passage: d.passage, options_json: d.options_json,
-          answer: d.correct_answer, explanation: d.explanation, qtype: d.qtype, difficulty: d.difficulty
-        })));
+        setQuestions(source.map(d => {
+          const meta = metaById.get(Number(d.question_id)) || {};
+          return {
+            id: d.question_id, stem: d.stem, passage: d.passage, options_json: d.options_json,
+            answer: d.correct_answer, explanation: d.explanation, qtype: d.qtype, difficulty: d.difficulty,
+            source: meta.source || '', module_name: meta.module_name || '', category_name: meta.category_name || '',
+          };
+        }));
         // 从 answerDetails 构建 answers
         const ansMap = {};
         for (const d of source) { if (d.user_answer) ansMap[d.question_id] = d.user_answer; }
@@ -210,7 +212,6 @@ export default function Practice() {
         setResult({ session_id: session.id, total: session.total, correct: session.correct, score: session.score, duration_sec: session.duration_sec });
         setAnswerDetails(details);
         setStep('result');
-        loadFeedbacks(source.map(d => d.question_id));
       } else if (session.status === 'in_progress') {
         // 恢复答题。
         // 服务端 /session/:id 已按 meta 顺序返回完整题目（questions）。
@@ -253,16 +254,19 @@ export default function Practice() {
       } else if (session.status === 'completed') {
         // 已完成但没有 questions（旧数据），用 answerDetails
         if (details.length > 0) {
-          setQuestions(details.map(d => ({
-            id: d.question_id, stem: d.stem, passage: d.passage, options_json: d.options_json,
-            answer: d.correct_answer, explanation: d.explanation, qtype: d.qtype, difficulty: d.difficulty
-          })));
+          setQuestions(details.map(d => {
+            const meta = metaById.get(Number(d.question_id)) || {};
+            return {
+              id: d.question_id, stem: d.stem, passage: d.passage, options_json: d.options_json,
+              answer: d.correct_answer, explanation: d.explanation, qtype: d.qtype, difficulty: d.difficulty,
+              source: meta.source || '', module_name: meta.module_name || '', category_name: meta.category_name || '',
+            };
+          }));
           const ansMap = {};
           for (const d of details) { ansMap[d.question_id] = d.user_answer; }
           setAnswers(ansMap);
           setResult({ session_id: session.id, total: session.total, correct: session.correct, score: session.score, duration_sec: session.duration_sec });
           setStep('result');
-          loadFeedbacks(details.map(d => d.question_id));
         } else {
           message.error('答题数据不完整');
           setStep('setup');
@@ -457,26 +461,12 @@ export default function Practice() {
 
       setCurrentIndex(0);
       setStep('result');
-      loadFeedbacks((graded.length > 0 ? graded : questions).map(q => q.id));
     } catch (err) {
       message.error('提交失败');
       setStep('doing');
       // 重启计时器
       setStartTime(Date.now());
       setPaused(false);
-    }
-  }
-
-  /** 结果页加载当前用户对这些题目的已有评分（支持提交后查看/修改） */
-  async function loadFeedbacks(questionIds) {
-    if (!questionIds || questionIds.length === 0) return;
-    try {
-      const r = await api.get('/practice/feedback', { params: { ids: questionIds.join(',') } });
-      const map = r.data.feedbacks || {};
-      setFeedbacks(map);
-      setRatedCount(Object.keys(map).length);
-    } catch {
-      // 评分加载失败不阻塞结果展示，用户仍可重新评分
     }
   }
 
@@ -596,13 +586,6 @@ export default function Practice() {
               )}
             </Space>
           </div>
-          {/* 评分进度：让用户清楚还需评价几题 */}
-          <div style={{ marginTop: 16 }}>
-            <Text type="secondary" style={{ fontSize: 13 }}>
-              已评价 <Text strong style={{ color: '#faad14' }}>{ratedCount}</Text> / {questions.length} 题
-              {ratedCount === questions.length && questions.length > 0 ? '，感谢你的反馈！' : '，下拉为每题评分'}
-            </Text>
-          </div>
         </Card>
 
         {questions.map((q, idx) => {
@@ -611,6 +594,14 @@ export default function Practice() {
           return (
             <Card key={q.id} style={{ marginBottom: 12, borderLeft: '4px solid ' + (isCorrect ? '#52c41a' : '#ff4d4f') }}>
               <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><div><Tag color={isCorrect ? 'green' : 'red'}>{isCorrect ? '正确' : '错误'}</Tag><Text type="secondary"> 第 {idx + 1} 题</Text></div><Button size="small" icon={<StarOutlined />} onClick={async () => { try { await api.post('/practice/favorites', { question_id: q.id }); message.success('已收藏'); } catch(e) { message.error('收藏失败'); } }}>收藏</Button></div>
+              {/* 题目元信息只在结果页展示，答题过程中不下发也不渲染 */}
+              {(q.source || q.module_name || q.category_name) && (
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+                  {q.source && <Tag style={{ marginInlineEnd: 0 }}>来源：{q.source}</Tag>}
+                  {q.module_name && <Tag color="blue" style={{ marginInlineEnd: 0 }}>模块：{q.module_name}</Tag>}
+                  {q.category_name && <Tag color="purple" style={{ marginInlineEnd: 0 }}>二级分类：{q.category_name}</Tag>}
+                </div>
+              )}
               {q.passage && <div style={{ marginBottom: 12, padding: 12, background: tokens.cardBgAlt, borderRadius: 6, lineHeight: 1.8 }}>{q.passage}</div>}
               <Text strong>{q.stem}</Text>
               <div style={{ marginTop: 12 }}>
@@ -644,16 +635,6 @@ export default function Practice() {
                   </Button>
                 )}
               </div>
-              {/* 评分与反馈：随结果一并展示，提交后可随时修改 */}
-              <QuestionFeedback
-                questionId={q.id}
-                sessionId={result?.session_id}
-                initial={feedbacks[q.id] || null}
-                onSubmitted={(qid, rating, fb) => {
-                  setFeedbacks(prev => ({ ...prev, [qid]: { rating, feedback: fb, updated_at: new Date().toISOString() } }));
-                  setRatedCount(prev => (feedbacks[qid] ? prev : prev + 1));
-                }}
-              />
             </Card>
           );
         })}
