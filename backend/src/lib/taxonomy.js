@@ -230,7 +230,7 @@ async function pickSmartPaper(opts = {}) {
       }
       const [rows] = sid
         ? await conn.query(
-          `SELECT id, subject_id, qtype, difficulty, passage, stem, options_json
+          `SELECT id, subject_id, qtype, difficulty, passage, stem, options_json, answer, explanation
              FROM question
             WHERE status = 'approved' AND subject_id = ?
               AND (source_exam IS NULL OR source_exam NOT LIKE '%AI生成%') AND source_article_id IS NULL
@@ -240,7 +240,7 @@ async function pickSmartPaper(opts = {}) {
         )
         : [];
       sections.push({ section: t.section, target: t.count, picked: rows.length });
-      questions.push(...rows);
+      questions.push(...rows.map((r) => ({ ...r, section: t.section })));
     }
     return { questions, sections, total: questions.length };
   });

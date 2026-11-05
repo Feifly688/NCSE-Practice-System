@@ -206,7 +206,7 @@ router.get('/paper-filters', requireAuth, asyncHandler(async (req, res) => {
   const [rows] = await withConnection(async (conn) => conn.query(
     `SELECT m.dim, m.value, COUNT(DISTINCT m.exam_paper_id) AS c
        FROM exam_paper_category m
-       JOIN exam_paper p ON p.id = m.exam_paper_id AND p.is_hidden = 0
+       JOIN exam_paper p ON p.id = m.exam_paper_id AND p.is_hidden = 0 AND (p.origin IS NULL OR p.origin <> 'smart')
       GROUP BY m.dim, m.value`
   ));
   const [dict] = await withConnection(async (conn) => conn.query(

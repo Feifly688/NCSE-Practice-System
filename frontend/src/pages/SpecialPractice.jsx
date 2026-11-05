@@ -63,6 +63,7 @@ export default function SpecialPractice() {
   // 智能组卷：先选出题年份，再由系统自动抽题生成试卷
   const [smartOpen, setSmartOpen] = useState(false);
   const [smartYear, setSmartYear] = useState('all');
+  const [smartLoading, setSmartLoading] = useState(false);
 
   // AI 生成题：先选科目，再配置题量/难度
   const [aiOpen, setAiOpen] = useState(false);
@@ -546,21 +547,19 @@ export default function SpecialPractice() {
             ]}
           />
         </div>
-        <div style={{ marginBottom: 18 }}>
-          <Text strong style={{ color: tokens.text, display: 'block', marginBottom: 10 }}>试卷结构（国考行测）</Text>
-          <div style={{ padding: '10px 14px', borderRadius: 8, background: tokens.cardBgAlt, fontSize: 13, lineHeight: 2, color: tokens.textSub }}>
-            政治理论 · 常识判断 · 言语理解与表达<br />
-            数量关系 · 判断推理 · 资料分析
-          </div>
-        </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
           <Button onClick={() => setSmartOpen(false)}>取消</Button>
-          <Button type="primary" onClick={() => {
-            const params = new URLSearchParams();
-            params.set('smart', '1');
-            if (smartYear !== 'all') params.set('years', smartYear);
-            setSmartOpen(false);
-            navigate(`/practice/do?${params.toString()}`);
+          <Button type="primary" loading={smartLoading} onClick={async () => {
+            setSmartLoading(true);
+            try {
+              const r = await api.post('/practice/smart-paper', { yearMode: smartYear === 'all' ? null : smartYear });
+              setSmartOpen(false);
+              navigate(`/exam-papers/${r.data.paper_id}`);
+            } catch (err) {
+              message.error(err?.response?.data?.error || '生成试卷失败，请稍后重试');
+            } finally {
+              setSmartLoading(false);
+            }
           }}>生成试卷</Button>
         </div>
       </Modal>

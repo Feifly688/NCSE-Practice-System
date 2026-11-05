@@ -71,7 +71,7 @@ router.get('/', asyncHandler(async (req, res) => {
   const isAdmin = req.user && req.user.role === 'admin';
 
   const data = await withConnection(async (conn) => {
-    const where = ["p.parse_status IN ('success','partial')", 'p.is_hidden = 0'];
+    const where = ["p.parse_status IN ('success','partial')", 'p.is_hidden = 0', "(p.origin IS NULL OR p.origin <> 'smart')"];
     const params = [];
 
     // 维度筛选：既支持 exam_paper 上的直列，也支持 exam_paper_category 关联表
@@ -131,8 +131,8 @@ router.get('/:id', asyncHandler(async (req, res) => {
     const isAdmin = req.user && req.user.role === 'admin';
     const [rows] = await conn.query(
       `SELECT id, title, year, raw_text, parsed_count, parse_status,
-              exam_level, region, paper_type, difficulty, is_hidden
-              ${isAdmin ? ', source, origin, source_url' : ''}
+              exam_level, region, paper_type, difficulty, is_hidden, origin, creator_user_id
+              ${isAdmin ? ', source, source_url' : ''}
          FROM exam_paper WHERE id = ?`,
       [id]
     );
@@ -140,6 +140,8 @@ router.get('/:id', asyncHandler(async (req, res) => {
     if (!paper) return null;
     // 模拟卷等已隐藏的卷：管理员可见，普通用户当作不存在
     if (paper.is_hidden && !isAdmin) return null;
+    // 智能组卷的个人卷：仅创建者（或管理员）可见
+    if (paper.origin === 'smart' && !isAdmin && Number(paper.creator_user_id) !== Number(req.user.userId)) return null;
     if (!['success', 'partial'].includes(paper.parse_status)) {
       return { forbidden: true, parse_status: paper.parse_status };
     }
@@ -411,7 +413,7 @@ router.post('/:id/submit', asyncHandler(async (req, res) => {
           // 答案按 question id 存（与普通练习的 meta 结构一致，结果页复用同一渲染）
           if (your) savedAnswers[qid] = your;
           answerRows.push('(?,?,?,?,?)');
-          answerParams.push(null, qid, your || null, right ? 1 : 0, 0);
+          answerParams.push(null, qid, your || '', right ? 1 : 0, 0);
         }
         const mScore = mapped.length > 0 ? Number(((mCorrect / mapped.length) * 100).toFixed(2)) : 0;
         const now = Date.now();

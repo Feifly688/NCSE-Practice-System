@@ -25,17 +25,12 @@ export default function Practice() {
   const qtypeParam = searchParams.get('qtypes') || '';
   const diffParam = searchParams.get('difficulty') || '';
   const countParam = Number(searchParams.get('count')) || 0;
-  const yearsParam = searchParams.get('years') || '';          // 智能组卷：near5 / near10
   const subjectParam = Number(searchParams.get('subject')) || 0; // AI 生成题：科目 id
-  const smartParam = searchParams.get('smart') === '1';
   const categoryName = searchParams.get('categoryName') || '';
   // 带这些参数进来 = 从专项练习页发起，直接开始出题
-  const fromTaxonomy = Boolean(poolParam && (catParam || countParam || qtypeParam || diffParam || yearsParam || subjectParam));
-  const isSmart = smartParam; // 智能组卷：按国考 130 题结构整卷生成
+  const fromTaxonomy = Boolean(poolParam && (catParam || countParam || qtypeParam || diffParam || subjectParam));
   // 分类名（用于顶部提示当前在刷什么）
-  const yearLabel = { near3: '近3年', near5: '近5年', near10: '近10年' }[yearsParam] || '';
   const catLabel = categoryName || (catParam ? `分类 ${catParam}` : '')
-    || (smartParam ? `智能组卷${yearLabel ? `（${yearLabel}）` : ''}` : '')
     || (poolParam === 'generated' ? 'AI 生成题' : '');
 
   const [step, setStep] = useState('setup');
@@ -91,7 +86,7 @@ export default function Practice() {
 
   // 从专项练习页带参数进来 → 直接开练（不显示设置界面）
   useEffect(() => {
-    if ((!fromTaxonomy && !isSmart) || autoStartedRef.current) return;
+    if (!fromTaxonomy || autoStartedRef.current) return;
     autoStartedRef.current = true;
     startPracticeRef.current();
   }, [fromTaxonomy]);
@@ -308,21 +303,7 @@ export default function Practice() {
       let qs = [];
       let subjectIdForSession = selectedSubject;
 
-      if (isSmart) {
-        // 智能组卷：按国考行测 130 题结构从各模块抽固定题数
-        const r = await api.post('/practice/smart-paper', { yearMode: yearsParam || null });
-        if (!r.data.questions.length) {
-          message.warning('题库题量不足，无法生成试卷');
-          setStep('setup');
-          return;
-        }
-        qs = r.data.questions;
-        subjectIdForSession = qs[0].subject_id || selectedSubject || 1;
-        const short = (r.data.sections || []).filter((x) => x.picked < x.target);
-        if (short.length) {
-          message.info('部分模块可练习题目较少，已按实际可用题目组卷');
-        }
-      } else if (fromTaxonomy) {
+      if (fromTaxonomy) {
         // 专项练习：按分类/题型/难度抽题（走 taxonomy 池）
         const diff = diffParam ? diffParam.split(',').map(Number).filter(Number.isFinite) : null;
         const r = await api.post('/taxonomy/pick', {
@@ -331,7 +312,6 @@ export default function Practice() {
           qtypes: qtypeParam ? qtypeParam.split(',').filter(Boolean) : [],
           difficultyRange: diff && diff.length === 2 ? diff : null,
           subjectIds: subjectParam ? [subjectParam] : [],
-          yearMode: yearsParam || null,
           count: countParam || count,
         });
         if (!r.data.questions.length) {

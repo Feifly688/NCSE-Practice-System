@@ -123,13 +123,54 @@ async function loadQuestionsByIds(conn, ids) {
   }));
 }
 
-// POST /api/practice/smart-paper —— 智能组卷：按国考行测 130 题结构自动抽题
-// 不直接建会话：题目下发给前端后走既有 /practice/start 建会话（与其余入口同一条链路）
+// POST /api/practice/smart-paper —— 智能组卷：按国考行测 130 题结构自动抽题，
+// 落库为一份个人试卷（origin='smart'，仅创建者可见、不进历年试卷列表），
+// 前端拿到 paper_id 后直接进整卷答题界面作答（判分/解析/历史复用整卷链路）。
 router.post('/smart-paper', requireAuth, asyncHandler(async (req, res) => {
   const { pickSmartPaper } = require('../lib/taxonomy');
   const yearMode = String(req.body?.yearMode || '');
-  const result = await pickSmartPaper({ yearMode });
-  res.json(result);
+  const picked = await pickSmartPaper({ yearMode });
+  if (!picked.questions.length) {
+    return res.status(400).json({ error: '题库题量不足，无法生成试卷' });
+  }
+
+  const spanLabel = { near3: '近3年', near5: '近5年', near10: '近10年' }[yearMode] || '';
+  const now = new Date();
+  const pad = (x) => String(x).padStart(2, '0');
+  const title = `智能组卷${spanLabel ? `（${spanLabel}）` : ''} · ${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
+
+  const paperId = await withConnection(async (conn) => {
+    await conn.beginTransaction();
+    try {
+      const [pr] = await conn.query(
+        `INSERT INTO exam_paper
+           (title, year, paper_type, origin, status, parse_status, parsed_count, question_count, creator_user_id, created_at, updated_at)
+         VALUES (?, ?, '智能组卷', 'smart', 'approved', 'success', ?, ?, ?, NOW(), NOW())`,
+        [title, now.getFullYear(), picked.questions.length, picked.questions.length, req.user.userId]
+      );
+      const pid = pr.insertId;
+      const values = [];
+      const params = [];
+      picked.questions.forEach((q, i) => {
+        values.push('(?,?,?,?,?,?,?,?,?,?,?)');
+        params.push(pid, i + 1, q.section || null, q.qtype || '单选题', q.difficulty || 3, q.passage || null, q.stem, q.options_json, q.answer || '', q.explanation || null, null);
+      });
+      // 用预编译语句：题干/选项含引号、反斜杠时 conn.query 的转义会炸
+      await conn.execute(
+        `INSERT INTO exam_paper_question
+           (exam_paper_id, seq, section, qtype, difficulty, passage, stem, options_json, answer, explanation, image_url)
+         VALUES ${values.join(',')}`,
+        params
+      );
+      await conn.commit();
+      return pid;
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    }
+  });
+
+  res.json({ paper_id: paperId, total: picked.questions.length, sections: picked.sections, title });
 }));
 
 // POST /api/practice/start
