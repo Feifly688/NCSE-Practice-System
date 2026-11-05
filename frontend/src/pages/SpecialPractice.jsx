@@ -95,12 +95,29 @@ export default function SpecialPractice() {
 
   useEffect(() => { loadTree(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [pool]);
 
-  // 加载统计与历史
+  // 加载学习数据与历史。
+  // 三个指标分别取自各自的真实接口：/practice/stats 的 overall.total_questions（累计答题）、
+  // /practice/wrong-book 的 stats.total（错题本条目）、/practice/favorites 的 total（收藏）。
+  // 旧代码读的是 stats.total_answered / wrong_count / favorite_count 这些不存在的顶层字段，
+  // 结果永远 fallback 到 0；这里改为并行取数，任一失败时显示 '—' 而不是伪造 0。
   useEffect(() => {
-    api.get('/practice/stats').then((r) => setStats(r.data)).catch(() => {});
+    let alive = true;
+    Promise.all([
+      api.get('/practice/stats'),
+      api.get('/practice/wrong-book', { params: { page: 1, pageSize: 1 } }),
+      api.get('/practice/favorites', { params: { page: 1, pageSize: 1 } }),
+    ]).then(([s, w, f]) => {
+      if (!alive) return;
+      setStats({
+        answered: Number(s.data?.overall?.total_questions) || 0,
+        wrong: Number(w.data?.stats?.total ?? w.data?.total) || 0,
+        favorite: Number(f.data?.total) || 0,
+      });
+    }).catch(() => { /* 未登录或接口异常：保留 null，界面显示 '—' */ });
     api.get('/practice/history', { params: { limit: 5 } })
-      .then((r) => setHistory(r.data.sessions || r.data.history || []))
+      .then((r) => setHistory((r.data.sessions || r.data.history || []).slice(0, 3)))
       .catch(() => {});
+    return () => { alive = false; };
   }, []);
 
   /** 展开/收起考点分组 */
@@ -456,6 +473,7 @@ export default function SpecialPractice() {
           <div style={{ width: 260, flexShrink: 0 }}>
             <Card
               title={<span style={{ color: tokens.text, fontSize: 14 }}>练习历史</span>}
+              extra={<Button type="link" size="small" style={{ fontSize: 12, padding: 0 }} onClick={() => navigate('/history')}>查看全部</Button>}
               style={{ marginBottom: 12, borderRadius: 10, borderColor: tokens.cardBorder, background: tokens.cardBg }}
               styles={{ body: { padding: 14 } }}
             >
@@ -482,21 +500,22 @@ export default function SpecialPractice() {
             </Card>
 
             <Card
-              title={<span style={{ color: tokens.text, fontSize: 14 }}>快捷入口</span>}
+              title={<span style={{ color: tokens.text, fontSize: 14 }}>学习数据</span>}
               style={{ borderRadius: 10, borderColor: tokens.cardBorder, background: tokens.cardBg }}
               styles={{ body: { padding: 14 } }}
             >
               {[
-                { icon: <ThunderboltOutlined />, label: '练习记录', to: '/history' },
-                { icon: <CheckCircleFilled />, label: '错题本', to: '/wrong-book' },
-                { icon: <FireOutlined />, label: '收藏夹', to: '/favorites' },
+                { icon: <ThunderboltOutlined />, label: '已练题数', value: stats?.answered, to: '/history', color: tokens.primary },
+                { icon: <CheckCircleFilled />, label: '错题', value: stats?.wrong, to: '/wrong-book', color: tokens.error },
+                { icon: <FireOutlined />, label: '收藏', value: stats?.favorite, to: '/favorites', color: tokens.accent },
               ].map((it) => (
-                <div key={it.label} onClick={() => navigate(it.to)} style={{
-                  display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', cursor: 'pointer',
+                <div key={it.label} onClick={() => navigate(it.to)} title={`查看${it.label}`} style={{
+                  display: 'flex', alignItems: 'center', gap: 8, padding: '9px 0', cursor: 'pointer',
                   borderBottom: `1px solid ${tokens.divider}`, color: tokens.textSub, fontSize: 13,
                 }}>
-                  <span style={{ color: tokens.primary }}>{it.icon}</span>
+                  <span style={{ color: it.color }}>{it.icon}</span>
                   <span style={{ flex: 1 }}>{it.label}</span>
+                  <span style={{ fontSize: 15, fontWeight: 600, color: tokens.text }}>{it.value ?? '—'}</span>
                   <RightOutlined style={{ fontSize: 10, color: tokens.textWeak }} />
                 </div>
               ))}
