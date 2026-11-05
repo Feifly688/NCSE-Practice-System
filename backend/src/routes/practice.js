@@ -357,20 +357,41 @@ router.get('/leaderboard', requireAuth, asyncHandler(async (req, res) => {
 // ── 错题本接口 ──────────────────────────────────────────
 
 // GET /api/practice/wrong-book
+// 可选 categoryId：按一级模块（question_category level=1）筛选；'0' 表示没有模块标签的题。
+// 不传时行为与原来完全一致，仅在返回里额外附带 items.module_id/name 与 modules 列表。
 router.get('/wrong-book', requireAuth, asyncHandler(async (req, res) => {
   const page = Math.max(Number(req.query.page) || 1, 1);
   const pageSize = Math.min(Number(req.query.pageSize) || 15, 50);
   const offset = (page - 1) * pageSize;
   const mastered = req.query.mastered;
+  const rawCategory = req.query.categoryId;
+  const categoryId = (rawCategory === undefined || rawCategory === '' || rawCategory === null)
+    ? null : Number(rawCategory);
 
   const data = await withConnection(async (conn) => {
     let whereClause = ' WHERE wb.user_id = ?';
     const params = [req.user.userId];
     if (mastered !== undefined && mastered !== '') { whereClause += ' AND wb.mastered = ?'; params.push(Number(mastered)); }
+    // 统一用 wb.question_id 做子查询，这样 COUNT 查询无需 JOIN question 也能复用 whereClause
+    if (categoryId !== null && Number.isInteger(categoryId) && categoryId > 0) {
+      whereClause += ` AND EXISTS (SELECT 1 FROM question_category_map m
+        WHERE m.pool = 'question' AND m.ref_id = wb.question_id AND m.category_id = ?)`;
+      params.push(categoryId);
+    } else if (categoryId === 0) {
+      whereClause += ` AND NOT EXISTS (SELECT 1 FROM question_category_map m
+        JOIN question_category c ON c.id = m.category_id AND c.level = 1
+        WHERE m.pool = 'question' AND m.ref_id = wb.question_id)`;
+    }
 
     const [countRows] = await conn.query('SELECT COUNT(*) AS total FROM wrong_book wb' + whereClause, params);
     const [rows] = await conn.query(
-      `SELECT wb.*, q.stem, q.passage, q.options_json, q.answer, q.explanation, q.qtype, q.difficulty
+      `SELECT wb.*, q.stem, q.passage, q.options_json, q.answer, q.explanation, q.qtype, q.difficulty,
+        (SELECT c.id FROM question_category_map m
+           JOIN question_category c ON c.id = m.category_id AND c.level = 1
+          WHERE m.pool = 'question' AND m.ref_id = q.id LIMIT 1) AS module_id,
+        (SELECT c.name FROM question_category_map m
+           JOIN question_category c ON c.id = m.category_id AND c.level = 1
+          WHERE m.pool = 'question' AND m.ref_id = q.id LIMIT 1) AS module_name
        FROM wrong_book wb JOIN question q ON wb.question_id = q.id ${whereClause}
        ORDER BY wb.mastered ASC, wb.updated_at DESC LIMIT ? OFFSET ?`,
       [...params, pageSize, offset]
@@ -386,7 +407,27 @@ router.get('/wrong-book', requireAuth, asyncHandler(async (req, res) => {
     );
     statsRows[0].byType = byType;
 
-    return { items: rows, total: countRows[0].total, stats: statsRows[0] };
+    // 该用户错题涉及的一级模块，用于错题本按模块导航与分模块重做
+    const [moduleRows] = await conn.query(
+      `SELECT COALESCE(qm.module_id, 0) AS module_id,
+              COALESCE(qm.module_name, '其他') AS module_name,
+              COUNT(*) AS count
+         FROM wrong_book wb
+         JOIN question q ON q.id = wb.question_id
+         LEFT JOIN (
+           SELECT m.ref_id, MIN(c.id) AS module_id, MIN(c.name) AS module_name
+             FROM question_category_map m
+             JOIN question_category c ON c.id = m.category_id AND c.level = 1
+            WHERE m.pool = 'question'
+            GROUP BY m.ref_id
+         ) qm ON qm.ref_id = q.id
+        WHERE wb.user_id = ?
+        GROUP BY qm.module_id, qm.module_name
+        ORDER BY module_id`,
+      [req.user.userId]
+    );
+
+    return { items: rows, total: countRows[0].total, stats: statsRows[0], modules: moduleRows };
   });
 
   return res.json({ ...data, page, pageSize });
@@ -420,16 +461,32 @@ router.put('/wrong-book/:id/mastered', requireAuth, asyncHandler(async (req, res
 }));
 
 // POST /api/practice/wrong-book/redo
+// 可选 categoryId：只重做某个一级模块下的错题（'0' = 无模块标签），不传则重做全部。
 router.post('/wrong-book/redo', requireAuth, asyncHandler(async (req, res) => {
   const { count = 10 } = req.body;
+  const rawCategory = req.body.categoryId;
+  const categoryId = (rawCategory === undefined || rawCategory === '' || rawCategory === null)
+    ? null : Number(rawCategory);
+  let categoryClause = '';
+  const params = [req.user.userId];
+  if (categoryId !== null && Number.isInteger(categoryId) && categoryId > 0) {
+    categoryClause = ` AND EXISTS (SELECT 1 FROM question_category_map m
+      WHERE m.pool = 'question' AND m.ref_id = wb.question_id AND m.category_id = ?)`;
+    params.push(categoryId);
+  } else if (categoryId === 0) {
+    categoryClause = ` AND NOT EXISTS (SELECT 1 FROM question_category_map m
+      JOIN question_category c ON c.id = m.category_id AND c.level = 1
+      WHERE m.pool = 'question' AND m.ref_id = wb.question_id)`;
+  }
   const questions = await withConnection(async (conn) => {
     // 同 /questions/random：答题阶段不下发 answer / explanation，交卷后由 submit 返回
     const [rows] = await conn.query(
       `SELECT q.id, q.subject_id, q.qtype, q.difficulty, q.passage, q.stem, q.options_json, q.source_exam, q.source_article_id,
        a.clean_text as article_text, a.title as article_title
        FROM wrong_book wb JOIN question q ON wb.question_id = q.id LEFT JOIN article a ON q.source_article_id = a.id
-       WHERE wb.user_id = ? AND wb.mastered = 0 AND q.status = 'approved' ORDER BY RAND() LIMIT ?`,
-      [req.user.userId, Math.min(count, 50)]
+       WHERE wb.user_id = ? AND wb.mastered = 0 AND q.status = 'approved' ${categoryClause}
+       ORDER BY RAND() LIMIT ?`,
+      [...params, Math.min(count, 50)]
     );
     return rows.map(q => {
       if (!q.passage && q.article_text) q.passage = q.article_text.substring(0, 300);

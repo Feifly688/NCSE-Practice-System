@@ -213,13 +213,22 @@ export default function Practice() {
         loadFeedbacks(source.map(d => d.question_id));
       } else if (session.status === 'in_progress') {
         // 恢复答题。
-        // 与结果模式同理：meta.questions 只有 {id, answer}，必须改用
-        // answerDetails 的完整题目数据，否则恢复后题干/选项/解析全空白。
+        // 服务端 /session/:id 已按 meta 顺序返回完整题目（questions）。
+        // 新会话（例如「重做错题」刚由 /practice/start 创建）尚未产生
+        // practice_answer，answerDetails 为空；旧实现只认 details，会误判
+        // 「该答题记录数据不完整」，导致重做错题永远打不开。
+        // 答案/解析不进入答题态 state，判分与结果页一律以 /submit 下发为准。
         setSessionId(session.id);
-        let restoreQuestions = details.map(d => ({
-          id: d.question_id, stem: d.stem, passage: d.passage, options_json: d.options_json,
-          answer: d.correct_answer, explanation: d.explanation, qtype: d.qtype, difficulty: d.difficulty
+        let restoreQuestions = (qs || []).map(q => ({
+          id: q.id, stem: q.stem, passage: q.passage, options_json: q.options_json,
+          qtype: q.qtype, difficulty: q.difficulty, subject_id: q.subject_id,
         }));
+        if (restoreQuestions.length === 0) {
+          restoreQuestions = details.map(d => ({
+            id: d.question_id, stem: d.stem, passage: d.passage, options_json: d.options_json,
+            qtype: d.qtype, difficulty: d.difficulty,
+          }));
+        }
         // 作答优先取 meta.answers（含未提交的进度），缺失时回退 answerDetails
         let restoreAnswers = (ans && Object.keys(ans).length > 0) ? ans : (() => {
           const m = {};
@@ -436,11 +445,13 @@ export default function Practice() {
       if (graded.length > 0) setQuestions(graded);
 
       // 错题练习模式：答对的题目自动移出错题本
-      if (wrongRedo && localStorage.getItem('wrongbook_auto_remove') === 'true') {
+      // 默认开启「答对自动移出」：只有在错题本里显式关闭（存 'false'）才不生效，
+      // 避免用户没打开过错题本时 localStorage 无值导致功能静默失效。
+      if (wrongRedo && localStorage.getItem('wrongbook_auto_remove') !== 'false') {
         const correctIds = graded.filter(q => answers[q.id] === q.answer).map(q => q.id);
         if (correctIds.length > 0) {
           await Promise.allSettled(correctIds.map(qid => api.delete('/practice/wrong-book/by-question/' + qid)));
-          message.info('已自动移出 ' + correctIds.length + ' 道已掌握的题目');
+          message.info('已将答对的题目自动移出错题本');
         }
       }
 

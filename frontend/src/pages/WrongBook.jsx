@@ -1,16 +1,21 @@
 ﻿import React, { useState, useEffect } from 'react';
-import { Typography, Row, Col, Button, Space, Tag, message, Spin, Empty, Modal, Radio, Switch, Popconfirm } from 'antd';
-import { CheckCircleOutlined, CloseCircleOutlined, ReloadOutlined, BookOutlined, StarFilled, StarOutlined, ExportOutlined, DeleteOutlined, SettingOutlined } from '@ant-design/icons';
+import { Typography, Button, Space, Tag, message, Spin, Empty, Modal, Radio, Switch, Popconfirm } from 'antd';
+import { ReloadOutlined, BookOutlined, StarFilled, StarOutlined, ExportOutlined, DeleteOutlined, SettingOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import { parseOptions, cleanOption } from '../utils';
 import Pagination from '../components/Pagination';
 import { useResponsive } from '../hooks/useResponsive';
-import { F, FenbiScope, PageHead, Panel, SectionLabel, StatTile, MetaTag } from '../components/FenbiUI';
+import { F, FenbiScope, PageHead, Panel, MetaTag } from '../components/FenbiUI';
 
 const { Text, Paragraph } = Typography;
 
-/** 错题本（与收藏夹统一的粉笔式列表）。筛选、导出、重做、掌握状态逻辑保持原样。 */
+/**
+ * 错题本（粉笔式列表，按一级模块分类存放）。
+ * - 模块导航来自 /practice/wrong-book 返回的 modules，选中后列表与重做都限定在该模块
+ * - 默认开启「答对自动移出」：只有显式关闭才在 localStorage 存 'false'
+ * - 重做走 /practice/do?session=...&wrongredo=true（答题页），旧版误跳 /practice 导致功能不可用
+ */
 export default function WrongBook() {
   const navigate = useNavigate();
   const { isMobile } = useResponsive();
@@ -18,23 +23,29 @@ export default function WrongBook() {
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(0);
   const [stats, setStats] = useState(null);
+  const [modules, setModules] = useState([]);
+  const [moduleId, setModuleId] = useState(''); // '' = 全部模块；'0' = 未分类；其余为一级分类 id
   const [page, setPage] = useState(1);
   const [filter, setFilter] = useState('0'); // 0=未掌握, 1=已掌握, ''=全部
   const [previewItem, setPreviewItem] = useState(null);
-  const [autoRemove, setAutoRemove] = useState(() => localStorage.getItem('wrongbook_auto_remove') === 'true');
+  const [autoRemove, setAutoRemove] = useState(() => localStorage.getItem('wrongbook_auto_remove') !== 'false');
 
-  useEffect(() => { loadWrongBook(); }, [page, filter]);
+  useEffect(() => { loadWrongBook(); }, [page, filter, moduleId]);
   useEffect(() => { localStorage.setItem('wrongbook_auto_remove', String(autoRemove)); }, [autoRemove]);
+
+  const activeModule = modules.find(m => String(m.module_id) === String(moduleId));
 
   async function loadWrongBook() {
     setLoading(true);
     try {
       const params = { page, pageSize: 15 };
       if (filter !== '') params.mastered = filter;
+      if (moduleId !== '') params.categoryId = moduleId;
       const r = await api.get('/practice/wrong-book', { params });
-      setItems(r.data.items);
-      setTotal(r.data.total);
-      setStats(r.data.stats);
+      setItems(r.data.items || []);
+      setTotal(r.data.total || 0);
+      setStats(r.data.stats || null);
+      setModules(r.data.modules || []);
     } catch (err) { message.error('加载错题本失败'); }
     finally { setLoading(false); }
   }
@@ -57,14 +68,18 @@ export default function WrongBook() {
 
   async function startRedo() {
     try {
-      const r = await api.post('/practice/wrong-book/redo', { count: 10 });
-      if (r.data.questions.length === 0) {
-        message.info('没有需要重做的错题');
+      const payload = { count: 10 };
+      if (moduleId !== '') payload.categoryId = moduleId;
+      const r = await api.post('/practice/wrong-book/redo', payload);
+      const questions = r.data.questions || [];
+      if (questions.length === 0) {
+        message.info(moduleId === '' ? '没有需要重做的错题' : '该模块下没有需要重做的错题');
         return;
       }
-      const subjectId = r.data.questions[0].subject_id || 1;
-      const startRes = await api.post('/practice/start', { subject_id: subjectId, questions: r.data.questions });
-      navigate('/practice?session=' + startRes.data.session_id + '&wrongredo=true');
+      const subjectId = questions[0].subject_id || 1;
+      const startRes = await api.post('/practice/start', { subject_id: subjectId, questions });
+      // 答题页路由是 /practice/do；跳 /practice 只会停在题库页，重做永远打不开
+      navigate('/practice/do?session=' + startRes.data.session_id + '&wrongredo=true');
     } catch (err) { message.error('开始重做失败'); }
   }
 
@@ -83,11 +98,11 @@ export default function WrongBook() {
     if (items.length === 0) { message.info('暂无错题可导出'); return; }
     const options = ['A', 'B', 'C', 'D'];
     let html = '<html><head><meta charset="utf-8"><title>错题本导出</title><style>body{font-family:sans-serif;max-width:800px;margin:0 auto;padding:20px}h1{font-size:22px}.q{margin-bottom:24px;padding:16px;border:1px solid #eee;border-radius:8px}.stem{font-weight:bold;margin-bottom:8px}.opts{margin:8px 0}.opt{padding:4px 0}.correct{color:#35b879;font-weight:bold}.explain{margin-top:8px;padding:8px;background:#f0faf4;border-radius:4px;font-size:13px}@media print{.no-print{display:none}}</style></head><body>';
-    html += '<h1>错题本</h1><p class="no-print"><button onclick="window.print()">打印</button></p>';
+    html += '<h1>错题本' + (activeModule ? ' · ' + esc(activeModule.module_name) : '') + '</h1><p class="no-print"><button onclick="window.print()">打印</button></p>';
     items.forEach((item, idx) => {
       const opts = parseOptions(item.options_json);
       html += '<div class="q">';
-      html += '<div class="stem">' + (idx + 1) + '. [' + esc(item.qtype) + '] ' + (item.passage ? '<p style="color:#666;font-weight:normal;margin:4px 0">' + esc(item.passage) + '</p>' : '') + esc(item.stem) + '</div>';
+      html += '<div class="stem">' + (idx + 1) + '. [' + esc(item.qtype) + '] ' + (item.module_name ? '[' + esc(item.module_name) + '] ' : '') + (item.passage ? '<p style="color:#666;font-weight:normal;margin:4px 0">' + esc(item.passage) + '</p>' : '') + esc(item.stem) + '</div>';
       html += '<div class="opts">';
       opts.forEach((opt, i) => {
         const letter = options[i] || String.fromCharCode(65 + i);
@@ -109,19 +124,48 @@ export default function WrongBook() {
     ? <MetaTag tone="success">简单</MetaTag>
     : d <= 4 ? <MetaTag tone="warning">中等</MetaTag> : <MetaTag tone="error">困难</MetaTag>);
 
+  const moduleTabs = [{ module_id: '', module_name: '全部模块' }, ...modules];
+
   return (
     <FenbiScope>
       <PageHead
         title="错题本"
         icon={<BookOutlined />}
-        desc="集中回顾做错的题目，标记掌握状态后可自动移出。"
+        desc="按模块分类回顾错题，可只重做某个模块；重做时答对默认自动移出。"
         extra={
           <>
             <Button icon={<ExportOutlined />} onClick={exportWrongBook}>导出</Button>
-            <Button type="primary" icon={<ReloadOutlined />} onClick={startRedo}>重做错题</Button>
+            <Button type="primary" icon={<ReloadOutlined />} onClick={startRedo}>
+              {moduleId === '' ? '重做全部错题' : `重做「${activeModule?.module_name || '所选模块'}」错题`}
+            </Button>
           </>
         }
       />
+
+      {/* 按模块分类存放：一级模块导航，选中后列表与重做都限定在该模块 */}
+      <Panel title="按模块分类" style={{ marginBottom: 12 }} bodyStyle={{ padding: isMobile ? 12 : 16 }}>
+        <div className="hide-scrollbar" style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 2 }}>
+          {moduleTabs.map(m => {
+            const on = String(m.module_id) === String(moduleId);
+            return (
+              <button
+                key={String(m.module_id)}
+                type="button"
+                onClick={() => { setModuleId(m.module_id === '' ? '' : String(m.module_id)); setPage(1); }}
+                style={{
+                  flexShrink: 0, cursor: 'pointer', padding: '7px 14px', borderRadius: 6, fontSize: 13,
+                  border: `1px solid ${on ? F.primary : F.border}`,
+                  background: on ? F.primaryLight : F.cardBg,
+                  color: on ? F.primary : F.textSub,
+                  fontWeight: on ? 600 : 400,
+                }}
+              >
+                {m.module_name}
+              </button>
+            );
+          })}
+        </div>
+      </Panel>
 
       {stats && stats.byType && stats.byType.length > 0 && (
         <Panel title="涉及题型" style={{ marginBottom: 16 }} bodyStyle={{ padding: isMobile ? 14 : 18 }}>
@@ -148,7 +192,7 @@ export default function WrongBook() {
         {loading ? (
           <div style={{ textAlign: 'center', padding: 60 }}><Spin size="large" /></div>
         ) : items.length === 0 ? (
-          <Empty description={filter === '0' ? '没有未掌握的错题，继续保持！' : '暂无错题'} />
+          <Empty description={moduleId !== '' ? '该模块下暂无错题' : (filter === '0' ? '没有未掌握的错题，继续保持！' : '暂无错题')} />
         ) : (
           items.map((item) => (
             <div key={item.id} className="fb-row">
@@ -158,9 +202,9 @@ export default function WrongBook() {
                   onClick={() => setPreviewItem(item)}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
-                    <MetaTag tone="primary">{item.qtype}</MetaTag>
+                    {item.module_name && <MetaTag tone="primary">{item.module_name}</MetaTag>}
+                    <MetaTag>{item.qtype}</MetaTag>
                     {difficultyTag(item.difficulty)}
-                    {(item.category_name || item.subject_name) && <MetaTag>{item.category_name || item.subject_name}</MetaTag>}
                     <MetaTag tone={item.mastered ? 'success' : 'error'}>{item.mastered ? '已掌握' : '未掌握'}</MetaTag>
                     <span className="fb-meta">正确答案 {item.answer}</span>
                   </div>
@@ -203,6 +247,7 @@ export default function WrongBook() {
         {previewItem && (
           <div>
             <Space size={[6, 6]} wrap style={{ marginBottom: 12 }}>
+              {previewItem.module_name && <MetaTag tone="primary">{previewItem.module_name}</MetaTag>}
               <Tag color="purple">{previewItem.qtype}</Tag>
               <Tag color={previewItem.difficulty <= 2 ? 'green' : previewItem.difficulty <= 4 ? 'orange' : 'red'}>
                 {previewItem.difficulty <= 2 ? '简单' : previewItem.difficulty <= 4 ? '中等' : '困难'}
