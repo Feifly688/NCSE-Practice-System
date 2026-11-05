@@ -597,9 +597,9 @@ export default function Practice() {
               {/* 题目元信息只在结果页展示，答题过程中不下发也不渲染 */}
               {(q.source || q.module_name || q.category_name) && (
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
-                  {q.source && <Tag style={{ marginInlineEnd: 0 }}>来源：{q.source}</Tag>}
-                  {q.module_name && <Tag color="blue" style={{ marginInlineEnd: 0 }}>模块：{q.module_name}</Tag>}
-                  {q.category_name && <Tag color="purple" style={{ marginInlineEnd: 0 }}>二级分类：{q.category_name}</Tag>}
+                  {q.source && <Tag title={q.source} style={{ marginInlineEnd: 0, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>来源：{q.source}</Tag>}
+                  {q.module_name && <Tag color="blue" style={{ marginInlineEnd: 0, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>模块：{q.module_name}</Tag>}
+                  {q.category_name && <Tag color="purple" style={{ marginInlineEnd: 0, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>二级分类：{q.category_name}</Tag>}
                 </div>
               )}
               {q.passage && <div style={{ marginBottom: 12, padding: 12, background: tokens.cardBgAlt, borderRadius: 6, lineHeight: 1.8 }}>{q.passage}</div>}
