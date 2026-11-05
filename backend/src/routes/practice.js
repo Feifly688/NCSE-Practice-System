@@ -54,6 +54,26 @@ function extractQuestionIds(meta) {
   return ids;
 }
 
+const FENBI_SOURCE_PREFIX = '粉笔题库·';
+
+/**
+ * 题目来源展示规则：
+ *   · 真题（粉笔题库·xxxx年xx考试《行测》题…）→ 去掉前缀，只显示试卷归属
+ *   · 粉笔自创 / 模拟题（没有真题试卷归属）→ 保留「粉笔题库」品牌来源
+ *   · 其它来源原样；没有 source_exam 时退回来源文章标题
+ */
+function normalizeQuestionSource(sourceExam, articleTitle) {
+  const raw = String(sourceExam || '').trim();
+  if (raw.startsWith(FENBI_SOURCE_PREFIX)) {
+    const rest = raw.slice(FENBI_SOURCE_PREFIX.length).trim();
+    if (!rest) return '粉笔题库';
+    if (/自创|原创|模拟/.test(rest)) return raw;
+    return rest;
+  }
+  if (raw) return raw;
+  return String(articleTitle || '').trim();
+}
+
 /**
  * 批量取题目的分类元信息：level 1 模块、level 2 二级分类。
  * 题目经 question_category_map(pool='question') 关联；同层挂多张标签时
@@ -96,8 +116,8 @@ async function loadQuestionsByIds(conn, ids) {
   const tax = await loadQuestionTaxonomy(conn, ordered.map(q => q.id));
   return ordered.map((q) => ({
     ...q,
-    // 题目来源：优先真题卷名，其次来源文章标题；都没有则留空，由前端不展示
-    source: q.source_exam || q.article_title || '',
+    // 真题只显示试卷归属；仅粉笔自创/模拟题才保留「粉笔题库」字样
+    source: normalizeQuestionSource(q.source_exam, q.article_title),
     module_name: tax.get(q.id)?.module_name || '',
     category_name: tax.get(q.id)?.category_name || '',
   }));
