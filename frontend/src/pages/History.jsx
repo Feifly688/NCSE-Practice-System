@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Typography, Card, Tag, Statistic, Row, Col, Spin, message, Space, Button } from 'antd';
-import { CheckCircleOutlined, ClockCircleOutlined, EditOutlined, TrophyOutlined, EyeOutlined, PlayCircleOutlined } from '@ant-design/icons';
+import { Row, Col, Spin, message, Button } from 'antd';
+import { CheckCircleOutlined, ClockCircleOutlined, EditOutlined, TrophyOutlined, EyeOutlined, PlayCircleOutlined, HistoryOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import Pagination from '../components/Pagination';
 import { useResponsive } from '../hooks/useResponsive';
+import { F, FenbiScope, PageHead, Panel, SectionLabel, StatTile, MetaTag } from '../components/FenbiUI';
 
-const { Title, Text } = Typography;
-
+/** 练习历史（粉笔式记录列表）。数据与跳转逻辑保持原样。 */
 export default function History() {
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState(null);
@@ -40,97 +40,82 @@ export default function History() {
     return m > 0 ? m + '分' + s + '秒' : s + '秒';
   }
 
-  if (loading) return <div style={{ textAlign: 'center', padding: 100 }}><Spin size="large" /></div>;
-
   const overall = stats?.overall || {};
 
   return (
-    <div style={{ maxWidth: 960, margin: '0 auto' }}>
-      <Title level={3} style={{ fontSize: isMobile ? 20 : undefined }}>答题历史</Title>
+    <FenbiScope>
+      <PageHead
+        title="练习记录"
+        icon={<HistoryOutlined />}
+        desc="查看每一次练习的成绩与用时，未完成的练习可以继续作答。"
+        extra={<Button type="primary" icon={<EditOutlined />} onClick={() => navigate('/practice')}>去练习</Button>}
+      />
 
-      <Row gutter={[isMobile ? 8 : 16, isMobile ? 8 : 16]} style={{ marginBottom: 24 }}>
-        <Col xs={12} sm={6}><Card><Statistic title="总答题数" value={overall.total_questions || 0} prefix={<EditOutlined />} /></Card></Col>
-        <Col xs={12} sm={6}><Card><Statistic title="总正确" value={overall.total_correct || 0} prefix={<CheckCircleOutlined />} valueStyle={{ color: '#52c41a' }} /></Card></Col>
-        <Col xs={12} sm={6}><Card><Statistic title="平均分" value={overall.avg_score || 0} prefix={<TrophyOutlined />} /></Card></Col>
-        <Col xs={12} sm={6}><Card><Statistic title="练习次数" value={overall.total_sessions || 0} prefix={<ClockCircleOutlined />} /></Card></Col>
+      <SectionLabel title="累计数据" />
+      <Row gutter={[isMobile ? 8 : 16, isMobile ? 8 : 16]}>
+        <Col xs={12} md={6}><StatTile icon={<EditOutlined />} label="总答题数" value={overall.total_questions || 0} unit="题" /></Col>
+        <Col xs={12} md={6}><StatTile icon={<CheckCircleOutlined />} label="总正确" value={overall.total_correct || 0} unit="题" tone="success" /></Col>
+        <Col xs={12} md={6}><StatTile icon={<TrophyOutlined />} label="平均分" value={overall.avg_score || 0} /></Col>
+        <Col xs={12} md={6}><StatTile icon={<ClockCircleOutlined />} label="练习次数" value={overall.total_sessions || 0} unit="次" tone="neutral" /></Col>
       </Row>
 
-      {/* 窄屏下表格横向滚动 */}
-      <div style={{ border: '1px solid #f0f0f0', borderRadius: 8, overflow: 'hidden' }}>
-        <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: isMobile ? 720 : undefined }}>
-          <thead>
-            <tr style={{ background: '#fafafa' }}>
-              <th style={{ padding: '12px 16px', textAlign: 'left' }}>ID</th>
-              <th style={{ padding: '12px 16px', textAlign: 'left' }}>科目</th>
-              <th style={{ padding: '12px 16px', textAlign: 'center' }}>状态</th>
-              <th style={{ padding: '12px 16px', textAlign: 'center' }}>题数</th>
-              <th style={{ padding: '12px 16px', textAlign: 'center' }}>正确</th>
-              <th style={{ padding: '12px 16px', textAlign: 'center' }}>得分</th>
-              <th style={{ padding: '12px 16px', textAlign: 'center' }}>用时</th>
-              <th style={{ padding: '12px 16px', textAlign: 'left' }}>时间</th>
-              <th style={{ padding: '12px 16px', textAlign: 'center' }}>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sessions.length === 0 ? (
-              <tr><td colSpan={9} style={{ padding: 40, textAlign: 'center' }}>暂无练习记录</td></tr>
-            ) : (
-              sessions.map((s, idx) => {
-                const isInProgress = s.status === 'in_progress';
-                // 整卷真题的作答也统一记录在练习历史里（meta 带卷名）
-                const isExam = s.mode === 'exam_paper';
-                let examMeta = null;
-                if (isExam && s.meta_json) {
-                  try { examMeta = typeof s.meta_json === 'string' ? JSON.parse(s.meta_json) : s.meta_json; } catch (e) { /* 忽略 */ }
-                }
-                const title = (examMeta && examMeta.paper_title) || null;
-                return (
-                  <tr key={s.id} style={{ background: idx % 2 === 0 ? '#fff' : '#fafafa' }}>
-                    <td style={{ padding: '10px 16px' }}>{s.id}</td>
-                    <td style={{ padding: '10px 16px' }}>
+      <div style={{ height: isMobile ? 16 : 24 }} />
+      <SectionLabel title="全部记录" extra={<span className="fb-meta">共 {total} 条</span>} />
+      <Panel bodyStyle={{ padding: isMobile ? 12 : 16 }}>
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: 48 }}><Spin size="large" /></div>
+        ) : sessions.length === 0 ? (
+          <div className="fb-empty">暂无练习记录</div>
+        ) : (
+          sessions.map((s) => {
+            const isInProgress = s.status === 'in_progress';
+            // 整卷真题的作答也统一记录在练习历史里（meta 带卷名）
+            const isExam = s.mode === 'exam_paper';
+            let examMeta = null;
+            if (isExam && s.meta_json) {
+              try { examMeta = typeof s.meta_json === 'string' ? JSON.parse(s.meta_json) : s.meta_json; } catch (e) { /* 忽略 */ }
+            }
+            const title = (examMeta && examMeta.paper_title) || null;
+            return (
+              <div key={s.id} className="fb-row">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
                       {isExam ? (
-                        <Space size={6} wrap>
-                          <Tag color="orange">整卷真题</Tag>
-                          <span style={{ maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block', verticalAlign: 'middle' }}>{title}</span>
-                        </Space>
+                        <>
+                          <MetaTag tone="primary">整卷真题</MetaTag>
+                          <span className="fb-row-title" style={{ fontWeight: 600 }}>{title || `练习 #${s.id}`}</span>
+                        </>
                       ) : (
-                        <Tag color="blue">{s.subject_name}</Tag>
+                        <>
+                          <MetaTag tone="primary">{s.subject_name || '综合练习'}</MetaTag>
+                          <span className="fb-meta">练习 #{s.id}</span>
+                        </>
                       )}
-                    </td>
-                    <td style={{ padding: '10px 16px', textAlign: 'center' }}>
-                      {isInProgress ? <Tag color="orange">答题中</Tag> : <Tag color="green">已完成</Tag>}
-                    </td>
-                    <td style={{ padding: '10px 16px', textAlign: 'center' }}>{s.total}</td>
-                    <td style={{ padding: '10px 16px', textAlign: 'center', color: '#52c41a' }}>{isInProgress ? '-' : s.correct}</td>
-                    <td style={{ padding: '10px 16px', textAlign: 'center' }}>
-                      {isInProgress ? <Tag>进行中</Tag> : <Tag color={s.score >= 60 ? 'green' : 'red'}>{s.score}</Tag>}
-                    </td>
-                    <td style={{ padding: '10px 16px', textAlign: 'center' }}>{formatDuration(s.duration_sec)}</td>
-                    <td style={{ padding: '10px 16px' }}>{new Date(s.started_at).toLocaleString('zh-CN')}</td>
-                    <td style={{ padding: '10px 16px', textAlign: 'center' }}>
-                      {isInProgress ? (
-                        <Button type="primary" size="small" icon={<PlayCircleOutlined />}
-                          onClick={() => navigate('/practice/do?session=' + s.id)}>
-                          继续答题
-                        </Button>
-                      ) : (
-                        <Button size="small" icon={<EyeOutlined />}
-                          onClick={() => navigate('/practice/do?session=' + s.id + '&view=result')}>
-                          查看详情
-                        </Button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
-        </div>
-      </div>
-
-      <Pagination current={page} total={total} pageSize={15} onChange={setPage} />
-    </div>
+                      <MetaTag tone={isInProgress ? 'warning' : 'success'}>{isInProgress ? '答题中' : '已完成'}</MetaTag>
+                    </div>
+                    <div style={{ display: 'flex', gap: isMobile ? 14 : 28, flexWrap: 'wrap', alignItems: 'center' }}>
+                      <span className="fb-meta">题数 <b style={{ color: F.text, fontSize: 14 }}>{s.total}</b></span>
+                      <span className="fb-meta">正确 <b style={{ color: F.success, fontSize: 14 }}>{isInProgress ? '-' : s.correct}</b></span>
+                      <span className="fb-meta">得分 <b style={{ color: isInProgress ? F.text : (s.score >= 60 ? F.success : F.error), fontSize: 14 }}>{isInProgress ? '进行中' : s.score}</b></span>
+                      <span className="fb-meta">用时 <b style={{ color: F.text, fontSize: 14 }}>{formatDuration(s.duration_sec)}</b></span>
+                      <span className="fb-meta">{new Date(s.started_at).toLocaleString('zh-CN')}</span>
+                    </div>
+                  </div>
+                  <div style={{ flexShrink: 0 }}>
+                    {isInProgress ? (
+                      <Button type="primary" size="small" icon={<PlayCircleOutlined />} onClick={() => navigate('/practice/do?session=' + s.id)}>继续答题</Button>
+                    ) : (
+                      <Button size="small" icon={<EyeOutlined />} onClick={() => navigate('/practice/do?session=' + s.id + '&view=result')}>查看详情</Button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })
+        )}
+        <div style={{ marginTop: 12 }}><Pagination current={page} total={total} pageSize={15} onChange={setPage} /></div>
+      </Panel>
+    </FenbiScope>
   );
 }

@@ -1,15 +1,19 @@
 ﻿import React, { useState, useEffect } from 'react';
-import { Typography, Card, Button, Space, Tag, message, Spin, Empty, Modal, Radio, Switch, Popconfirm } from 'antd';
+import { Typography, Row, Col, Button, Space, Tag, message, Spin, Empty, Modal, Radio, Switch, Popconfirm } from 'antd';
 import { CheckCircleOutlined, CloseCircleOutlined, ReloadOutlined, BookOutlined, StarFilled, StarOutlined, ExportOutlined, DeleteOutlined, SettingOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import { parseOptions, cleanOption } from '../utils';
 import Pagination from '../components/Pagination';
+import { useResponsive } from '../hooks/useResponsive';
+import { F, FenbiScope, PageHead, Panel, SectionLabel, StatTile, MetaTag } from '../components/FenbiUI';
 
-const { Title, Text, Paragraph } = Typography;
+const { Text, Paragraph } = Typography;
 
+/** 错题本（与收藏夹统一的粉笔式列表）。筛选、导出、重做、掌握状态逻辑保持原样。 */
 export default function WrongBook() {
   const navigate = useNavigate();
+  const { isMobile } = useResponsive();
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(0);
@@ -20,7 +24,6 @@ export default function WrongBook() {
   const [autoRemove, setAutoRemove] = useState(() => localStorage.getItem('wrongbook_auto_remove') === 'true');
 
   useEffect(() => { loadWrongBook(); }, [page, filter]);
-
   useEffect(() => { localStorage.setItem('wrongbook_auto_remove', String(autoRemove)); }, [autoRemove]);
 
   async function loadWrongBook() {
@@ -32,7 +35,6 @@ export default function WrongBook() {
       setItems(r.data.items);
       setTotal(r.data.total);
       setStats(r.data.stats);
-      // 按题型统计已在 stats.byType 中
     } catch (err) { message.error('加载错题本失败'); }
     finally { setLoading(false); }
   }
@@ -60,7 +62,6 @@ export default function WrongBook() {
         message.info('没有需要重做的错题');
         return;
       }
-      // 创建答题会话（取第一道题的科目）
       const subjectId = r.data.questions[0].subject_id || 1;
       const startRes = await api.post('/practice/start', { subject_id: subjectId, questions: r.data.questions });
       navigate('/practice?session=' + startRes.data.session_id + '&wrongredo=true');
@@ -81,7 +82,7 @@ export default function WrongBook() {
   function exportWrongBook() {
     if (items.length === 0) { message.info('暂无错题可导出'); return; }
     const options = ['A', 'B', 'C', 'D'];
-    let html = '<html><head><meta charset="utf-8"><title>错题本导出</title><style>body{font-family:sans-serif;max-width:800px;margin:0 auto;padding:20px}h1{font-size:22px}.q{margin-bottom:24px;padding:16px;border:1px solid #e8e8e8;border-radius:8px}.stem{font-weight:bold;margin-bottom:8px}.opts{margin:8px 0}.opt{padding:4px 0}.correct{color:green;font-weight:bold}.explain{margin-top:8px;padding:8px;background:#f6ffed;border-radius:4px;font-size:13px}@media print{.no-print{display:none}}</style></head><body>';
+    let html = '<html><head><meta charset="utf-8"><title>错题本导出</title><style>body{font-family:sans-serif;max-width:800px;margin:0 auto;padding:20px}h1{font-size:22px}.q{margin-bottom:24px;padding:16px;border:1px solid #eee;border-radius:8px}.stem{font-weight:bold;margin-bottom:8px}.opts{margin:8px 0}.opt{padding:4px 0}.correct{color:#35b879;font-weight:bold}.explain{margin-top:8px;padding:8px;background:#f0faf4;border-radius:4px;font-size:13px}@media print{.no-print{display:none}}</style></head><body>';
     html += '<h1>错题本</h1><p class="no-print"><button onclick="window.print()">打印</button></p>';
     items.forEach((item, idx) => {
       const opts = parseOptions(item.options_json);
@@ -104,149 +105,159 @@ export default function WrongBook() {
     w.document.close();
   }
 
+  const difficultyTag = (d) => (d <= 2
+    ? <MetaTag tone="success">简单</MetaTag>
+    : d <= 4 ? <MetaTag tone="warning">中等</MetaTag> : <MetaTag tone="error">困难</MetaTag>);
+
   return (
-    <div style={{ maxWidth: 960, margin: '0 auto' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <Title level={3} style={{ margin: 0 }}><BookOutlined /> 错题本</Title>
-        <Space>
-          <Button icon={<ExportOutlined />} onClick={exportWrongBook}>导出</Button>
-          <Button type="primary" icon={<ReloadOutlined />} onClick={startRedo}>重做错题</Button>
-        </Space>
-      </div>
+    <FenbiScope>
+      <PageHead
+        title="错题本"
+        icon={<BookOutlined />}
+        desc="集中回顾做错的题目，标记掌握状态后可自动移出。"
+        extra={
+          <>
+            <Button icon={<ExportOutlined />} onClick={exportWrongBook}>导出</Button>
+            <Button type="primary" icon={<ReloadOutlined />} onClick={startRedo}>重做错题</Button>
+          </>
+        }
+      />
 
-      {/* 统计卡片 */}
       {stats && (
-        <Space size="middle" style={{ marginBottom: 16 }}>
-          <Tag color="red" style={{ fontSize: 14, padding: '4px 12px' }}>未掌握 {stats.active || 0}</Tag>
-          <Tag color="green" style={{ fontSize: 14, padding: '4px 12px' }}>已掌握 {stats.mastered || 0}</Tag>
-          <Tag color="orange" style={{ fontSize: 14, padding: '4px 12px' }}>累计错 {stats.total_wrongs || 0} 次</Tag>
-        </Space>
+        <>
+          <SectionLabel title="错题概况" />
+          <Row gutter={[isMobile ? 8 : 16, isMobile ? 8 : 16]}>
+            <Col xs={8}><StatTile icon={<CloseCircleOutlined />} label="未掌握" value={stats.active || 0} unit="题" tone="error" /></Col>
+            <Col xs={8}><StatTile icon={<CheckCircleOutlined />} label="已掌握" value={stats.mastered || 0} unit="题" tone="success" /></Col>
+            <Col xs={8}><StatTile icon={<BookOutlined />} label="累计错误" value={stats.total_wrongs || 0} unit="次" tone="neutral" /></Col>
+          </Row>
+          <div style={{ height: isMobile ? 16 : 24 }} />
+        </>
       )}
 
-      {/* 按题型统计 */}
       {stats && stats.byType && stats.byType.length > 0 && (
-        <Card size="small" style={{ marginBottom: 16 }}>
-          <Text strong style={{ marginBottom: 8, display: 'block' }}>按题型错误分布</Text>
-          <Space wrap>
-            {stats.byType.map(t => (
-              <Tag key={t.qtype} color="orange">{t.qtype}：错 {t.count} 次</Tag>
-            ))}
+        <Panel title="按题型错误分布" style={{ marginBottom: 16 }} bodyStyle={{ padding: isMobile ? 14 : 18 }}>
+          <Space size={[8, 8]} wrap>
+            {stats.byType.map(t => <MetaTag key={t.qtype}>{t.qtype}：错 {t.count} 次</MetaTag>)}
           </Space>
-        </Card>
+        </Panel>
       )}
 
-      {/* 筛选 & 设置 */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <Radio.Group value={filter} onChange={e => { setFilter(e.target.value); setPage(1); }}>
-          <Radio.Button value="0">未掌握</Radio.Button>
-          <Radio.Button value="1">已掌握</Radio.Button>
-          <Radio.Button value="">全部</Radio.Button>
-        </Radio.Group>
-        <Space>
-          <SettingOutlined />
-          <Text type="secondary">答对自动移出：</Text>
-          <Switch size="small" checked={autoRemove} onChange={setAutoRemove} />
-        </Space>
-      </div>
+      <Panel bodyStyle={{ padding: isMobile ? 12 : 16, paddingBottom: 4 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
+          <Radio.Group value={filter} onChange={e => { setFilter(e.target.value); setPage(1); }}>
+            <Radio.Button value="0">未掌握</Radio.Button>
+            <Radio.Button value="1">已掌握</Radio.Button>
+            <Radio.Button value="">全部</Radio.Button>
+          </Radio.Group>
+          <Space size={6}>
+            <SettingOutlined style={{ color: F.textWeak }} />
+            <Text type="secondary" style={{ fontSize: 13 }}>答对自动移出</Text>
+            <Switch size="small" checked={autoRemove} onChange={setAutoRemove} />
+          </Space>
+        </div>
 
-      {/* 列表 */}
-      {loading ? (
-        <div style={{ textAlign: 'center', padding: 60 }}><Spin size="large" /></div>
-      ) : items.length === 0 ? (
-        <Empty description={filter === '0' ? '没有未掌握的错题，继续保持！' : '暂无错题'} />
-      ) : (
-        <div>
-          {items.map((item, idx) => (
-            <Card key={item.id} size="small" style={{ marginBottom: 8, borderLeft: '4px solid ' + (item.mastered ? '#52c41a' : '#ff4d4f') }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <div style={{ flex: 1, cursor: 'pointer' }} onClick={() => setPreviewItem(item)}>
-                  <Space style={{ marginBottom: 4 }}>
-                    <Tag color="purple">{item.qtype}</Tag>
-                    <Tag color={item.difficulty <= 2 ? 'green' : item.difficulty <= 4 ? 'orange' : 'red'}>
-                      {item.difficulty <= 2 ? '简单' : item.difficulty <= 4 ? '中等' : '困难'}
-                    </Tag>
-                    <Text type="secondary">错 {item.wrong_count} 次</Text>
-                    <Text type="secondary"> | 正确答案：{item.answer}</Text>
-                  </Space>
-                  <div style={{ marginBottom: 4 }}>
-                    <Text>{item.stem}</Text>
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: 60 }}><Spin size="large" /></div>
+        ) : items.length === 0 ? (
+          <Empty description={filter === '0' ? '没有未掌握的错题，继续保持！' : '暂无错题'} />
+        ) : (
+          items.map((item) => (
+            <div key={item.id} className="fb-row">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
+                <div
+                  style={{ flex: 1, minWidth: 0, cursor: 'pointer' }}
+                  onClick={() => setPreviewItem(item)}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+                    <MetaTag tone="primary">{item.qtype}</MetaTag>
+                    {difficultyTag(item.difficulty)}
+                    {(item.category_name || item.subject_name) && <MetaTag>{item.category_name || item.subject_name}</MetaTag>}
+                    <MetaTag tone={item.mastered ? 'success' : 'error'}>{item.mastered ? '已掌握' : '未掌握'}</MetaTag>
+                    <span className="fb-meta">错 {item.wrong_count} 次 · 正确答案 {item.answer}</span>
                   </div>
+                  <div className="fb-row-title">{item.stem}</div>
                   {item.passage && (
-                    <Text type="secondary" style={{ fontSize: 13 }}>
+                    <div className="fb-meta" style={{ marginTop: 6 }}>
                       {item.passage.length > 80 ? item.passage.substring(0, 80) + '...' : item.passage}
-                    </Text>
+                    </div>
                   )}
                 </div>
-                <Space>
+                <Space size={8} wrap>
                   <Popconfirm title="确定将此题移出错题本？" onConfirm={() => removeWrongItem(item)} okText="确定" cancelText="取消">
                     <Button size="small" danger icon={<DeleteOutlined />}>移出</Button>
                   </Popconfirm>
-                  <Button size="small" type={item.mastered ? 'default' : 'primary'}
-                    icon={item.mastered ? <StarFilled style={{ color: '#52c41a' }} /> : <StarOutlined />}
-                    onClick={() => toggleMastered(item)}>
+                  <Button
+                    size="small"
+                    type={item.mastered ? 'default' : 'primary'}
+                    icon={item.mastered ? <StarFilled /> : <StarOutlined />}
+                    onClick={() => toggleMastered(item)}
+                  >
                     {item.mastered ? '已掌握' : '标为掌握'}
                   </Button>
                 </Space>
               </div>
-            </Card>
-          ))}
-
-          <Pagination current={page} total={total} pageSize={15} onChange={setPage} />
-        </div>
-      )}
+            </div>
+          ))
+        )}
+        <div style={{ marginTop: 8 }}><Pagination current={page} total={total} pageSize={15} onChange={setPage} /></div>
+      </Panel>
 
       {/* 详情弹窗 */}
-      <Modal title="错题详情" open={!!previewItem} onCancel={() => setPreviewItem(null)}
-        footer={<Button onClick={() => setPreviewItem(null)}>关闭</Button>} width={700}>
+      <Modal
+        className="fenbi-portal"
+        title="错题详情"
+        open={!!previewItem}
+        onCancel={() => setPreviewItem(null)}
+        footer={<Button onClick={() => setPreviewItem(null)}>关闭</Button>}
+        width={700}
+      >
         {previewItem && (
           <div>
-            <Space style={{ marginBottom: 12 }}>
+            <Space size={[6, 6]} wrap style={{ marginBottom: 12 }}>
               <Tag color="purple">{previewItem.qtype}</Tag>
               <Tag color={previewItem.difficulty <= 2 ? 'green' : previewItem.difficulty <= 4 ? 'orange' : 'red'}>
                 {previewItem.difficulty <= 2 ? '简单' : previewItem.difficulty <= 4 ? '中等' : '困难'}
               </Tag>
               <Text type="secondary">错误次数：{previewItem.wrong_count}</Text>
-              <Text type="secondary"> | 正确答案：{previewItem.answer}</Text>
+              <Text type="secondary">正确答案：{previewItem.answer}</Text>
             </Space>
 
             {previewItem.passage && (
-              <Card size="small" style={{ marginBottom: 12, background: '#f6f6f6' }}>
+              <div style={{ marginBottom: 12, padding: 12, background: '#F7F8FA', borderRadius: 8 }}>
                 <Paragraph style={{ margin: 0 }}>{previewItem.passage}</Paragraph>
-              </Card>
+              </div>
             )}
 
-            <Card size="small" style={{ marginBottom: 12 }}>
-              <Text strong>{previewItem.stem}</Text>
-            </Card>
+            <div style={{ fontSize: 16, lineHeight: 1.8, fontWeight: 600, marginBottom: 14 }}>{previewItem.stem}</div>
 
-            <div style={{ marginBottom: 12 }}>
+            <div style={{ marginBottom: 14 }}>
               {parseOptions(previewItem.options_json).map((opt, i) => {
                 const letter = String.fromCharCode(65 + i);
                 const isCorrect = letter === previewItem.answer;
                 return (
                   <div key={i} style={{
-                    padding: '8px 12px', marginBottom: 4, borderRadius: 4,
-                    background: isCorrect ? '#f6ffed' : '#fff',
-                    border: isCorrect ? '1px solid #b7eb8f' : '1px solid #f0f0f0'
+                    padding: '9px 12px', marginBottom: 8, borderRadius: 6,
+                    background: isCorrect ? '#F0FAF4' : '#FFFFFF',
+                    border: isCorrect ? '1px solid #B5E5CC' : `1px solid ${F.border}`,
+                    color: isCorrect ? F.success : F.text,
+                    lineHeight: 1.7,
                   }}>
-                    <Text type={isCorrect ? 'success' : undefined}>
-                      {letter}. {cleanOption(opt)}{isCorrect && ' ✓'}
-                    </Text>
+                    {letter}. {cleanOption(opt)}{isCorrect && ' ✓'}
                   </div>
                 );
               })}
             </div>
 
-            <Card size="small" style={{ background: '#fffbe6', border: '1px solid #ffe58f' }}>
-              <Paragraph style={{ margin: 0 }}><Text strong>解析：</Text>{previewItem.explanation}</Paragraph>
-            </Card>
-
-            <div style={{ marginTop: 12 }}>
-              <Text type="secondary">你上次的答案：{previewItem.last_wrong_answer}</Text>
+            <div style={{ padding: 14, background: F.primaryLight, border: `1px solid ${F.selectedBorder}`, borderRadius: 8 }}>
+              <div style={{ fontWeight: 600, marginBottom: 6, color: F.text }}>题目解析</div>
+              <Paragraph style={{ margin: 0, lineHeight: 1.8 }}>{previewItem.explanation || '暂无解析'}</Paragraph>
             </div>
+
+            <div style={{ marginTop: 12 }}><Text type="secondary">你上次的答案：{previewItem.last_wrong_answer}</Text></div>
           </div>
         )}
       </Modal>
-    </div>
+    </FenbiScope>
   );
 }
