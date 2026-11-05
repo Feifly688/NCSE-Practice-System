@@ -292,7 +292,7 @@ export default function ExamPaperTake() {
     const unanswered = total - answeredCount;
     Modal.confirm({
       title: '确认交卷？',
-      content: `共 ${total} 题，已作答 ${answeredCount} 题${unanswered > 0 ? `，还有 ${unanswered} 题未作答` : ''}。`,
+      content: unanswered > 0 ? '还有题目未作答，确定要交卷吗？' : '确定要交卷吗？',
       okText: '交卷', cancelText: '继续答题',
       onOk: async () => {
         setSubmitting(true);
@@ -783,7 +783,6 @@ export default function ExamPaperTake() {
             <Col flex="auto">
               <Space size={24} wrap>
                 <Statistic title="得分" value={result.score} suffix="/ 100" valueStyle={{ color: result.score >= 60 ? '#16a34a' : '#dc2626' }} />
-                <Statistic title="答对" value={result.correct} suffix={`/ ${result.total}`} />
                 <Statistic title="正确率" value={result.score} suffix="%" />
                 <Statistic title="用时" value={fmtTime(elapsed)} />
               </Space>
@@ -795,7 +794,7 @@ export default function ExamPaperTake() {
               <Space size={[8, 6]} wrap>
                 {Object.entries(result.bySection).map(([name, v]) => (
                   <Tag key={name} color={v.correct / v.total >= 0.6 ? 'green' : 'red'}>
-                    {name}：{v.correct}/{v.total}
+                    {name}：{Math.round((v.correct / (v.total || 1)) * 100)}%
                   </Tag>
                 ))}
               </Space>
@@ -973,11 +972,11 @@ export default function ExamPaperTake() {
         >
           答题卡
           {unansweredCount > 0 && (
-            <span style={{ marginLeft: 6, color: '#f5222d' }}>{unansweredCount}</span>
+            <span style={{ marginLeft: 6, width: 6, height: 6, borderRadius: '50%', background: '#f5222d', display: 'inline-block' }} />
           )}
         </Button>
         <Text style={{ fontSize: 13, color: FB.textSub, whiteSpace: 'nowrap' }}>
-          已答 {answeredCount}/{total}
+          答题进度
         </Text>
         <div style={{ flex: 1, minWidth: 60 }}>
           <Progress

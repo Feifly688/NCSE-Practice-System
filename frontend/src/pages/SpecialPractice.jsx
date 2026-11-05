@@ -16,7 +16,7 @@ const { Text } = Typography;
  * 专项练习（参照粉笔题库目录页）。
  *
  * 三栏结构：
- *   左侧  一级模块分类导航（选中浅橙底）+ 题量
+ *   左侧  一级模块分类导航（选中浅橙底）
  *   中间  题库概览（名称/介绍/总量/开始练习）+ 选中模块的考点树 + 自定义刷题
  *   右侧  练习历史 + 学习统计
  * 顶部四个入口卡（快速练习 / 历年试卷 / AI 生成题 / 智能组卷）保持不变。
@@ -171,8 +171,6 @@ export default function SpecialPractice() {
 
   // 当前选中的一级模块；切换题库导致 tree 变化时自动回退到第一个模块
   const activeTopNode = tree.find((n) => n.id === activeTop) || tree[0] || null;
-  // 题库总量：后端分类树自带的题量汇总（不生成任何虚构数据）
-  const totalQuestions = tree.reduce((sum, n) => sum + (Number(n.totalCount) || 0), 0);
 
   const renderNode = (node, depth) => {
     const isOpen = expanded.includes(node.id);
@@ -197,9 +195,6 @@ export default function SpecialPractice() {
           </span>
           <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {node.name}
-          </span>
-          <span style={{ fontSize: 12, color: tokens.textWeak, flexShrink: 0 }}>
-            {node.doneCount}/{node.totalCount}
           </span>
           {!hasChildren && (
             <Button
@@ -239,7 +234,7 @@ export default function SpecialPractice() {
               fontWeight: on ? 600 : 400,
             }}
           >
-            {n.name} <span style={{ fontSize: 12, opacity: 0.7 }}>{n.totalCount}</span>
+            {n.name}
           </button>
         );
       })}
@@ -270,7 +265,6 @@ export default function SpecialPractice() {
             onMouseLeave={(e) => { if (!on) e.currentTarget.style.background = 'transparent'; }}
           >
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.name}</span>
-            <span style={{ fontSize: 12, color: tokens.textWeak, flexShrink: 0 }}>{n.totalCount}</span>
           </div>
         );
       })}
@@ -320,7 +314,7 @@ export default function SpecialPractice() {
 
         {/* 中间：题库概览 + 考点树 + 自定义刷题 */}
         <div style={{ flex: 1, minWidth: 0 }}>
-          {/* 题库概览：名称 / 介绍 / 题目总量 / 练习入口 */}
+          {/* 题库概览：名称 / 介绍 / 练习入口 */}
           <Card
             style={{ marginBottom: 16, borderRadius: 10, borderColor: tokens.cardBorder, background: tokens.cardBg }}
             styles={{ body: { padding: isMobile ? 16 : 20 } }}
@@ -332,9 +326,6 @@ export default function SpecialPractice() {
                 </div>
                 <div style={{ fontSize: 13, color: tokens.textWeak, marginTop: 6, lineHeight: 1.7 }}>
                   按模块与考点逐级练习，覆盖单选、多选、判断等题型，答题进度自动保存
-                </div>
-                <div style={{ fontSize: 13, color: tokens.textSub, marginTop: 10 }}>
-                  共 <b style={{ color: tokens.primary, fontSize: 17 }}>{totalQuestions}</b> 道题 · {tree.length} 个模块
                 </div>
               </div>
               <Button
@@ -435,7 +426,7 @@ export default function SpecialPractice() {
                   padding: '10px 14px', borderRadius: 8, background: tokens.cardBgAlt,
                 }}>
                   <span style={{ fontSize: 13, color: tokens.textSub }}>
-                    该条件下共有 <b style={{ color: tokens.primary }}>{cfgAvailable ?? '—'}</b> 道题
+                    {cfgAvailable ? '已按当前条件准备好练习题目' : '当前条件下暂无可练习的题目'}
                   </span>
                   <Button
                     type="primary"
@@ -483,8 +474,7 @@ export default function SpecialPractice() {
                     {h.title || `练习 #${h.id}`}
                   </div>
                   <div style={{ fontSize: 12, color: tokens.textWeak, marginTop: 2 }}>
-                    {h.total ? `${h.correct || 0}/${h.total} 题` : ''}
-                    {h.score != null ? ` · ${h.score} 分` : ''}
+                    {h.score != null ? `${h.score} 分` : '查看结果'}
                     {h.duration_sec != null ? ` · ${formatTime(h.duration_sec)}` : ''}
                   </div>
                 </div>
@@ -492,18 +482,22 @@ export default function SpecialPractice() {
             </Card>
 
             <Card
+              title={<span style={{ color: tokens.text, fontSize: 14 }}>快捷入口</span>}
               style={{ borderRadius: 10, borderColor: tokens.cardBorder, background: tokens.cardBg }}
               styles={{ body: { padding: 14 } }}
             >
               {[
-                { icon: <ThunderboltOutlined />, label: '已练题数', value: stats?.total_answered ?? stats?.totalAnswered ?? 0, color: tokens.primary },
-                { icon: <CheckCircleFilled />, label: '错题', value: stats?.wrong_count ?? stats?.wrongCount ?? 0, color: tokens.error },
-                { icon: <FireOutlined />, label: '收藏', value: stats?.favorite_count ?? stats?.favoriteCount ?? 0, color: tokens.accent },
+                { icon: <ThunderboltOutlined />, label: '练习记录', to: '/history' },
+                { icon: <CheckCircleFilled />, label: '错题本', to: '/wrong-book' },
+                { icon: <FireOutlined />, label: '收藏夹', to: '/favorites' },
               ].map((it) => (
-                <div key={it.label} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0' }}>
-                  <span style={{ color: it.color }}>{it.icon}</span>
-                  <span style={{ flex: 1, fontSize: 13, color: tokens.textSub }}>{it.label}</span>
-                  <span style={{ fontSize: 14, fontWeight: 600, color: tokens.text }}>{it.value}</span>
+                <div key={it.label} onClick={() => navigate(it.to)} style={{
+                  display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', cursor: 'pointer',
+                  borderBottom: `1px solid ${tokens.divider}`, color: tokens.textSub, fontSize: 13,
+                }}>
+                  <span style={{ color: tokens.primary }}>{it.icon}</span>
+                  <span style={{ flex: 1 }}>{it.label}</span>
+                  <RightOutlined style={{ fontSize: 10, color: tokens.textWeak }} />
                 </div>
               ))}
             </Card>
@@ -534,10 +528,10 @@ export default function SpecialPractice() {
           />
         </div>
         <div style={{ marginBottom: 18 }}>
-          <Text strong style={{ color: tokens.text, display: 'block', marginBottom: 10 }}>试卷结构（国考行测 · 固定 130 题）</Text>
+          <Text strong style={{ color: tokens.text, display: 'block', marginBottom: 10 }}>试卷结构（国考行测）</Text>
           <div style={{ padding: '10px 14px', borderRadius: 8, background: tokens.cardBgAlt, fontSize: 13, lineHeight: 2, color: tokens.textSub }}>
-            政治理论 20 · 常识判断 15 · 言语理解与表达 30<br />
-            数量关系 10 · 判断推理 35 · 资料分析 20
+            政治理论 · 常识判断 · 言语理解与表达<br />
+            数量关系 · 判断推理 · 资料分析
           </div>
         </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
@@ -579,7 +573,7 @@ export default function SpecialPractice() {
                     value={x.id}
                     style={{ height: 'auto', lineHeight: '22px', padding: '8px 12px', borderRadius: 8, borderLeft: '1px solid #d9d9d9' }}
                   >
-                    {x.name}<span style={{ color: tokens.textWeak, marginLeft: 6 }}>{x.count} 题</span>
+                    {x.name}
                   </Radio.Button>
                 ))}
               </div>

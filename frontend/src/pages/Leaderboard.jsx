@@ -41,8 +41,6 @@ export default function Leaderboard() {
     },
     { title: '平均分', dataIndex: 'avg_score', render: v => <MetaTag tone={v >= 80 ? 'success' : v >= 60 ? 'primary' : 'error'}>{v}</MetaTag>, sorter: (a, b) => a.avg_score - b.avg_score },
     { title: '答题次数', dataIndex: 'total_sessions', sorter: (a, b) => a.total_sessions - b.total_sessions },
-    { title: '总题数', dataIndex: 'total_questions' },
-    { title: '答对数', dataIndex: 'total_correct' },
     { title: '正确率', render: (_, r) => r.total_questions > 0 ? ((r.total_correct / r.total_questions) * 100).toFixed(1) + '%' : '-' },
   ];
 

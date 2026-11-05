@@ -30,7 +30,7 @@ function FbBars({ items = [] }) {
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 6 }}>
               <span style={{ color: F.text }}>{m.name || '未分类'}</span>
               <span style={{ color: F.textSub }}>
-                {rate}% <span style={{ color: F.textWeak }}>({correct}/{total})</span>
+                {rate}%
               </span>
             </div>
             <div style={{ height: 8, borderRadius: 999, background: '#F2F3F5', overflow: 'hidden' }}>
@@ -131,7 +131,7 @@ export default function Dashboard() {
         <>
           <SectionLabel title="学习概览" />
           <Row gutter={[isMobile ? 8 : 16, isMobile ? 8 : 16]}>
-            <Col xs={12} md={6}><StatTile icon={<EditOutlined />} label="累计答题" value={overall.total_questions || 0} unit="题" /></Col>
+            <Col xs={12} md={6}><StatTile icon={<ClockCircleOutlined />} label="平均用时" value={overall.avg_duration || 0} unit="秒" /></Col>
             <Col xs={12} md={6}><StatTile icon={<TrophyOutlined />} label="正确率" value={accuracy} unit="%" tone="success" /></Col>
             <Col xs={12} md={6}><StatTile icon={<CheckCircleOutlined />} label="平均分" value={overall.avg_score || 0} /></Col>
             <Col xs={12} md={6}><StatTile icon={<ClockCircleOutlined />} label="练习次数" value={overall.total_sessions || 0} unit="次" tone="neutral" /></Col>
@@ -151,7 +151,6 @@ export default function Dashboard() {
                       <Space size={[6, 6]} wrap>
                         <Tag color="orange">{item.subject_name || '综合练习'}</Tag>
                         {item.status === 'in_progress' ? <Tag color="warning">答题中</Tag> : <Tag color={item.score >= 60 ? 'green' : 'red'}>{item.score} 分</Tag>}
-                        <Text type="secondary">{item.total} 题{item.status !== 'in_progress' && ` · 答对 ${item.correct} 题`}</Text>
                         <Text type="secondary" style={{ fontSize: 12 }}>{new Date(item.started_at).toLocaleString('zh-CN')}</Text>
                       </Space>
                       {item.status === 'in_progress' && (
@@ -177,8 +176,7 @@ export default function Dashboard() {
                     <div style={{ fontSize: 11, color: F.textWeak }}>正确率</div>
                   </DonutChart>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 108 }}>
-                    <div><Text type="secondary" style={{ fontSize: 12 }}>答对</Text><div style={{ fontSize: 18, fontWeight: 600, color: F.success }}>{totalC} 题</div></div>
-                    <div><Text type="secondary" style={{ fontSize: 12 }}>总题</Text><div style={{ fontSize: 18, fontWeight: 600, color: F.text }}>{totalQ} 题</div></div>
+                    <div><Text type="secondary" style={{ fontSize: 12 }}>练习次数</Text><div style={{ fontSize: 18, fontWeight: 600, color: F.text }}>{overall.total_sessions || 0} 次</div></div>
                     <div><Text type="secondary" style={{ fontSize: 12 }}>平均用时</Text><div style={{ fontSize: 18, fontWeight: 600, color: F.text }}>{overall.avg_duration || 0} 秒</div></div>
                   </div>
                 </div>

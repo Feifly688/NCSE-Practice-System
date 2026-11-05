@@ -191,7 +191,7 @@ export default function ExamPaperList() {
                     }
                     description={
                       <Text style={{ fontSize: 13, color: tokens.textWeak }}>
-                        共 {p.parsed_count} 题
+                        按考试年份与类别整理的完整真题卷
                         {/* 来源属性仅管理员可见 */}
                         {isAdmin && !isMobile ? ` · 来源：${p.source || '—'}` : ''}
                       </Text>

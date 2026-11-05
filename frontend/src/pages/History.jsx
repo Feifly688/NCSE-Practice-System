@@ -41,6 +41,7 @@ export default function History() {
   }
 
   const overall = stats?.overall || {};
+  const accuracy = overall.total_questions > 0 ? Math.round((overall.total_correct / overall.total_questions) * 100) : 0;
 
   return (
     <FenbiScope>
@@ -53,14 +54,14 @@ export default function History() {
 
       <SectionLabel title="累计数据" />
       <Row gutter={[isMobile ? 8 : 16, isMobile ? 8 : 16]}>
-        <Col xs={12} md={6}><StatTile icon={<EditOutlined />} label="总答题数" value={overall.total_questions || 0} unit="题" /></Col>
-        <Col xs={12} md={6}><StatTile icon={<CheckCircleOutlined />} label="总正确" value={overall.total_correct || 0} unit="题" tone="success" /></Col>
-        <Col xs={12} md={6}><StatTile icon={<TrophyOutlined />} label="平均分" value={overall.avg_score || 0} /></Col>
-        <Col xs={12} md={6}><StatTile icon={<ClockCircleOutlined />} label="练习次数" value={overall.total_sessions || 0} unit="次" tone="neutral" /></Col>
+        <Col xs={12} md={6}><StatTile icon={<TrophyOutlined />} label="正确率" value={accuracy} unit="%" tone="success" /></Col>
+        <Col xs={12} md={6}><StatTile icon={<CheckCircleOutlined />} label="平均分" value={overall.avg_score || 0} /></Col>
+        <Col xs={12} md={6}><StatTile icon={<ClockCircleOutlined />} label="平均用时" value={overall.avg_duration || 0} unit="秒" /></Col>
+        <Col xs={12} md={6}><StatTile icon={<EditOutlined />} label="练习次数" value={overall.total_sessions || 0} unit="次" tone="neutral" /></Col>
       </Row>
 
       <div style={{ height: isMobile ? 16 : 24 }} />
-      <SectionLabel title="全部记录" extra={<span className="fb-meta">共 {total} 条</span>} />
+      <SectionLabel title="全部记录" />
       <Panel bodyStyle={{ padding: isMobile ? 12 : 16 }}>
         {loading ? (
           <div style={{ textAlign: 'center', padding: 48 }}><Spin size="large" /></div>
@@ -95,8 +96,6 @@ export default function History() {
                       <MetaTag tone={isInProgress ? 'warning' : 'success'}>{isInProgress ? '答题中' : '已完成'}</MetaTag>
                     </div>
                     <div style={{ display: 'flex', gap: isMobile ? 14 : 28, flexWrap: 'wrap', alignItems: 'center' }}>
-                      <span className="fb-meta">题数 <b style={{ color: F.text, fontSize: 14 }}>{s.total}</b></span>
-                      <span className="fb-meta">正确 <b style={{ color: F.success, fontSize: 14 }}>{isInProgress ? '-' : s.correct}</b></span>
                       <span className="fb-meta">得分 <b style={{ color: isInProgress ? F.text : (s.score >= 60 ? F.success : F.error), fontSize: 14 }}>{isInProgress ? '进行中' : s.score}</b></span>
                       <span className="fb-meta">用时 <b style={{ color: F.text, fontSize: 14 }}>{formatDuration(s.duration_sec)}</b></span>
                       <span className="fb-meta">{new Date(s.started_at).toLocaleString('zh-CN')}</span>

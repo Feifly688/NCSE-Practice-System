@@ -307,7 +307,7 @@ export default function Practice() {
         subjectIdForSession = qs[0].subject_id || selectedSubject || 1;
         const short = (r.data.sections || []).filter((x) => x.picked < x.target);
         if (short.length) {
-          message.info('部分模块题量不足，已按实际可用组卷：' + short.map((x) => `${x.section} ${x.picked}/${x.target}`).join('、'));
+          message.info('部分模块可练习题目较少，已按实际可用题目组卷');
         }
       } else if (fromTaxonomy) {
         // 专项练习：按分类/题型/难度抽题（走 taxonomy 池）
@@ -338,7 +338,7 @@ export default function Practice() {
         // 分类练习的题不一定属于某个 subject，会话用第一个可用 subject
         subjectIdForSession = qs[0].subject_id || selectedSubject || 1;
         if (r.data.questions.length < (countParam || count)) {
-          message.info(`该条件下共 ${r.data.available} 道题，已随机抽取 ${r.data.questions.length} 道`);
+          message.info('已按当前条件为你抽取练习题目');
         }
       } else {
         if (!selectedSubject) { message.warning('请选择科目'); setStep('setup'); return; }
@@ -346,7 +346,7 @@ export default function Practice() {
         const r = await api.get('/questions/random', { params: { count, subject: subject.slug, qtype: filterQtype } });
         if (r.data.questions.length === 0) { message.error('该科目暂无题目'); setStep('setup'); return; }
         if (r.data.questions.length < count) {
-          message.warning(`该科目只有 ${r.data.questions.length} 道题，将全部练习`);
+          message.warning('该科目可练习的题目较少，将全部练习');
         }
         qs = r.data.questions;
       }
@@ -567,9 +567,7 @@ export default function Practice() {
             gridTemplateColumns: 'repeat(auto-fit, minmax(70px, 1fr))',
             gap: 12, marginTop: 16,
           }}>
-            <div><Text type="secondary">答对</Text><br /><Text strong style={{ fontSize: 20 }}>{result.correct}</Text></div>
-            <div><Text type="secondary">答错</Text><br /><Text strong style={{ fontSize: 20 }}>{result.total - result.correct}</Text></div>
-            <div><Text type="secondary">总题数</Text><br /><Text strong style={{ fontSize: 20 }}>{result.total}</Text></div>
+            <div><Text type="secondary">正确率</Text><br /><Text strong style={{ fontSize: 20 }}>{result.total ? Math.round((result.correct / result.total) * 100) : 0}%</Text></div>
             <div><Text type="secondary">用时</Text><br /><Text strong style={{ fontSize: 20 }}>{formatTime(result.duration_sec)}</Text></div>
           </div>
           <div style={{ marginTop: 24 }}>

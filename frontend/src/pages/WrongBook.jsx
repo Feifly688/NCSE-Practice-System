@@ -123,22 +123,10 @@ export default function WrongBook() {
         }
       />
 
-      {stats && (
-        <>
-          <SectionLabel title="错题概况" />
-          <Row gutter={[isMobile ? 8 : 16, isMobile ? 8 : 16]}>
-            <Col xs={8}><StatTile icon={<CloseCircleOutlined />} label="未掌握" value={stats.active || 0} unit="题" tone="error" /></Col>
-            <Col xs={8}><StatTile icon={<CheckCircleOutlined />} label="已掌握" value={stats.mastered || 0} unit="题" tone="success" /></Col>
-            <Col xs={8}><StatTile icon={<BookOutlined />} label="累计错误" value={stats.total_wrongs || 0} unit="次" tone="neutral" /></Col>
-          </Row>
-          <div style={{ height: isMobile ? 16 : 24 }} />
-        </>
-      )}
-
       {stats && stats.byType && stats.byType.length > 0 && (
-        <Panel title="按题型错误分布" style={{ marginBottom: 16 }} bodyStyle={{ padding: isMobile ? 14 : 18 }}>
+        <Panel title="涉及题型" style={{ marginBottom: 16 }} bodyStyle={{ padding: isMobile ? 14 : 18 }}>
           <Space size={[8, 8]} wrap>
-            {stats.byType.map(t => <MetaTag key={t.qtype}>{t.qtype}：错 {t.count} 次</MetaTag>)}
+            {stats.byType.map(t => <MetaTag key={t.qtype}>{t.qtype}</MetaTag>)}
           </Space>
         </Panel>
       )}
@@ -174,7 +162,7 @@ export default function WrongBook() {
                     {difficultyTag(item.difficulty)}
                     {(item.category_name || item.subject_name) && <MetaTag>{item.category_name || item.subject_name}</MetaTag>}
                     <MetaTag tone={item.mastered ? 'success' : 'error'}>{item.mastered ? '已掌握' : '未掌握'}</MetaTag>
-                    <span className="fb-meta">错 {item.wrong_count} 次 · 正确答案 {item.answer}</span>
+                    <span className="fb-meta">正确答案 {item.answer}</span>
                   </div>
                   <div className="fb-row-title">{item.stem}</div>
                   {item.passage && (
@@ -219,7 +207,6 @@ export default function WrongBook() {
               <Tag color={previewItem.difficulty <= 2 ? 'green' : previewItem.difficulty <= 4 ? 'orange' : 'red'}>
                 {previewItem.difficulty <= 2 ? '简单' : previewItem.difficulty <= 4 ? '中等' : '困难'}
               </Tag>
-              <Text type="secondary">错误次数：{previewItem.wrong_count}</Text>
               <Text type="secondary">正确答案：{previewItem.answer}</Text>
             </Space>
 

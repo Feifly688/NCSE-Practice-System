@@ -53,7 +53,7 @@ export default function Favorites() {
         extra={<Button icon={<EditOutlined />} onClick={() => navigate('/practice')}>去题库</Button>}
       />
 
-      <SectionLabel title="收藏列表" extra={<span className="fb-meta">共 {total} 道</span>} />
+      <SectionLabel title="收藏列表" />
       <Panel bodyStyle={{ padding: isMobile ? 12 : 16, paddingBottom: 4 }}>
         {loading ? (
           <div style={{ textAlign: 'center', padding: 60 }}><Spin size="large" /></div>

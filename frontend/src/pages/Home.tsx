@@ -106,7 +106,6 @@ function WeekTrend({ data, loading }: { data?: TrendItem[]; loading?: boolean })
       <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', height: 140, padding: '0 12px' }}>
         {data.map((item, idx) => (
           <div key={idx} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
-            <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', fontWeight: 500 }}>{item.count}</div>
             <div style={{ width: '65%', maxWidth: 48, height: `${Math.max((item.count / maxCount) * 100, 6)}px`, background: 'linear-gradient(180deg, #60A5FA 0%, #3B82F6 100%)', borderRadius: '6px 6px 0 0', transition: 'height 0.3s ease', minHeight: 6 }} />
             <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>{item.date}</div>
           </div>
@@ -342,12 +341,10 @@ export default function Home() {
 
         {/* ─── Stats ─── */}
         <Row gutter={[isMobile ? 8 : 14, isMobile ? 8 : 14]} style={{ marginBottom: isMobile ? 32 : 50, pointerEvents: 'auto' }}>
-          <Col xs={12} sm={8} md={4}><StatCard icon={<EditOutlined />} title="今日答题" value={stats?.todayAnswers ?? '-'} {...colorMap.todayAnswers} loading={loading} /></Col>
-          <Col xs={12} sm={8} md={4}><StatCard icon={<TrophyOutlined />} title="今日正确率" value={stats?.todayCorrectRate ? `${stats.todayCorrectRate}%` : '-'} {...colorMap.todayCorrectRate} loading={loading} /></Col>
-          <Col xs={12} sm={8} md={4}><StatCard icon={<UserOutlined />} title="注册用户" value={stats?.totalUsers ?? '-'} {...colorMap.totalUsers} loading={loading} /></Col>
-          <Col xs={12} sm={8} md={4}><StatCard icon={<BookOutlined />} title="题库总数" value={stats?.totalQuestions ?? '-'} {...colorMap.totalQuestions} loading={loading} /></Col>
-          <Col xs={12} sm={8} md={4}><StatCard icon={<EyeOutlined />} title="总访问量" value={stats?.totalVisits ?? '-'} {...colorMap.totalVisits} loading={loading} /></Col>
-          <Col xs={12} sm={8} md={4}><StatCard icon={<FireOutlined />} title="今日访问" value={stats?.todayVisits ?? '-'} {...colorMap.todayVisits} loading={loading} /></Col>
+          <Col xs={12} sm={12} md={6}><StatCard icon={<TrophyOutlined />} title="今日正确率" value={stats?.todayCorrectRate ? `${stats.todayCorrectRate}%` : '-'} {...colorMap.todayCorrectRate} loading={loading} /></Col>
+          <Col xs={12} sm={12} md={6}><StatCard icon={<UserOutlined />} title="注册用户" value={stats?.totalUsers ?? '-'} {...colorMap.totalUsers} loading={loading} /></Col>
+          <Col xs={12} sm={12} md={6}><StatCard icon={<EyeOutlined />} title="总访问量" value={stats?.totalVisits ?? '-'} {...colorMap.totalVisits} loading={loading} /></Col>
+          <Col xs={12} sm={12} md={6}><StatCard icon={<FireOutlined />} title="今日访问" value={stats?.todayVisits ?? '-'} {...colorMap.todayVisits} loading={loading} /></Col>
         </Row>
 
         {/* ─── Feature Cards ─── */}
