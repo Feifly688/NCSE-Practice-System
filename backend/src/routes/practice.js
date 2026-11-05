@@ -407,25 +407,31 @@ router.get('/wrong-book', requireAuth, asyncHandler(async (req, res) => {
     );
     statsRows[0].byType = byType;
 
-    // 该用户错题涉及的一级模块，用于错题本按模块导航与分模块重做
-    const [moduleRows] = await conn.query(
-      `SELECT COALESCE(qm.module_id, 0) AS module_id,
-              COALESCE(qm.module_name, '其他') AS module_name,
-              COUNT(*) AS count
-         FROM wrong_book wb
-         JOIN question q ON q.id = wb.question_id
-         LEFT JOIN (
-           SELECT m.ref_id, MIN(c.id) AS module_id, MIN(c.name) AS module_name
-             FROM question_category_map m
-             JOIN question_category c ON c.id = m.category_id AND c.level = 1
-            WHERE m.pool = 'question'
-            GROUP BY m.ref_id
-         ) qm ON qm.ref_id = q.id
-        WHERE wb.user_id = ?
-        GROUP BY qm.module_id, qm.module_name
-        ORDER BY module_id`,
-      [req.user.userId]
-    );
+    // 该用户错题涉及的一级模块，用于错题本按模块导航与分模块重做。
+    // 按需计算：只有错题本页显式带 withModules=1 才跑这个聚合，
+    // 否则题库页等「只取统计数字」的请求也要跟着全表扫描分类映射，白白拖慢响应。
+    let moduleRows = [];
+    if (req.query.withModules === '1') {
+      const [mods] = await conn.query(
+        `SELECT COALESCE(qm.module_id, 0) AS module_id,
+                COALESCE(qm.module_name, '其他') AS module_name,
+                COUNT(*) AS count
+           FROM wrong_book wb
+           JOIN question q ON q.id = wb.question_id
+           LEFT JOIN (
+             SELECT m.ref_id, MIN(c.id) AS module_id, MIN(c.name) AS module_name
+               FROM question_category_map m
+               JOIN question_category c ON c.id = m.category_id AND c.level = 1
+              WHERE m.pool = 'question'
+              GROUP BY m.ref_id
+           ) qm ON qm.ref_id = q.id
+          WHERE wb.user_id = ?
+          GROUP BY qm.module_id, qm.module_name
+          ORDER BY module_id`,
+        [req.user.userId]
+      );
+      moduleRows = mods;
+    }
 
     return { items: rows, total: countRows[0].total, stats: statsRows[0], modules: moduleRows };
   });

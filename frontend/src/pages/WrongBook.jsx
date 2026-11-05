@@ -38,7 +38,7 @@ export default function WrongBook() {
   async function loadWrongBook() {
     setLoading(true);
     try {
-      const params = { page, pageSize: 15 };
+      const params = { page, pageSize: 15, withModules: '1' };
       if (filter !== '') params.mastered = filter;
       if (moduleId !== '') params.categoryId = moduleId;
       const r = await api.get('/practice/wrong-book', { params });
