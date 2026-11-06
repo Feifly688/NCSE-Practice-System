@@ -64,6 +64,8 @@ function groupSectionQuestions(questions) {
     out.push({
       id: `grp-${gid}`,
       materialGroup: gid,
+      // 父级大题（材料组）标题，智能组卷下发的显式题组带此字段
+      title: head.materialTitle || null,
       passage: head.passage || (head.materialRef && head.materialRef.passage) || '',
       images: (head.images || []).filter((x) => /-m(-\d+)?\./.test(x)),
       questions: [q],
@@ -856,7 +858,7 @@ export default function ExamPaperTake() {
               {groupSectionQuestions(s.questions).map((grp) => {
                 // 材料组但正文与图表都为空（材料组延伸到后续分区时的边界情况）
                 // → 不渲染空的「本篇资料」面板，退回单列列表
-                const hasMaterial = Boolean(grp.passage) || (grp.images || []).length > 0;
+                const hasMaterial = Boolean(grp.passage) || (grp.images || []).length > 0 || Boolean(grp.title);
                 if (!grp.materialGroup || !hasMaterial) {
                   return grp.questions.map(renderQuestionCard);
                 }
@@ -878,7 +880,7 @@ export default function ExamPaperTake() {
                         style={{ height: '100%', borderRadius: 8, borderColor: FB.border, display: 'flex', flexDirection: 'column' }}
                         styles={{ body: { padding: 16, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', background: FB.cardBg } }}
                       >
-                        <div style={{ fontSize: 13, color: FB.textWeak, marginBottom: 8, flexShrink: 0 }}>本篇资料</div>
+                        <div style={{ fontSize: 13, color: FB.textWeak, marginBottom: 8, flexShrink: 0 }}>{grp.title || "本篇资料"}</div>
                         <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', paddingRight: 4 }}>
                           {renderMaterialBody(grp, { fontSize: 16, eager: true })}
                         </div>
@@ -900,7 +902,7 @@ export default function ExamPaperTake() {
                   /* ── 窄屏：两栏会把题目挤到读不了，改为材料卡 + 题目流式堆叠 ── */
                   <div key={`grp-${grp.id}`}>
                     <Card size="small" style={{ borderRadius: 8, marginBottom: 12, borderColor: FB.border }} styles={{ body: { padding: 14, background: FB.cardBg } }}>
-                      <div style={{ fontSize: 13, color: FB.textWeak, marginBottom: 6 }}>本篇资料</div>
+                      <div style={{ fontSize: 13, color: FB.textWeak, marginBottom: 6 }}>{grp.title || "本篇资料"}</div>
                       {renderMaterialBody(grp, { fontSize: isMobile ? 15 : 16, eager: false })}
                     </Card>
                     {grp.questions.map((q) => renderQuestionCard(q, { hidePassage: true, hideMaterialImages: true }))}

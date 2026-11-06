@@ -149,16 +149,35 @@ router.post('/smart-paper', requireAuth, asyncHandler(async (req, res) => {
         [title, now.getFullYear(), picked.questions.length, picked.questions.length, req.user.userId]
       );
       const pid = pr.insertId;
+
+      // 资料分析：先落「父级大题」(一篇材料一行)，再把 5 道小题显式关联过去。
+      // 父级大题不计入卷面题数，子题仍是正常作答/判分题目。
+      const groupIdByNo = new Map();
+      const groups = picked.materialGroups || [];
+      for (const g of groups) {
+        const [gr] = await conn.query(
+          `INSERT INTO exam_paper_material_group
+             (exam_paper_id, group_no, title, passage, images, question_count)
+           VALUES (?,?,?,?,?,?)`,
+          [pid, g.groupNo, g.title, g.passage || null, g.images || null, g.questions.length]
+        );
+        groupIdByNo.set(g.groupNo, gr.insertId);
+      }
+
       const values = [];
       const params = [];
       picked.questions.forEach((q, i) => {
-        values.push('(?,?,?,?,?,?,?,?,?,?,?)');
-        params.push(pid, i + 1, q.section || null, q.qtype || '单选题', q.difficulty || 3, q.passage || null, q.stem, q.options_json, q.answer || '', q.explanation || null, null);
+        const groupId = q.materialGroupNo ? groupIdByNo.get(q.materialGroupNo) || null : null;
+        values.push('(?,?,?,?,?,?,?,?,?,?,?,?,?)');
+        params.push(pid, i + 1, q.section || null, q.qtype || '单选题', q.difficulty || 3,
+          q.passage || null, q.stem, q.options_json, q.answer || '', q.explanation || null, null,
+          groupId, groupId ? 'material_child' : 'normal');
       });
       // 用预编译语句：题干/选项含引号、反斜杠时 conn.query 的转义会炸
       await conn.execute(
         `INSERT INTO exam_paper_question
-           (exam_paper_id, seq, section, qtype, difficulty, passage, stem, options_json, answer, explanation, image_url)
+           (exam_paper_id, seq, section, qtype, difficulty, passage, stem, options_json, answer, explanation, image_url,
+            material_group_id, question_role)
          VALUES ${values.join(',')}`,
         params
       );

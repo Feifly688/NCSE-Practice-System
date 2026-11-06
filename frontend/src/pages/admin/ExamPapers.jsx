@@ -239,8 +239,14 @@ export default function ExamPapers() {
   async function loadParsedQuestions(paperId) {
     try {
       const r = await api.get(`/admin/exam-papers/${paperId}/questions`);
-      setParsedQuestions(r.data.questions || []);
-      setSelected((r.data.questions || []).map((_, i) => i));
+      // 显式材料题组：把父级大题与「第 n/5 小题」信息挂到子题上，编辑预览可还原关联
+      const meta = new Map();
+      (r.data.materialGroups || []).forEach((g) => {
+        (g.seqs || []).forEach((seq, i) => meta.set(seq, { title: g.title, index: i + 1, total: g.seqs.length }));
+      });
+      const list = (r.data.questions || []).map((q) => ({ ...q, materialMeta: meta.get(q.seq) || null }));
+      setParsedQuestions(list);
+      setSelected(list.map((_, i) => i));
     } catch { message.error('加载拆分结果失败'); }
   }
 
@@ -377,6 +383,10 @@ export default function ExamPapers() {
     { title: '题号', dataIndex: 'seq', width: 60 },
     { title: '模块', dataIndex: 'section', width: 130, render: (v) => <Tag color="blue">{v || '未分类'}</Tag> },
     { title: '题型', dataIndex: 'qtype', width: 100, render: (v) => <Tag color="purple">{v}</Tag> },
+    {
+      title: '材料题组', dataIndex: 'materialMeta', width: 130,
+      render: (m) => m ? <Tag color="orange">{m.title} · {m.index}/{m.total}</Tag> : null,
+    },
     { title: '题干', dataIndex: 'stem', ellipsis: true },
     { title: '答案', dataIndex: 'answer', width: 60 },
   ];

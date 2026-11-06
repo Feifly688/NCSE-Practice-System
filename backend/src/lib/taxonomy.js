@@ -210,6 +210,70 @@ const SMART_PAPER_TEMPLATE = [
   { section: '资料分析', subjectSlug: 'data_analysis', count: 20 },
 ];
 
+const MATERIAL_GROUP_SIZE = 5; // 一篇资料固定 5 道小题
+const normPassagePrefix = (s) => String(s || '').replace(/\s+/g, '').slice(0, 100);
+
+/**
+ * 抽资料分析材料题组：一篇材料 = 1 个父级大题 + 固定 5 道小题。
+ * 识别依据：同一来源卷 + 归一化后的材料正文前缀相同；只取恰好能凑满 5 题的组。
+ * 年份过滤后完整组不足时，用剩余资料分析题按 5 题一组补齐（父题材料取组内
+ * 最长的 passage），保证任何情况下资料分析都不会散成彼此独立的单题。
+ */
+async function pickMaterialGroups(conn, subjectId, yearFrom, needGroups) {
+  const params = [subjectId];
+  let yearSql = '';
+  if (yearFrom) { yearSql = 'AND q.year >= ?'; params.push(yearFrom); }
+  const [rows] = await conn.query(
+    `SELECT q.id, q.subject_id, q.qtype, q.difficulty, q.passage, q.stem,
+            q.options_json, q.answer, q.explanation,
+            q.source_paper_id, q.source_paper_seq, q.year
+       FROM question q
+      WHERE q.status = 'approved' AND q.subject_id = ?
+        AND (q.source_exam IS NULL OR q.source_exam NOT LIKE '%AI生成%') AND q.source_article_id IS NULL
+        ${yearSql}
+      ORDER BY q.source_paper_id, q.source_paper_seq, q.id`,
+    params
+  );
+
+  // ① 完整的真实材料组
+  const buckets = new Map();
+  for (const r of rows) {
+    const p = String(r.passage || '').trim();
+    if (p.length < 80) continue;
+    const key = `${r.source_paper_id}|${normPassagePrefix(p)}`;
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key).push(r);
+  }
+  const full = [...buckets.values()].filter((v) => v.length >= MATERIAL_GROUP_SIZE)
+    .map((v) => v.slice(0, MATERIAL_GROUP_SIZE));
+  // 打乱组顺序（Fisher-Yates），每次组卷抽到不同材料
+  for (let i = full.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [full[i], full[j]] = [full[j], full[i]];
+  }
+  const chosen = full.slice(0, needGroups);
+
+  // ② 兜底：完整组不够时，用未被选中的题按 5 题一组合成
+  const used = new Set(chosen.flat().map((r) => r.id));
+  const leftovers = rows.filter((r) => !used.has(r.id));
+  for (let i = 0; chosen.length < needGroups && leftovers.length >= MATERIAL_GROUP_SIZE; i++) {
+    const chunk = leftovers.splice(0, MATERIAL_GROUP_SIZE);
+    chosen.push(chunk);
+  }
+
+  return chosen.map((members, idx) => {
+    const passage = members.map((r) => String(r.passage || '').trim())
+      .sort((a, b) => b.length - a.length)[0] || '';
+    return {
+      groupNo: idx + 1,
+      title: `材料${['一', '二', '三', '四', '五', '六'][idx] || idx + 1}`,
+      passage,
+      images: '',
+      questions: members.map((r) => ({ ...r, section: '资料分析' })),
+    };
+  });
+}
+
 async function pickSmartPaper(opts = {}) {
   const span = { near3: 3, near5: 5, near10: 10 }[String(opts.yearMode || '')] || 0;
   const yearFrom = span ? new Date().getFullYear() - span : null;
@@ -220,7 +284,22 @@ async function pickSmartPaper(opts = {}) {
 
     const sections = [];
     const questions = [];
+    let materialGroups = [];
     for (const t of SMART_PAPER_TEMPLATE) {
+      if (t.subjectSlug === 'data_analysis') {
+        const sid = bySlug.get(t.subjectSlug);
+        const groups = sid
+          ? await pickMaterialGroups(conn, sid, yearFrom, t.count / MATERIAL_GROUP_SIZE)
+          : [];
+        materialGroups = groups;
+        const picked = groups.flatMap((g) => g.questions);
+        sections.push({ section: t.section, target: t.count, picked: picked.length,
+          groups: groups.length, groupSize: MATERIAL_GROUP_SIZE });
+        // 每题带上所属材料组序号，保存时据此建立父子关联
+        groups.forEach((g) => g.questions.forEach((q) => { q.materialGroupNo = g.groupNo; }));
+        questions.push(...picked);
+        continue;
+      }
       const sid = bySlug.get(t.subjectSlug);
       const params = [];
       let yearSql = '';
@@ -242,7 +321,11 @@ async function pickSmartPaper(opts = {}) {
       sections.push({ section: t.section, target: t.count, picked: rows.length });
       questions.push(...rows.map((r) => ({ ...r, section: t.section })));
     }
-    return { questions, sections, total: questions.length };
+    // 材料正文只保存在父级大题里，子题不再各自重复携带（避免散题化）
+    for (const q of questions) {
+      if (q.materialGroupNo) q.passage = null;
+    }
+    return { questions, sections, materialGroups, total: questions.length };
   });
 }
 

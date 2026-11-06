@@ -146,11 +146,19 @@ router.get('/:id', asyncHandler(async (req, res) => {
       return { forbidden: true, parse_status: paper.parse_status };
     }
     const [qs] = await conn.query(
-      `SELECT id, seq, section, qtype, difficulty, passage, stem, options_json, image_url
+      `SELECT id, seq, section, qtype, difficulty, passage, stem, options_json, image_url,
+              material_group_id, question_role
        FROM exam_paper_question WHERE exam_paper_id = ? ORDER BY seq`,
       [id]
     );
-    return { paper, questions: qs };
+    // 显式材料题组（父级大题 + 其下 5 道小题），供读取时优先还原，
+    // 不依赖 passage 前缀猜测；其他题型与老试卷保持原有分组逻辑。
+    const [mgs] = await conn.query(
+      `SELECT id, group_no, title, passage, images, question_count
+         FROM exam_paper_material_group WHERE exam_paper_id = ? ORDER BY group_no`,
+      [id]
+    );
+    return { paper, questions: qs, materialGroups: mgs };
   });
 
   if (!data) return res.status(404).json({ error: '试卷不存在' });
@@ -178,9 +186,24 @@ router.get('/:id', asyncHandler(async (req, res) => {
     return groups.get(id);
   };
 
+  // ⓪ 显式材料题组（智能组卷保存的 1 个父级大题 + 5 道小题）：
+  // 直接按 material_group_id 还原，优先级高于任何猜测式分组。
+  // 父级大题的材料正文/图表只在本组第一题下发一次。
+  const explicitSeqs = new Set();
+  for (const mg of data.materialGroups || []) {
+    const children = data.questions.filter((q) => Number(q.material_group_id) === Number(mg.id));
+    if (!children.length) continue;
+    const g = ensureGroup(children[0].seq);
+    g.passage = String(mg.passage || '');
+    g.title = mg.title || '';
+    for (const f of String(mg.images || '').split(',').filter(Boolean)) g.images.add(f);
+    for (const q of children) { g.seqs.add(q.seq); explicitSeqs.add(q.seq); }
+  }
+
   // ① 材料图分组
   let curMatHead = null;
   for (const q of data.questions) {
+    if (explicitSeqs.has(q.seq)) continue;
     const files = String(q.image_url || '').split(',').filter(Boolean);
     const matFiles = files.filter((f) => /-m/.test(f));
     if (matFiles.length) {
@@ -204,6 +227,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
   // ② 文字材料分组：连续 + passage 前缀相同（未被材料图分组的题）
   let curGroup = null;
   for (const q of data.questions) {
+    if (explicitSeqs.has(q.seq)) { curGroup = null; continue; }
     const p = String(q.passage || '').trim();
     if (p.length < MIN_PASSAGE_CHARS) { curGroup = null; continue; }
     const inMatGroup = [...groups.values()].some((g) => g.seqs.has(q.seq));
@@ -284,6 +308,8 @@ router.get('/:id', asyncHandler(async (req, res) => {
       qtype: q.qtype,
       difficulty: q.difficulty,
       passage: showPassage,
+      // 父级大题标题（材料一…），仅组首题下发
+      materialTitle: group && isGroupHead ? (group.title || null) : null,
       // 同一材料的后续题保留材料引用，前端折叠展示（默认不占版面）
       materialRef,
       // 材料组 id（组首题号）；null 表示该题不属于任何材料组

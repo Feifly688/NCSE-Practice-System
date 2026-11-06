@@ -1311,15 +1311,26 @@ router.post('/:id/reparse', asyncHandler(async (req, res) => {
 router.get('/:id/questions', asyncHandler(async (req, res) => {
   // 注意：withConnection 透传 conn.query 的返回值，需解构出结果行数组
   const [rows] = await withConnection((conn) => conn.query(
-    `SELECT id, seq, section, qtype, difficulty, passage, stem, options_json, answer, explanation, fingerprint
+    `SELECT id, seq, section, qtype, difficulty, passage, stem, options_json, answer, explanation, fingerprint,
+            material_group_id, question_role
      FROM exam_paper_question WHERE exam_paper_id = ? ORDER BY seq`,
+    [req.params.id]
+  ));
+  // 显式材料题组（1 个父级大题 + 5 道小题），供编辑/预览时还原关联
+  const [mgRows] = await withConnection((conn) => conn.query(
+    `SELECT id, group_no, title, passage, question_count FROM exam_paper_material_group
+      WHERE exam_paper_id = ? ORDER BY group_no`,
     [req.params.id]
   ));
   const questions = rows.map((r) => {
     const fixed = normalizeQuestionStem({ stem: r.stem, options: safeJson(r.options_json, []) });
     return { ...r, stem: fixed.stem, options: fixed.options };
   });
-  return res.json({ paperId: Number(req.params.id), questions, total: questions.length });
+  const materialGroups = mgRows.map((g) => ({
+    ...g,
+    seqs: questions.filter((q) => Number(q.material_group_id) === Number(g.id)).map((q) => q.seq),
+  }));
+  return res.json({ paperId: Number(req.params.id), questions, materialGroups, total: questions.length });
 }));
 
 // ── 6. 确认入库：分模块 + 双重去重（指纹 + 相似度/特征）──
