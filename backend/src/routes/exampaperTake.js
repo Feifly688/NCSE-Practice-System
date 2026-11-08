@@ -22,6 +22,9 @@ const router = express.Router();
 const PAPER_FILES_DIR = path.resolve(__dirname, '../../uploads/papers');
 const PAPER_IMAGE_SUBDIR = 'paper-images';
 
+/** 国考行测整卷考试时长（分钟）：考场模式倒计时基准，随整卷结构下发给前端 */
+const EXAM_DURATION_MINUTES = 120;
+
 // GET /api/exam-papers/images/:paperId/:file —— 题目区域截图
 // 从原 PDF 裁出的截图，供答题时展示图形推理/几何图/统计图表。
 // <img> 标签带不了 Authorization 头，故这个路由额外接受 ?t=<token>。
@@ -145,9 +148,10 @@ router.get('/:id', asyncHandler(async (req, res) => {
     if (!['success', 'partial'].includes(paper.parse_status)) {
       return { forbidden: true, parse_status: paper.parse_status };
     }
+    // answer 只用于服务端生成指纹做题目映射，不会下发到响应体（避免提前泄露答案）
     const [qs] = await conn.query(
       `SELECT id, seq, section, qtype, difficulty, passage, stem, options_json, image_url,
-              material_group_id, question_role
+              material_group_id, question_role, answer
        FROM exam_paper_question WHERE exam_paper_id = ? ORDER BY seq`,
       [id]
     );
@@ -158,6 +162,36 @@ router.get('/:id', asyncHandler(async (req, res) => {
          FROM exam_paper_material_group WHERE exam_paper_id = ? ORDER BY group_no`,
       [id]
     );
+
+    // (paper, seq) → question.id：优先按回流标记 source_paper_seq，
+    // 回流时因指纹重复被跳过的题用 fingerprint 找回（与 submit 判分口径一致）。
+    // 映射失败时置 null，绝不影响整卷下发。
+    try {
+      const { buildFingerprint } = require('../lib/questionDedupe');
+      const [reflowed] = await conn.query(
+        'SELECT id, source_paper_seq FROM question WHERE source_paper_id = ?', [id]);
+      const bySeq = new Map();
+      for (const r of reflowed) bySeq.set(Number(r.source_paper_seq), r.id);
+      const missing = qs.filter((q) => !bySeq.has(Number(q.seq)));
+      if (missing.length) {
+        const fps = missing.map((q) => buildFingerprint({
+          qtype: q.qtype, stem: q.stem, options: safeJson(q.options_json, []), answer: q.answer,
+        }));
+        const [found] = await conn.query(
+          `SELECT id, fingerprint FROM question WHERE fingerprint IN (${fps.map(() => '?').join(',')})`,
+          fps);
+        const byFp = new Map(found.map((r) => [r.fingerprint, r.id]));
+        missing.forEach((q, i) => {
+          const qid = byFp.get(fps[i]);
+          if (qid) bySeq.set(Number(q.seq), qid);
+        });
+      }
+      for (const q of qs) q.question_id = bySeq.get(Number(q.seq)) ?? null;
+    } catch (e) {
+      console.error('[exam] 题目 question_id 映射失败:', e.message);
+      for (const q of qs) q.question_id = null;
+    }
+
     return { paper, questions: qs, materialGroups: mgs };
   });
 
@@ -305,6 +339,8 @@ router.get('/:id', asyncHandler(async (req, res) => {
     sectionMap.get(name).push({
       seq: q.seq,
       id: q.id,
+      // 对应 question.id（收藏等按题维度的能力用）；未回流/映射失败时为 null
+      question_id: q.question_id ?? null,
       qtype: q.qtype,
       difficulty: q.difficulty,
       passage: showPassage,
@@ -331,6 +367,8 @@ router.get('/:id', asyncHandler(async (req, res) => {
   }));
 
   return res.json({
+    // 考场模式倒计时时长（分钟），前端据此初始化倒计时
+    duration_minutes: EXAM_DURATION_MINUTES,
     paper: {
       id: data.paper.id,
       title: data.paper.title,
@@ -350,6 +388,16 @@ router.post('/:id/submit', asyncHandler(async (req, res) => {
   const answers = req.body && req.body.answers;
   if (!answers || typeof answers !== 'object') return res.status(400).json({ error: '缺少作答数据' });
   const durationSec = Math.max(0, Number(req.body.duration_sec) || 0);
+  // 逐题用时（可选）：key 为 seq（字符串或数字），value 为非负整数秒。
+  // 未传或值非法一律按 0 处理，保证旧调用方（不带 timings）向后兼容。
+  const timingsRaw = req.body && req.body.timings;
+  const timings = (timingsRaw && typeof timingsRaw === 'object' && !Array.isArray(timingsRaw))
+    ? timingsRaw : {};
+  const timeOf = (seq) => {
+    const v = timings[String(seq)] ?? timings[seq];
+    const n = Number(v);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+  };
 
   // 注意：withConnection 透传 conn.query 的返回值，需解构出结果行数组
   const [rows] = await withConnection((conn) => conn.query(
@@ -380,6 +428,7 @@ router.post('/:id/submit', asyncHandler(async (req, res) => {
       correct: right,
       answered: !!your,
       explanation: q.explanation || null,
+      time_sec: timeOf(q.seq),
     };
   });
 
@@ -390,9 +439,10 @@ router.post('/:id/submit', asyncHandler(async (req, res) => {
   const bySection = {};
   for (const r of results) {
     const k = r.section || '未分区';
-    if (!bySection[k]) bySection[k] = { total: 0, correct: 0 };
+    if (!bySection[k]) bySection[k] = { total: 0, correct: 0, time_sec: 0 };
     bySection[k].total++;
     if (r.correct) bySection[k].correct++;
+    bySection[k].time_sec += r.time_sec;
   }
 
   // ── 统一答题记录：整卷成绩写进 practice_session / practice_answer ──
@@ -439,7 +489,8 @@ router.post('/:id/submit', asyncHandler(async (req, res) => {
           // 答案按 question id 存（与普通练习的 meta 结构一致，结果页复用同一渲染）
           if (your) savedAnswers[qid] = your;
           answerRows.push('(?,?,?,?,?)');
-          answerParams.push(null, qid, your || '', right ? 1 : 0, 0);
+          // 第 i 行的 5 个参数在 [i*5, i*5+5)：末列 time_spent_sec 写入该题用时
+          answerParams.push(null, qid, your || '', right ? 1 : 0, timeOf(q.seq));
         }
         const mScore = mapped.length > 0 ? Number(((mCorrect / mapped.length) * 100).toFixed(2)) : 0;
         const now = Date.now();

@@ -429,6 +429,14 @@ async function countQuestions(opts) {
       where.push('t.year >= ?');
       params.push(opts.yearFrom);
     }
+    // 来源：国考真题（source_exam 含「国家公务员」） / 地方真题（其余）
+    if (opts.sourceType === 'national' && poolKey === 'question') {
+      where.push('t.source_exam LIKE ?');
+      params.push('%国家公务员%');
+    } else if (opts.sourceType === 'local' && poolKey === 'question') {
+      where.push('(t.source_exam IS NULL OR t.source_exam NOT LIKE ?)');
+      params.push('%国家公务员%');
+    }
     if (cfg.statusField) {
       where.push(`t.${cfg.statusField} = ?`);
       params.push(cfg.statusValue);
@@ -535,6 +543,14 @@ async function pickQuestionsByConfig(config) {
       where.push('t.year >= ?');
       params.push(config.yearFrom);
     }
+    // 来源：国考真题（source_exam 含「国家公务员」） / 地方真题（其余）
+    if (config.sourceType === 'national' && poolKey === 'question') {
+      where.push('t.source_exam LIKE ?');
+      params.push('%国家公务员%');
+    } else if (config.sourceType === 'local' && poolKey === 'question') {
+      where.push('(t.source_exam IS NULL OR t.source_exam NOT LIKE ?)');
+      params.push('%国家公务员%');
+    }
     if (cfg.statusField) {
       where.push(`t.${cfg.statusField} = ?`);
       params.push(cfg.statusValue);
@@ -544,6 +560,15 @@ async function pickQuestionsByConfig(config) {
     }
     const needMap = cfg.requiresMap !== false || (config.categoryIds && config.categoryIds.length > 0);
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
+    // 「优先未做题」：把已练过的题排到后面，但仍参与补位（题量不足时不至于无题可刷）。
+    // t.id 是 GROUP BY 列，ORDER BY 引用它符合 ONLY_FULL_GROUP_BY。
+    const preferIds = Array.isArray(config.preferUndoneIds)
+      ? [...new Set(config.preferUndoneIds.map(Number).filter((n) => Number.isInteger(n) && n > 0))].slice(0, 3000)
+      : [];
+    const orderSql = preferIds.length
+      ? `ORDER BY (t.id IN (${preferIds.map(() => '?').join(',')})) ASC, RAND()`
+      : 'ORDER BY RAND()';
 
     // RAND() 让每次刷题的顺序与组合都不同（粉笔的「去练习」是随机的）
     // 同上：GROUP BY 列与 SELECT 一致，question 池不带 t.section
@@ -558,9 +583,9 @@ async function pickQuestionsByConfig(config) {
         ${whereSql}
         GROUP BY t.id, t.qtype, t.difficulty, ${secCol2},
                  t.stem, t.passage, t.options_json, t.answer, t.explanation
-        ORDER BY RAND()
+        ${orderSql}
         LIMIT ${count}`,
-      [...mapParam, ...params]
+      [...mapParam, ...params, ...preferIds]
     );
     return rows;
   });

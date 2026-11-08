@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Typography, Card, Button, Radio, Space, Select, InputNumber, Progress, message, Spin, Divider, Tag, Modal } from 'antd';
-import { CheckCircleOutlined, CloseCircleOutlined, ArrowRightOutlined, ArrowLeftOutlined, ReloadOutlined, ClockCircleOutlined, FileTextOutlined, PauseCircleOutlined, PlayCircleOutlined, StarOutlined } from '@ant-design/icons';
+import { CheckCircleOutlined, CloseCircleOutlined, ArrowRightOutlined, ArrowLeftOutlined, ReloadOutlined, ClockCircleOutlined, FileTextOutlined, PauseCircleOutlined, PlayCircleOutlined, StarOutlined, StarFilled } from '@ant-design/icons';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import { parseOptions, cleanOption, formatTime } from '../utils';
@@ -9,6 +9,16 @@ import { useTheme } from '../contexts/ThemeContext';
 import ThemeToggle from '../components/ThemeToggle';
 
 const { Title, Text, Paragraph } = Typography;
+
+/** 粉笔式错因标签，与后端 wrong_book.reason_tag 取值一致 */
+const REASON_OPTIONS = [
+  { value: 'unset', label: '未标注' },
+  { value: 'concept', label: '概念不清' },
+  { value: 'calculation', label: '计算失误' },
+  { value: 'reading', label: '审题不清' },
+  { value: 'time', label: '时间不够' },
+  { value: 'other', label: '其他' },
+];
 
 export default function Practice() {
   const [searchParams] = useSearchParams();
@@ -26,6 +36,9 @@ export default function Practice() {
   const diffParam = searchParams.get('difficulty') || '';
   const countParam = Number(searchParams.get('count')) || 0;
   const subjectParam = Number(searchParams.get('subject')) || 0; // AI 生成题：科目 id
+  const yearModeParam = searchParams.get('yearMode') || '';
+  const sourceTypeParam = searchParams.get('sourceType') || '';
+  const preferUndoneParam = searchParams.get('preferUndone') === '1';
   const categoryName = searchParams.get('categoryName') || '';
   // 带这些参数进来 = 从专项练习页发起，直接开始出题
   const fromTaxonomy = Boolean(poolParam && (catParam || countParam || qtypeParam || diffParam || subjectParam));
@@ -53,6 +66,8 @@ export default function Practice() {
   const [paused, setPaused] = useState(false);
   const [sessionId, setSessionId] = useState(null);
   const [answerDetails, setAnswerDetails] = useState([]);
+  const [favSet, setFavSet] = useState(new Set());
+  const [reasonMap, setReasonMap] = useState({});
   const timerRef = useRef(null);
   const autoSaveRef = useRef(null);
   // 供「从专项练习页带参数进来直接开练」的 effect 调用
@@ -297,6 +312,32 @@ export default function Practice() {
     }).catch(() => {});
   }
 
+  /** 答题中收藏：两态切换，结果与练习页共用 */
+  async function toggleFav(qid) {
+    const had = favSet.has(qid);
+    try {
+      if (had) await api.delete('/practice/favorites/' + qid);
+      else await api.post('/practice/favorites', { question_id: qid });
+      setFavSet((prev) => {
+        const next = new Set(prev);
+        if (had) next.delete(qid); else next.add(qid);
+        return next;
+      });
+      message.success(had ? '已取消收藏' : '已收藏');
+    } catch (_) { message.error('收藏操作失败'); }
+  }
+
+  /** 交卷后给答错的题打错因标签，写进错题本 */
+  async function setReason(qid, value) {
+    try {
+      await api.put('/practice/wrong-book/by-question/' + qid + '/reason', {
+        reason: value === 'unset' ? null : value,
+      });
+      setReasonMap((prev) => ({ ...prev, [qid]: value }));
+      message.success('已记录错因');
+    } catch (_) { message.error('错因标记失败'); }
+  }
+
   async function startPractice() {
     setStep('loading');
     try {
@@ -312,6 +353,9 @@ export default function Practice() {
           qtypes: qtypeParam ? qtypeParam.split(',').filter(Boolean) : [],
           difficultyRange: diff && diff.length === 2 ? diff : null,
           subjectIds: subjectParam ? [subjectParam] : [],
+          yearMode: yearModeParam || null,
+          sourceType: sourceTypeParam || null,
+          excludeAnswered: preferUndoneParam,
           count: countParam || count,
         });
         if (!r.data.questions.length) {
@@ -347,6 +391,14 @@ export default function Practice() {
       setQuestions(qs);
       setAnswers({});
       setCurrentIndex(0);
+      // 答题中即可收藏：先取回这批题的收藏状态
+      try {
+        const ids = qs.map((x) => x.id).filter(Boolean).slice(0, 200);
+        if (ids.length) {
+          const fr = await api.get('/practice/favorites/check', { params: { ids: ids.join(',') } });
+          setFavSet(new Set((fr.data.favorited || []).map(Number)));
+        } else setFavSet(new Set());
+      } catch (_) { setFavSet(new Set()); }
 
       // 创建答题会话
       const startRes = await api.post('/practice/start', { subject_id: subjectIdForSession, questions: qs });
@@ -573,7 +625,7 @@ export default function Practice() {
           const isCorrect = userAns === q.answer;
           return (
             <Card key={q.id} style={{ marginBottom: 12, borderLeft: '4px solid ' + (isCorrect ? '#52c41a' : '#ff4d4f') }}>
-              <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><div><Tag color={isCorrect ? 'green' : 'red'}>{isCorrect ? '正确' : '错误'}</Tag><Text type="secondary"> 第 {idx + 1} 题</Text></div><Button size="small" icon={<StarOutlined />} onClick={async () => { try { await api.post('/practice/favorites', { question_id: q.id }); message.success('已收藏'); } catch(e) { message.error('收藏失败'); } }}>收藏</Button></div>
+              <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><div><Tag color={isCorrect ? 'green' : 'red'}>{isCorrect ? '正确' : '错误'}</Tag><Text type="secondary"> 第 {idx + 1} 题</Text></div><Button size="small" icon={favSet.has(q.id) ? <StarFilled /> : <StarOutlined />} onClick={() => toggleFav(q.id)}>{favSet.has(q.id) ? '已收藏' : '收藏'}</Button></div>
               {/* 题目元信息只在结果页展示，答题过程中不下发也不渲染 */}
               {(q.source || q.module_name || q.category_name) && (
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
@@ -600,6 +652,15 @@ export default function Practice() {
                 })}
               </div>
               <div style={{ marginTop: 8 }}><Text type="secondary">你的答案：{userAns || '未答'} | 正确答案：{q.answer}</Text></div>
+              {!isCorrect && (
+                <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Text type="secondary">错因归类</Text>
+                  <Select size="small" style={{ width: 140 }}
+                    value={reasonMap[q.id] || 'unset'}
+                    onChange={(v) => setReason(q.id, v)}
+                    options={REASON_OPTIONS} />
+                </div>
+              )}
               {q.explanation && <div style={{ marginTop: 8, padding: '8px 12px', background: isDark ? 'rgba(91,140,255,0.12)' : '#e6f7ff', borderRadius: 6 }}><Text type="secondary">解析：{q.explanation}</Text></div>}
               {/* AI 解析入口：入口文案与配色对全部题目保持一致，
                   后端再按答题对错生成不同侧重点的讲解内容 */}
@@ -692,9 +753,16 @@ export default function Practice() {
       {/* Question card */}
       <Card style={{ borderRadius: 16, border: `1px solid ${tokens.cardBorder}`, background: tokens.cardBg }}
         styles={{ body: { padding: isMobile ? 18 : 28 } }}>
-        <div style={{ marginBottom: 16 }}>
-          <Tag color="blue">第 {currentIndex + 1} 题</Tag>
-          {q.qtype && <Tag>{q.qtype}</Tag>}
+        <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>
+            <Tag color="blue">第 {currentIndex + 1} 题</Tag>
+            {q.qtype && <Tag>{q.qtype}</Tag>}
+          </span>
+          <Button size="small" type="text"
+            icon={favSet.has(q.id) ? <StarFilled style={{ color: '#faad14' }} /> : <StarOutlined />}
+            onClick={() => toggleFav(q.id)}>
+            {favSet.has(q.id) ? '已收藏' : '收藏'}
+          </Button>
         </div>
 
         {q.passage && (

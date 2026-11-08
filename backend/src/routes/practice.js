@@ -475,9 +475,15 @@ router.get('/leaderboard', requireAuth, asyncHandler(async (req, res) => {
 
 // ── 错题本接口 ──────────────────────────────────────────
 
+// wrong_book.reason_tag 允许的非空取值；NULL 表示「未标注」。
+// 前端中文标签：概念不清 / 计算失误 / 审题不清 / 时间不够 / 其他 / 未标注。
+const REASON_TAGS = ['concept', 'calculation', 'reading', 'time', 'other'];
+
 // GET /api/practice/wrong-book
 // 可选 categoryId：按一级模块（question_category level=1）筛选；'0' 表示没有模块标签的题。
-// 不传时行为与原来完全一致，仅在返回里额外附带 items.module_id/name 与 modules 列表。
+// 可选 reason：concept|calculation|reading|time|other 走等值匹配，unlabeled 表示 reason_tag IS NULL。
+// 可选 freq：按 wrong_count 分档 —— high(>=3) / mid(=2) / low(=1)。
+// 不传时行为与原来完全一致，仅在返回里额外附带 items.module_id/name、reason_tag 与 modules 列表。
 router.get('/wrong-book', requireAuth, asyncHandler(async (req, res) => {
   const page = Math.max(Number(req.query.page) || 1, 1);
   const pageSize = Math.min(Number(req.query.pageSize) || 15, 50);
@@ -486,6 +492,8 @@ router.get('/wrong-book', requireAuth, asyncHandler(async (req, res) => {
   const rawCategory = req.query.categoryId;
   const categoryId = (rawCategory === undefined || rawCategory === '' || rawCategory === null)
     ? null : Number(rawCategory);
+  const reason = req.query.reason;
+  const freq = req.query.freq;
 
   const data = await withConnection(async (conn) => {
     let whereClause = ' WHERE wb.user_id = ?';
@@ -501,10 +509,23 @@ router.get('/wrong-book', requireAuth, asyncHandler(async (req, res) => {
         JOIN question_category c ON c.id = m.category_id AND c.level = 1
         WHERE m.pool = 'question' AND m.ref_id = wb.question_id)`;
     }
+    // 错因筛选：unlabeled = 尚未标注（IS NULL）；其余仅接受白名单值并参数绑定。
+    // 非法/未传一律不加条件，保持「全部」行为，绝不把原始字符串拼进 SQL。
+    if (reason === 'unlabeled') {
+      whereClause += ' AND wb.reason_tag IS NULL';
+    } else if (REASON_TAGS.includes(reason)) {
+      whereClause += ' AND wb.reason_tag = ?';
+      params.push(reason);
+    }
+    // 错次分档复用 wrong_count，不新增列；只用字面量条件，无外部输入拼接。
+    if (freq === 'high') whereClause += ' AND wb.wrong_count >= 3';
+    else if (freq === 'mid') whereClause += ' AND wb.wrong_count = 2';
+    else if (freq === 'low') whereClause += ' AND wb.wrong_count = 1';
 
     const [countRows] = await conn.query('SELECT COUNT(*) AS total FROM wrong_book wb' + whereClause, params);
     const [rows] = await conn.query(
-      `SELECT wb.*, q.stem, q.passage, q.options_json, q.answer, q.explanation, q.qtype, q.difficulty,
+      `SELECT wb.id, wb.user_id, wb.question_id, wb.wrong_count, wb.mastered, wb.reason_tag, wb.updated_at,
+        q.stem, q.passage, q.options_json, q.answer, q.explanation, q.qtype, q.difficulty,
         (SELECT c.id FROM question_category_map m
            JOIN question_category c ON c.id = m.category_id AND c.level = 1
           WHERE m.pool = 'question' AND m.ref_id = q.id LIMIT 1) AS module_id,
@@ -556,6 +577,29 @@ router.get('/wrong-book', requireAuth, asyncHandler(async (req, res) => {
   });
 
   return res.json({ ...data, page, pageSize });
+}));
+
+// PUT /api/practice/wrong-book/by-question/:questionId/reason
+// 设置 / 清除某道错题的错因标签，按 question_id 定位（列表里已下发该字段）。
+// 必须注册在 /wrong-book/:id/mastered 等动态路由之前，避免被 /:id 段抢先匹配。
+router.put('/wrong-book/by-question/:questionId/reason', requireAuth, asyncHandler(async (req, res) => {
+  const raw = req.body?.reason;
+  let value;
+  if (raw === null || raw === '') {
+    value = null; // null / 空串 = 清除标注，落库为 NULL（未标注）
+  } else if (REASON_TAGS.includes(raw)) {
+    value = raw;
+  } else {
+    return res.status(400).json({ error: '非法的错因标签' });
+  }
+  const affectedRows = await withConnection(async (conn) => {
+    const [result] = await conn.query(
+      'UPDATE wrong_book SET reason_tag = ? WHERE user_id = ? AND question_id = ?',
+      [value, req.user.userId, req.params.questionId]
+    );
+    return result.affectedRows;
+  });
+  return res.json({ success: true, affectedRows });
 }));
 
 // DELETE /api/practice/wrong-book/:id

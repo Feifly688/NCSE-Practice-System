@@ -27,6 +27,29 @@ function parseIds(value) {
     .filter((n) => Number.isInteger(n) && n > 0);
 }
 
+/**
+ * 取用户近 500 次练习里出现过的题目 id，供「优先未做题」排序使用。
+ * meta_json.question_ids 是整卷与专项练习共用的题目标识口径。
+ */
+async function getAnsweredQuestionIds(userId) {
+  const [rows] = await withConnection((conn) => conn.query(
+    'SELECT meta_json FROM practice_session WHERE user_id = ? ORDER BY id DESC LIMIT 500',
+    [userId]
+  ));
+  const ids = new Set();
+  for (const r of rows) {
+    if (!r.meta_json) continue;
+    try {
+      const meta = typeof r.meta_json === 'string' ? JSON.parse(r.meta_json) : r.meta_json;
+      for (const id of meta.question_ids || []) {
+        const n = Number(id);
+        if (Number.isInteger(n) && n > 0) ids.add(n);
+      }
+    } catch (_) { /* 单条 meta 损坏不影响抽题 */ }
+  }
+  return [...ids];
+}
+
 // GET /api/taxonomy/generated-subjects
 // AI 生成题独立入口：按科目列出已上架生成题及数量（生成题不进分类树）
 router.get('/generated-subjects', requireAuth, asyncHandler(async (_req, res) => {
@@ -103,8 +126,12 @@ router.get('/categories/:id/questions', requireAuth, asyncHandler(async (req, re
  *
  * body: {
  *   pool, categoryIds[], qtypes[], difficultyRange:[min,max], count,
- *   excludeAnswered: boolean
+ *   excludeAnswered: boolean,   // 优先未做题
+ *   yearMode,                    // 不限 / near3 / near5 / near10
+ *   sourceType                   // national=国考真题 local=地方真题
  * }
+ *
+ * 参照粉笔：练习阶段接口不下发答案与解析，交卷后由 /practice/submit 下发权威答案。
  */
 router.post('/pick', requireAuth, asyncHandler(async (req, res) => {
   const {
@@ -116,6 +143,7 @@ router.post('/pick', requireAuth, asyncHandler(async (req, res) => {
     excludeAnswered,
     subjectIds: rawSubjectIds,
     yearMode: rawYearMode,
+    sourceType: rawSourceType,
   } = req.body || {};
 
   const pool = pickPool(rawPool);
@@ -126,9 +154,12 @@ router.post('/pick', requireAuth, asyncHandler(async (req, res) => {
     : null;
   const count = Math.min(Math.max(Number(rawCount) || 10, 1), 200);
   const subjectIds = parseIds(rawSubjectIds).slice(0, 20);
-  // 智能组卷：出题年份（不限 / 近5年 / 近10年），只对 question 池生效
+  // 出题年份：不限 / 近3年 / 近5年 / 近10年，只对 question 池生效
   const span = { near3: 3, near5: 5, near10: 10 }[String(rawYearMode || '')] || 0;
   const yearFrom = span ? new Date().getFullYear() - span : null;
+  const sourceType = ['national', 'local'].includes(String(rawSourceType || '')) ? String(rawSourceType) : null;
+  const preferUndone = Boolean(excludeAnswered);
+  const preferUndoneIds = preferUndone ? await getAnsweredQuestionIds(req.user.userId) : [];
 
   // 分类 id 展开成子树（选二级分类时含三级）
   let expanded = categoryIds;
@@ -150,6 +181,7 @@ router.post('/pick', requireAuth, asyncHandler(async (req, res) => {
     difficultyRange: range,
     subjectIds,
     yearFrom,
+    sourceType,
   });
 
   if (!available) {
@@ -158,7 +190,7 @@ router.post('/pick', requireAuth, asyncHandler(async (req, res) => {
 
   const rows = await pickQuestionsByConfig({
     pool, categoryIds: expanded, qtypes, difficultyRange: range, count,
-    subjectIds, yearFrom,
+    subjectIds, yearFrom, sourceType, preferUndoneIds,
   });
 
   res.json({
@@ -166,6 +198,8 @@ router.post('/pick', requireAuth, asyncHandler(async (req, res) => {
     available,
     picked: rows.length,
     count,
+    preferUndone,
+    // 答题阶段只下发题干与选项；答案和解析统一由交卷接口下发，防止提前查看
     questions: rows.map((r) => ({
       id: r.id,
       qtype: r.qtype,
@@ -175,8 +209,6 @@ router.post('/pick', requireAuth, asyncHandler(async (req, res) => {
       stem: r.stem,
       passage: r.passage || null,
       options: safeParse(r.options_json),
-      answer: r.answer || null,
-      explanation: r.explanation || null,
     })),
   });
 }));

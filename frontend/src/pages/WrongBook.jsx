@@ -1,5 +1,5 @@
 ﻿import React, { useState, useEffect } from 'react';
-import { Typography, Button, Space, Tag, message, Spin, Empty, Modal, Radio, Switch, Popconfirm } from 'antd';
+import { Typography, Button, Space, Tag, message, Spin, Empty, Modal, Radio, Switch, Popconfirm, Select } from 'antd';
 import { ReloadOutlined, BookOutlined, StarFilled, StarOutlined, ExportOutlined, DeleteOutlined, SettingOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
@@ -9,6 +9,46 @@ import { useResponsive } from '../hooks/useResponsive';
 import { F, FenbiScope, PageHead, Panel, MetaTag } from '../components/FenbiUI';
 
 const { Text, Paragraph } = Typography;
+
+// 错因标签：value 与后端 wrong_book.reason_tag 一致；NULL / '' 表示「未标注」。
+const REASON_TAGS = [
+  { value: 'concept', label: '概念不清' },
+  { value: 'calculation', label: '计算失误' },
+  { value: 'reading', label: '审题不清' },
+  { value: 'time', label: '时间不够' },
+  { value: 'other', label: '其他' },
+];
+const REASON_LABEL = REASON_TAGS.reduce((acc, r) => { acc[r.value] = r.label; return acc; }, {});
+// 每道题的点选控件：未标注用 '' 承载，提交时转成 null（清除）。
+const REASON_EDIT_OPTIONS = [{ value: '', label: '未标注' }, ...REASON_TAGS];
+// 顶部筛选：unlabeled 是后端约定的「reason_tag IS NULL」查询值，与编辑用的 '' 区分开。
+const REASON_FILTER_OPTIONS = [
+  { value: '', label: '全部错因' },
+  ...REASON_TAGS,
+  { value: 'unlabeled', label: '未标注' },
+];
+// 错次分档复用 wrong_count：>=3 高频 / 2 中频 / 1 低频。
+// FenbiScope 会把 antd 的 blue/orange 覆写成品牌橙，故用 red/gold/green 保持三色可区分。
+const FREQ_BANDS = {
+  high: { label: '高频', color: 'red' },
+  mid: { label: '中频', color: 'gold' },
+  low: { label: '低频', color: 'green' },
+};
+const FREQ_FILTER_OPTIONS = [
+  { value: '', label: '全部频次' },
+  { value: 'high', label: '高频（≥3 次）' },
+  { value: 'mid', label: '中频（2 次）' },
+  { value: 'low', label: '低频（1 次）' },
+];
+function freqOf(count) {
+  const n = Number(count) || 0;
+  if (n >= 3) return 'high';
+  if (n === 2) return 'mid';
+  return 'low'; // 1 次及异常兜底都归低频
+}
+function reasonLabel(tag) {
+  return REASON_LABEL[tag] || '未标注';
+}
 
 /**
  * 错题本（粉笔式列表，按一级模块分类存放）。
@@ -27,10 +67,13 @@ export default function WrongBook() {
   const [moduleId, setModuleId] = useState(''); // '' = 全部模块；'0' = 未分类；其余为一级分类 id
   const [page, setPage] = useState(1);
   const [filter, setFilter] = useState('0'); // 0=未掌握, 1=已掌握, ''=全部
+  const [reasonFilter, setReasonFilter] = useState(''); // ''=全部；5 类错因值或 'unlabeled'
+  const [freqFilter, setFreqFilter] = useState(''); // ''=全部；high/mid/low
+  const [savingReasonId, setSavingReasonId] = useState(null); // 正在保存错因的错题 id，禁用控件防重复提交
   const [previewItem, setPreviewItem] = useState(null);
   const [autoRemove, setAutoRemove] = useState(() => localStorage.getItem('wrongbook_auto_remove') !== 'false');
 
-  useEffect(() => { loadWrongBook(); }, [page, filter, moduleId]);
+  useEffect(() => { loadWrongBook(); }, [page, filter, moduleId, reasonFilter, freqFilter]);
   useEffect(() => { localStorage.setItem('wrongbook_auto_remove', String(autoRemove)); }, [autoRemove]);
 
   const activeModule = modules.find(m => String(m.module_id) === String(moduleId));
@@ -41,6 +84,8 @@ export default function WrongBook() {
       const params = { page, pageSize: 15, withModules: '1' };
       if (filter !== '') params.mastered = filter;
       if (moduleId !== '') params.categoryId = moduleId;
+      if (reasonFilter !== '') params.reason = reasonFilter;
+      if (freqFilter !== '') params.freq = freqFilter;
       const r = await api.get('/practice/wrong-book', { params });
       setItems(r.data.items || []);
       setTotal(r.data.total || 0);
@@ -48,6 +93,23 @@ export default function WrongBook() {
       setModules(r.data.modules || []);
     } catch (err) { message.error('加载错题本失败'); }
     finally { setLoading(false); }
+  }
+
+  // 点选错因：只局部更新对应题目的 reason_tag，不整页刷新，保留当前筛选与滚动位置。
+  async function updateReason(item, value) {
+    if (savingReasonId === item.id) return;
+    const reason = value === '' ? null : value; // 未标注 -> null（清除）
+    setSavingReasonId(item.id);
+    try {
+      await api.put('/practice/wrong-book/by-question/' + item.question_id + '/reason', { reason });
+      setItems(prev => prev.map(x => (x.id === item.id ? { ...x, reason_tag: reason } : x)));
+      setPreviewItem(prev => (prev && prev.id === item.id ? { ...prev, reason_tag: reason } : prev));
+      message.success('错因已更新');
+    } catch (err) {
+      message.error('错因更新失败');
+    } finally {
+      setSavingReasonId(null);
+    }
   }
 
   async function toggleMastered(item) {
@@ -177,11 +239,29 @@ export default function WrongBook() {
 
       <Panel bodyStyle={{ padding: isMobile ? 12 : 16, paddingBottom: 4 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
-          <Radio.Group value={filter} onChange={e => { setFilter(e.target.value); setPage(1); }}>
-            <Radio.Button value="0">未掌握</Radio.Button>
-            <Radio.Button value="1">已掌握</Radio.Button>
-            <Radio.Button value="">全部</Radio.Button>
-          </Radio.Group>
+          <Space size={8} wrap>
+            <Radio.Group value={filter} onChange={e => { setFilter(e.target.value); setPage(1); }}>
+              <Radio.Button value="0">未掌握</Radio.Button>
+              <Radio.Button value="1">已掌握</Radio.Button>
+              <Radio.Button value="">全部</Radio.Button>
+            </Radio.Group>
+            <Text type="secondary" style={{ fontSize: 13 }}>错因</Text>
+            <Select
+              value={reasonFilter}
+              onChange={v => { setReasonFilter(v); setPage(1); }}
+              options={REASON_FILTER_OPTIONS}
+              style={{ width: 128 }}
+              aria-label="按错因筛选"
+            />
+            <Text type="secondary" style={{ fontSize: 13 }}>频次</Text>
+            <Select
+              value={freqFilter}
+              onChange={v => { setFreqFilter(v); setPage(1); }}
+              options={FREQ_FILTER_OPTIONS}
+              style={{ width: 146 }}
+              aria-label="按错次频次筛选"
+            />
+          </Space>
           <Space size={6}>
             <SettingOutlined style={{ color: F.textWeak }} />
             <Text type="secondary" style={{ fontSize: 13 }}>答对自动移出</Text>
@@ -206,6 +286,22 @@ export default function WrongBook() {
                     <MetaTag>{item.qtype}</MetaTag>
                     {difficultyTag(item.difficulty)}
                     <MetaTag tone={item.mastered ? 'success' : 'error'}>{item.mastered ? '已掌握' : '未掌握'}</MetaTag>
+                    <Tag color={FREQ_BANDS[freqOf(item.wrong_count)].color}>
+                      {FREQ_BANDS[freqOf(item.wrong_count)].label} · 错 {Number(item.wrong_count) || 1} 次
+                    </Tag>
+                    {/* 错因：只读标签展示 + 点选修改控件；阻止冒泡，避免点控件误开详情弹窗 */}
+                    <span onClick={e => e.stopPropagation()} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <MetaTag tone={item.reason_tag ? 'primary' : 'neutral'}>错因：{reasonLabel(item.reason_tag)}</MetaTag>
+                      <Select
+                        size="small"
+                        value={item.reason_tag || ''}
+                        onChange={v => updateReason(item, v)}
+                        options={REASON_EDIT_OPTIONS}
+                        disabled={savingReasonId === item.id}
+                        style={{ width: 112 }}
+                        aria-label="修改错因"
+                      />
+                    </span>
                     <span className="fb-meta">正确答案 {item.answer}</span>
                   </div>
                   <div className="fb-row-title">{item.stem}</div>
@@ -252,6 +348,10 @@ export default function WrongBook() {
               <Tag color={previewItem.difficulty <= 2 ? 'green' : previewItem.difficulty <= 4 ? 'orange' : 'red'}>
                 {previewItem.difficulty <= 2 ? '简单' : previewItem.difficulty <= 4 ? '中等' : '困难'}
               </Tag>
+              <Tag color={FREQ_BANDS[freqOf(previewItem.wrong_count)].color}>
+                {FREQ_BANDS[freqOf(previewItem.wrong_count)].label} · 错 {Number(previewItem.wrong_count) || 1} 次
+              </Tag>
+              <MetaTag tone={previewItem.reason_tag ? 'primary' : 'neutral'}>错因：{reasonLabel(previewItem.reason_tag)}</MetaTag>
               <Text type="secondary">正确答案：{previewItem.answer}</Text>
             </Space>
 

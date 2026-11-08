@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Typography, Card, Button, Space, Select, InputNumber, Tag, Spin, Empty, message, Segmented, Modal, Radio } from 'antd';
+import { Typography, Card, Button, Space, Select, InputNumber, Tag, Spin, Empty, message, Segmented, Modal, Radio, Switch } from 'antd';
 import {
   FileTextOutlined, ThunderboltOutlined, SettingOutlined,
   RightOutlined, DownOutlined, CheckCircleFilled, FireOutlined,
@@ -39,6 +39,20 @@ const DIFFICULTY_OPTIONS = [
   { value: '4,5', label: '困难' },
 ];
 
+/** 粉笔专项练习的参数档位 */
+const YEAR_OPTIONS = [
+  { value: 'all', label: '不限年份' },
+  { value: 'near3', label: '近 3 年' },
+  { value: 'near5', label: '近 5 年' },
+  { value: 'near10', label: '近 10 年' },
+];
+const SOURCE_OPTIONS = [
+  { value: 'all', label: '全部来源' },
+  { value: 'national', label: '国考真题' },
+  { value: 'local', label: '地方真题' },
+];
+const COUNT_PRESETS = [10, 20, 30, 50];
+
 export default function SpecialPractice() {
   const navigate = useNavigate();
   const { isMobile } = useResponsive();
@@ -58,6 +72,9 @@ export default function SpecialPractice() {
   const [cfgQtypes, setCfgQtypes] = useState([]);
   const [cfgDifficulty, setCfgDifficulty] = useState('all');
   const [cfgCount, setCfgCount] = useState(20);
+  const [cfgYear, setCfgYear] = useState('all');
+  const [cfgSource, setCfgSource] = useState('all');
+  const [cfgPreferUndone, setCfgPreferUndone] = useState(false);
   const [cfgAvailable, setCfgAvailable] = useState(null);
 
   // 智能组卷：先选出题年份，再由系统自动抽题生成试卷
@@ -148,13 +165,16 @@ export default function SpecialPractice() {
         categoryIds: cfgCategoryIds,
         qtypes: cfgQtypes,
         difficultyRange: range,
+        yearMode: cfgYear,
+        sourceType: cfgSource === 'all' ? null : cfgSource,
+        excludeAnswered: cfgPreferUndone,
         count: 1,
       });
       setCfgAvailable(r.data.available);
     } catch (err) {
       setCfgAvailable(0);
     }
-  }, [pool, cfgCategoryIds, cfgQtypes, cfgDifficulty]);
+  }, [pool, cfgCategoryIds, cfgQtypes, cfgDifficulty, cfgYear, cfgSource, cfgPreferUndone]);
 
   useEffect(() => {
     if (configOpen) checkAvailable();
@@ -437,7 +457,33 @@ export default function SpecialPractice() {
                       onChange={(v) => setCfgCount(v || 20)}
                       style={{ width: '100%', marginTop: 6 }}
                     />
+                    <div style={{ marginTop: 6 }}>
+                      <Space size={4}>
+                        {COUNT_PRESETS.map((n) => (
+                          <Button key={n} size="small" type={cfgCount === n ? 'primary' : 'default'}
+                            onClick={() => setCfgCount(n)}>{n} 题</Button>
+                        ))}
+                      </Space>
+                    </div>
                   </div>
+                  <div>
+                    <Text strong style={{ color: tokens.text }}>出题年份</Text>
+                    <Select
+                      value={cfgYear} onChange={setCfgYear} options={YEAR_OPTIONS}
+                      style={{ width: '100%', marginTop: 6 }}
+                    />
+                  </div>
+                  <div>
+                    <Text strong style={{ color: tokens.text }}>题目来源</Text>
+                    <Select
+                      value={cfgSource} onChange={setCfgSource} options={SOURCE_OPTIONS}
+                      style={{ width: '100%', marginTop: 6 }}
+                    />
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Switch checked={cfgPreferUndone} onChange={setCfgPreferUndone} size="small" />
+                  <Text style={{ color: tokens.text }}>优先练未做过的题</Text>
                 </div>
                 <div style={{
                   display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
@@ -456,6 +502,9 @@ export default function SpecialPractice() {
                       if (cfgCategoryIds.length) params.set('categories', cfgCategoryIds.join(','));
                       if (cfgQtypes.length) params.set('qtypes', cfgQtypes.join(','));
                       if (diff && diff.value !== 'all') params.set('difficulty', diff.value);
+                      if (cfgYear !== 'all') params.set('yearMode', cfgYear);
+                      if (cfgSource !== 'all') params.set('sourceType', cfgSource);
+                      if (cfgPreferUndone) params.set('preferUndone', '1');
                       params.set('count', String(Math.min(cfgCount, cfgAvailable || cfgCount)));
                       params.set('custom', '1');
                       navigate(`/practice/do?${params.toString()}`);

@@ -7,6 +7,7 @@ import {
 import {
   ArrowLeftOutlined, CheckCircleOutlined, CloseCircleOutlined,
   FlagOutlined, FlagFilled, DashboardOutlined, ClockCircleOutlined,
+  StarOutlined, StarFilled,
 } from '@ant-design/icons';
 import api from '../services/api';
 import { useResponsive } from '../hooks/useResponsive';
@@ -198,18 +199,70 @@ export default function ExamPaperTake() {
   // 共享材料的折叠引用（同上资料的第 2 题起，默认收起不占版面）
   const [matOpen, setMatOpen] = useState({});
 
+  // ── 考场模式 / 断点续答 / 逐题用时 / 收藏 ──────────────────────────
+  // mode: null=尚未选择；'practice'=正计时练习；'exam'=考场倒计时
+  const [mode, setMode] = useState(null);
+  const [durationMinutes, setDurationMinutes] = useState(120);
+  const [restored, setRestored] = useState(false);
+  const [currentSeq, setCurrentSeq] = useState(null);
+  const [startedAt, setStartedAt] = useState(null);
+  const [timings, setTimings] = useState({});       // seq → 累计秒数（渲染/存档镜像）
+  const [favSet, setFavSet] = useState(new Set());  // 已收藏的 question_id 集合
+
+  const progressKey = `ncse:paper:${id}:progress`;
+  const durationSec = durationMinutes * 60;       // 考场倒计时总秒数（来自后端 duration_minutes）
+  const remain = Math.max(0, durationSec - elapsed);
+
+  // 计时/交卷的可变状态放 ref：避免闭包读到旧值、避免异步 setState 读不回
+  const startedAtRef = useRef(null);       // 本场开始的墙钟时间戳（ms）
+  const currentSeqRef = useRef(null);      // 当前停留的题号
+  const dwellStartRef = useRef(null);      // 当前题开始停留的时间戳（ms）
+  const timingsRef = useRef({});           // 逐题用时权威副本（同步读写，供交卷即时取用）
+  const submittedRef = useRef(false);      // 已成功交卷
+  const submittingRef = useRef(false);     // 交卷请求进行中
+  const autoSubmittedRef = useRef(false); // 考场自动交卷只触发一次
+  const pendingScrollRef = useRef(null);  // 断点续答后待定位的题号
+
   const qRefs = useRef({});
   // 顶部吸附信息栏（定位时要用它的高度让开位置）
   const headerRef = useRef(null);
 
   useEffect(() => { loadPaper(); }, [id]);
 
-  // 计时（交卷后停止）
+  // 计时：以本场开始的墙钟时间戳为准，跨刷新/切后台都不丢时间。
+  // 练习模式 = 累计用时（正计时）；考场模式 = durationSec - elapsed（倒计时）。
+  // 未选模式 / 已交卷时停止。
   useEffect(() => {
-    if (result) return undefined;
-    const t = setInterval(() => setElapsed((v) => v + 1), 1000);
+    if (!mode || result || submittedRef.current) return undefined;
+    const t = setInterval(() => {
+      const start = startedAtRef.current;
+      if (!start) return;
+      setElapsed(Math.max(0, Math.floor((Date.now() - start) / 1000)));
+    }, 1000);
     return () => clearInterval(t);
-  }, [result]);
+  }, [mode, result]);
+
+  // 考场模式：时间到自动交卷（不弹确认框），只触发一次，全过程不提供暂停
+  useEffect(() => {
+    if (mode !== 'exam' || result || submittedRef.current || autoSubmittedRef.current) return;
+    if (durationSec > 0 && elapsed >= durationSec) {
+      autoSubmittedRef.current = true;
+      doSubmit(true);
+    }
+  }, [elapsed, mode, result, durationSec]);
+
+  // 自动保存断点：作答/计时状态变化即写 localStorage；已交卷一律不写（成功交卷时显式清除）
+  useEffect(() => {
+    if (!mode || result || submittedRef.current) return;
+    try {
+      localStorage.setItem(progressKey, JSON.stringify({
+        answers, marked, timings, elapsed, mode,
+        currentSeq: currentSeqRef.current,
+        startedAt: startedAtRef.current,
+        durationMinutes,
+      }));
+    } catch (e) { /* 容量限制 / 隐私模式忽略 */ }
+  }, [answers, marked, timings, elapsed, mode, currentSeq, startedAt, durationMinutes, result, progressKey]);
 
   // 大图预览：ESC 关闭
   useEffect(() => {
@@ -221,11 +274,63 @@ export default function ExamPaperTake() {
 
   async function loadPaper() {
     setLoading(true);
+    // 切卷/重新进入时清掉上一场会话状态，避免旧的提交态、计时态、作答串场
+    submittedRef.current = false;
+    submittingRef.current = false;
+    autoSubmittedRef.current = false;
+    startedAtRef.current = null;
+    currentSeqRef.current = null;
+    dwellStartRef.current = null;
+    timingsRef.current = {};
+    pendingScrollRef.current = null;
+    setResult(null);
+    setMode(null);
+    setAnswers({});
+    setMarked({});
+    setTimings({});
+    setElapsed(0);
+    setStartedAt(null);
+    setCurrentSeq(null);
+    setRestored(false);
+    setFavSet(new Set());
     try {
       const r = await api.get(`/exam-papers/${id}`);
       setPaper(r.data.paper);
-      setSections(r.data.sections || []);
-      if ((r.data.sections || []).length > 0) setActiveSection(r.data.sections[0].name);
+      const secs = r.data.sections || [];
+      setSections(secs);
+      if (secs.length > 0) setActiveSection(secs[0].name);
+      const dm = Number(r.data.duration_minutes) || 120;
+      setDurationMinutes(dm);
+
+      // 断点续答：存在进度且尚未交卷时恢复，并给可见提示
+      let saved = null;
+      try {
+        const raw = localStorage.getItem(progressKey);
+        if (raw) saved = JSON.parse(raw);
+      } catch (e) { saved = null; }
+      // 已交卷的结果态优先：任何情况下不让进度恢复覆盖结果（成功交卷时进度已清除）
+      if (!result && saved && (saved.mode === 'practice' || saved.mode === 'exam')) {
+        const firstSeq = secs.length ? secs[0].questions[0]?.seq : null;
+        const cs = (saved.currentSeq != null ? saved.currentSeq : firstSeq) ?? null;
+        setAnswers(saved.answers && typeof saved.answers === 'object' ? saved.answers : {});
+        setMarked(saved.marked && typeof saved.marked === 'object' ? saved.marked : {});
+        timingsRef.current = saved.timings && typeof saved.timings === 'object' ? saved.timings : {};
+        setTimings(timingsRef.current);
+        const elapsedSaved = Math.max(0, Math.floor(Number(saved.elapsed) || 0));
+        const start = Number(saved.startedAt) || (Date.now() - elapsedSaved * 1000);
+        startedAtRef.current = start;
+        setStartedAt(start);
+        // 考场倒计时用墙钟时间戳续算：关页面期间时间照走，回来可能已到点自动交卷
+        setElapsed(Math.max(elapsedSaved, Math.floor((Date.now() - start) / 1000)));
+        setMode(saved.mode);
+        setDurationMinutes(Number(saved.durationMinutes) || dm);
+        currentSeqRef.current = cs;
+        setCurrentSeq(cs);
+        dwellStartRef.current = Date.now();
+        pendingScrollRef.current = cs;
+        setRestored(true);
+        message.info('已恢复上次的答题进度');
+      }
     } catch (err) {
       message.error(err.response?.data?.error || '加载试卷失败');
     } finally {
@@ -246,8 +351,43 @@ export default function ExamPaperTake() {
     return m;
   }, [result]);
 
+  // 断点续答：题目渲染完成后定位到上次所在题
+  useEffect(() => {
+    if (loading || !paper || total === 0) return undefined;
+    const seq = pendingScrollRef.current;
+    if (seq == null) return undefined;
+    pendingScrollRef.current = null;
+    const t = setTimeout(() => scrollToSeq(seq), 80);
+    return () => clearTimeout(t);
+  }, [loading, paper, total]);
+
+  // 初始化已收藏集合：按 question_id 去重后分批（每批 ≤ 200，接口上限）查 check
+  useEffect(() => {
+    const ids = [...new Set(
+      allQuestions.map((q) => q.question_id)
+        .filter((v) => v != null && v !== '')
+        .map((v) => Number(v))
+        .filter((v) => Number.isFinite(v) && v > 0)
+    )];
+    if (ids.length === 0) return undefined;
+    let cancelled = false;
+    (async () => {
+      const acc = new Set();
+      for (let i = 0; i < ids.length; i += 200) {
+        const chunk = ids.slice(i, i + 200);
+        try {
+          const r = await api.get('/practice/favorites/check', { params: { ids: chunk.join(',') } });
+          (r.data.favorited || []).forEach((qid) => acc.add(Number(qid)));
+        } catch (e) { /* 单批失败不影响其他批次 */ }
+      }
+      if (!cancelled) setFavSet(acc);
+    })();
+    return () => { cancelled = true; };
+  }, [allQuestions]);
+
   function selectOption(seq, label) {
     if (result) return; // 交卷后只读
+    enterQuestion(seq);  // 结算上一题停留、开始本题计时
     setAnswers((prev) => {
       const next = { ...prev };
       if (next[seq] === label) delete next[seq];
@@ -266,6 +406,7 @@ export default function ExamPaperTake() {
   }
 
   function scrollToSeq(seq) {
+    enterQuestion(seq);  // 切题：结算上一题停留、开始本题计时
     const el = qRefs.current[seq];
     if (!el) {
       setSheetOpen(false);
@@ -290,26 +431,100 @@ export default function ExamPaperTake() {
     setSheetOpen(false);
   }
 
-  async function submit() {
+  // ── 逐题用时：进入某题记时间，切题/交卷时把停留秒数累加进 timings[seq] ──
+  function addTiming(seq, dt) {
+    if (seq == null || dt <= 0) return;
+    const next = { ...timingsRef.current, [seq]: (timingsRef.current[seq] || 0) + dt };
+    timingsRef.current = next;
+    setTimings(next);
+  }
+
+  function enterQuestion(seq) {
+    if (submittedRef.current || result) return;
+    const now = Date.now();
+    const prev = currentSeqRef.current;
+    if (startedAtRef.current && prev != null && dwellStartRef.current != null) {
+      addTiming(prev, Math.floor((now - dwellStartRef.current) / 1000));
+    }
+    currentSeqRef.current = seq;
+    dwellStartRef.current = startedAtRef.current ? now : null;
+    setCurrentSeq(seq);
+  }
+
+  function flushDwell() {
+    const prev = currentSeqRef.current;
+    const now = Date.now();
+    if (startedAtRef.current && prev != null && dwellStartRef.current != null) {
+      addTiming(prev, Math.floor((now - dwellStartRef.current) / 1000));
+    }
+    dwellStartRef.current = null;
+  }
+
+  function startSession(m) {
+    const now = Date.now();
+    startedAtRef.current = now;
+    setStartedAt(now);
+    setElapsed(0);
+    setMode(m);
+    const first = allQuestions[0]?.seq ?? null;
+    enterQuestion(currentSeqRef.current != null ? currentSeqRef.current : first);
+  }
+
+  // 收藏：仅对已映射到 question.id 的题开放，已收藏/未收藏两态
+  async function toggleFavorite(q) {
+    const qid = q.question_id;
+    if (qid == null) return;
+    const key = Number(qid);
+    const has = favSet.has(key);
+    try {
+      if (has) {
+        await api.delete(`/practice/favorites/${qid}`);
+        setFavSet((prev) => { const n = new Set(prev); n.delete(key); return n; });
+        message.success('已取消收藏');
+      } else {
+        await api.post('/practice/favorites', { question_id: qid });
+        setFavSet((prev) => { const n = new Set(prev); n.add(key); return n; });
+        message.success('已收藏');
+      }
+    } catch (err) {
+      message.error(err.response?.data?.error || '操作失败');
+    }
+  }
+
+  // 实际交卷：手动（经确认框）与考场时间到自动交卷共用同一入口
+  async function doSubmit(auto = false) {
+    if (submittedRef.current || submittingRef.current || result) return;
+    submittingRef.current = true;
+    setSubmitting(true);
+    flushDwell();                       // 交卷时结算当前题停留时间
+    const finalTimings = timingsRef.current;
+    try {
+      const r = await api.post(`/exam-papers/${id}/submit`, {
+        answers,
+        duration_sec: elapsed,
+        timings: finalTimings,
+      });
+      submittedRef.current = true;
+      setResult(r.data);
+      setSheetOpen(false);
+      try { localStorage.removeItem(progressKey); } catch (e) { /* ignore */ }
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      message.success(auto ? '考试时间到，已自动交卷' : '交卷成功');
+    } catch (err) {
+      submittingRef.current = false;   // 失败允许手动重试
+      message.error(err.response?.data?.error || '交卷失败');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function submit() {
     const unanswered = total - answeredCount;
     Modal.confirm({
       title: '确认交卷？',
       content: unanswered > 0 ? '还有题目未作答，确定要交卷吗？' : '确定要交卷吗？',
       okText: '交卷', cancelText: '继续答题',
-      onOk: async () => {
-        setSubmitting(true);
-        try {
-          const r = await api.post(`/exam-papers/${id}/submit`, { answers, duration_sec: elapsed });
-          setResult(r.data);
-          setSheetOpen(false);
-          window.scrollTo({ top: 0, behavior: 'smooth' });
-          message.success('交卷成功');
-        } catch (err) {
-          message.error(err.response?.data?.error || '交卷失败');
-        } finally {
-          setSubmitting(false);
-        }
-      },
+      onOk: () => doSubmit(false),
     });
   }
 
@@ -446,6 +661,9 @@ export default function ExamPaperTake() {
     const myAnswer = answers[q.seq];
     const res = resultMap[q.seq];
     const isWrong = res && !res.correct;
+    const canFav = q.question_id != null && q.question_id !== '';
+    const isFav = canFav && favSet.has(Number(q.question_id));
+    const weakColor = FB.isDark ? '#5a5f6e' : '#c8cdd6';
     // 材料图（文件名带 -m 后缀）已在左栏展示时，卡片里不再重复渲染
     const cardImages = (q.images || []).filter(
       (src) => !(opts.hideMaterialImages && /-m(-\d+)?\./.test(src))
@@ -478,13 +696,24 @@ export default function ExamPaperTake() {
               ? <Tag icon={<CheckCircleOutlined />} color="success" style={{ marginInlineEnd: 0, borderRadius: 4, fontSize: 12 }}>答对</Tag>
               : <Tag icon={<CloseCircleOutlined />} color="error" style={{ marginInlineEnd: 0, borderRadius: 4, fontSize: 12 }}>答错</Tag>
           )}
-          <span
-            onClick={() => toggleMark(q.seq)}
-            style={{ marginLeft: 'auto', cursor: 'pointer', color: marked[q.seq] ? FB.accent : (FB.isDark ? '#5a5f6e' : '#c8cdd6') }}
-            title="标记此题"
-          >
-            {marked[q.seq] ? <FlagFilled /> : <FlagOutlined />}
-          </span>
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
+            {canFav && (
+              <span
+                onClick={() => toggleFavorite(q)}
+                style={{ cursor: 'pointer', color: isFav ? FB.accent : weakColor }}
+                title={isFav ? '取消收藏' : '收藏此题'}
+              >
+                {isFav ? <StarFilled /> : <StarOutlined />}
+              </span>
+            )}
+            <span
+              onClick={() => toggleMark(q.seq)}
+              style={{ cursor: 'pointer', color: marked[q.seq] ? FB.accent : weakColor }}
+              title="标记此题"
+            >
+              {marked[q.seq] ? <FlagFilled /> : <FlagOutlined />}
+            </span>
+          </div>
         </div>
 
         {q.passage && !opts.hidePassage && (
@@ -687,6 +916,11 @@ export default function ExamPaperTake() {
               ))}
             </div>
 
+            {/* 逐题用时：来自 submit 返回的 results[].time_sec */}
+            <div style={{ marginTop: 8, fontSize: 12, color: FB.textWeak }}>
+              本题用时：{fmtTime(res.time_sec || 0)}（{Number(res.time_sec) || 0} 秒）
+            </div>
+
             {/* 解析：粉笔是独立的白底卡（描边 #f0f3fa、圆角 8、padding 20） */}
             {res.explanation && (
               <div style={{
@@ -759,14 +993,30 @@ export default function ExamPaperTake() {
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
             {/* 日夜模式切换：作答中也能随手切（偏好持久化到账号） */}
             <ThemeToggle style={{ color: FB.textSub }} />
+            {restored && (
+              <Tag color="blue" style={{ marginInlineEnd: 0, fontSize: 12 }}>已恢复进度</Tag>
+            )}
+            {mode && (
+              <Tag style={{
+                marginInlineEnd: 0, fontSize: 12,
+                background: FB.cardBgAlt, borderColor: FB.border, color: FB.textSub,
+              }}>
+                {mode === 'exam' ? '考场模式' : '练习模式'}
+              </Tag>
+            )}
             <Tag
               icon={<ClockCircleOutlined />}
               style={{
-                marginInlineEnd: 0, borderRadius: 4, fontSize: 12,
-                background: FB.cardBgAlt, borderColor: FB.border, color: FB.textSub,
+                marginInlineEnd: 0, borderRadius: 4,
+                fontSize: mode === 'exam' ? 14 : 12,
+                fontWeight: mode === 'exam' ? 700 : 400,
+                background: FB.cardBgAlt, borderColor: FB.border,
+                color: mode === 'exam'
+                  ? (remain <= 300 ? '#dc2626' : FB.primary)
+                  : FB.textSub,
               }}
             >
-              {fmtTime(elapsed)}
+              {mode === 'exam' ? `剩余 ${fmtTime(remain)}` : `用时 ${fmtTime(elapsed)}`}
             </Tag>
           </div>
         </div>
@@ -796,7 +1046,7 @@ export default function ExamPaperTake() {
               <Space size={[8, 6]} wrap>
                 {Object.entries(result.bySection).map(([name, v]) => (
                   <Tag key={name} color={v.correct / v.total >= 0.6 ? 'green' : 'red'}>
-                    {name}：{Math.round((v.correct / (v.total || 1)) * 100)}%
+                    {name}：{Math.round((v.correct / (v.total || 1)) * 100)}% · 用时 {fmtTime(v.time_sec || 0)}
                   </Tag>
                 ))}
               </Space>
@@ -994,6 +1244,26 @@ export default function ExamPaperTake() {
           {result ? '已交卷' : '交卷'}
         </Button>
       </div>
+
+      {/* 开始答题前选择模式：考场模式按整卷时长倒计时且不可暂停 */}
+      <Modal
+        open={!mode && !loading && !!paper && total > 0}
+        title="选择答题模式"
+        closable={false}
+        maskClosable={false}
+        footer={null}
+        centered
+        width={isMobile ? '88%' : 460}
+      >
+        <Space direction="vertical" size={12} style={{ width: '100%' }}>
+          <Button block size="large" onClick={() => startSession('practice')}>
+            练习模式（正计时，不限时）
+          </Button>
+          <Button block size="large" type="primary" onClick={() => startSession('exam')}>
+            考场模式（{durationMinutes} 分钟倒计时）
+          </Button>
+        </Space>
+      </Modal>
 
       {/* 截图大图：在当前页面内放大查看（不另开标签页，避免丢失作答进度） */}
       {previewImg && (
