@@ -144,13 +144,8 @@ export default function History() {
         ) : (
           sessions.map((s) => {
             const isInProgress = s.status === 'in_progress';
-            // 整卷真题的作答也统一记录在练习历史里（meta 带卷名）
+            // 整卷真题的作答也统一记录在练习历史里；名称由 /practice/history 统一下发
             const isExam = s.mode === 'exam_paper';
-            let examMeta = null;
-            if (isExam && s.meta_json) {
-              try { examMeta = typeof s.meta_json === 'string' ? JSON.parse(s.meta_json) : s.meta_json; } catch (e) { /* 忽略 */ }
-            }
-            const title = (examMeta && examMeta.paper_title) || null;
             // 逐题用时：交卷后写入 meta_json.timings（question_id → 秒）。
             // 老数据没有该字段或全为 0 时 timingEntries 为空，下面不渲染，布局不变。
             let timingEntries = [];
@@ -170,17 +165,8 @@ export default function History() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
-                      {isExam ? (
-                        <>
-                          <MetaTag tone="primary">整卷真题</MetaTag>
-                          <span className="fb-row-title" style={{ fontWeight: 600 }}>{title || `练习 #${s.id}`}</span>
-                        </>
-                      ) : (
-                        <>
-                          <MetaTag tone="primary">{s.subject_name || '综合练习'}</MetaTag>
-                          <span className="fb-meta">练习 #{s.id}</span>
-                        </>
-                      )}
+                      <MetaTag tone="primary">{isExam ? '整卷真题' : (s.subject_name || '综合练习')}</MetaTag>
+                      <span className="fb-row-title" style={{ fontWeight: 600 }}>{s.title}</span>
                       <MetaTag tone={isInProgress ? 'warning' : 'success'}>{isInProgress ? '答题中' : '已完成'}</MetaTag>
                     </div>
                     <div style={{ display: 'flex', gap: isMobile ? 14 : 28, flexWrap: 'wrap', alignItems: 'center' }}>

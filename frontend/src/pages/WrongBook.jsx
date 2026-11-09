@@ -162,7 +162,11 @@ export default function WrongBook() {
         return;
       }
       const subjectId = questions[0].subject_id || 1;
-      const startRes = await api.post('/practice/start', { subject_id: subjectId, questions });
+      const startRes = await api.post('/practice/start', {
+        subject_id: subjectId,
+        questions,
+        practice: { kind: 'redo', count: questions.length },
+      });
       // 答题页路由是 /practice/do；跳 /practice 只会停在题库页，重做永远打不开
       navigate('/practice/do?session=' + startRes.data.session_id + '&wrongredo=true');
     } catch (err) { message.error('开始重做失败'); }

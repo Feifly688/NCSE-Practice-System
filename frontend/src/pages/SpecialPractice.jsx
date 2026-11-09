@@ -648,7 +648,7 @@ export default function SpecialPractice() {
                   key={h.id}
                   role="button"
                   tabIndex={0}
-                  aria-label={`查看练习结果：${h.title || '练习 #' + h.id}`}
+                  aria-label={`查看练习结果：${h.title || '练习记录'}`}
                   onClick={() => navigate(`/practice/do?session=${h.id}&view=result`)}
                   onKeyDown={(e) => activateOnKey(e, () => navigate(`/practice/do?session=${h.id}&view=result`))}
                   style={{
@@ -657,7 +657,7 @@ export default function SpecialPractice() {
                   }}
                 >
                   <div style={{ fontSize: 13, color: tokens.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {h.title || `练习 #${h.id}`}
+                    {h.title || '练习记录'}
                   </div>
                   <div style={{ fontSize: 12, color: tokens.textWeak, marginTop: 2 }}>
                     {h.score != null ? `${h.score} 分` : '查看结果'}
@@ -788,6 +788,8 @@ export default function SpecialPractice() {
                 params.set('pool', 'generated');
                 params.set('count', String(aiCount));
                 params.set('subject', String(aiSubject));
+                const aiName = aiSubjects.find((x) => Number(x.id) === Number(aiSubject))?.name || '';
+                if (aiName) params.set('subjectName', aiName);
                 if (aiDifficulty !== 'all') params.set('difficulty', aiDifficulty);
                 setAiOpen(false);
                 navigate(`/practice/do?${params.toString()}`);

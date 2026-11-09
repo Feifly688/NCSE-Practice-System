@@ -562,8 +562,23 @@ export default function Practice() {
         } else setFavSet(new Set());
       } catch (_) { setFavSet(new Set()); }
 
+      // 记录本次练习的来源配置，供练习历史生成粉笔式名称（不使用自增编号）
+      const practiceMeta = {
+        kind: wrongRedo ? 'redo'
+          : poolParam === 'generated' ? 'ai'
+            : focusWeak ? 'weak'
+              : (catParam && categoryName) ? 'special'
+                : searchParams.get('custom') === '1' ? 'custom'
+                  : 'quick',
+        count: qs.length,
+        categoryName: categoryName || '',
+        subjectName: searchParams.get('subjectName') || '',
+        yearMode: yearModeParam || '',
+        sourceType: sourceTypeParam || '',
+      };
+
       // 创建答题会话
-      const startRes = await api.post('/practice/start', { subject_id: subjectIdForSession, questions: qs });
+      const startRes = await api.post('/practice/start', { subject_id: subjectIdForSession, questions: qs, practice: practiceMeta });
       setSessionId(startRes.data.session_id);
 
       setStartTime(Date.now());
