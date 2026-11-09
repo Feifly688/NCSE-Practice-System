@@ -388,6 +388,9 @@ export default function ExamPaperTake() {
         setDurationMinutes(Number(saved.durationMinutes) || dm);
         currentSeqRef.current = cs;
         setCurrentSeq(cs);
+        // 折叠渲染下要直接展开上次所在分区，否则恢复后看不到题目
+        const resumeSection = secs.find((s) => s.questions.some((q) => q.seq === cs));
+        if (resumeSection) setActiveSection(resumeSection.name);
         dwellStartRef.current = Date.now();
         pendingScrollRef.current = cs;
         setRestored(true);
@@ -491,8 +494,25 @@ export default function ExamPaperTake() {
     });
   }
 
+  // 答题态只展开当前分区（130 题一次性全渲染会拖垮低端移动端），
+  // 交卷后的结果态全部展开以便逐题看解析。
+  const sectionOfSeq = (seq) => sections.find((s) => s.questions.some((q) => q.seq === seq));
+  const isSectionOpen = (s) => Boolean(result) || activeSection === s.name;
+
   function scrollToSeq(seq) {
     enterQuestion(seq);  // 切题：结算上一题停留、开始本题计时
+    const owner = sectionOfSeq(seq);
+    if (!result && owner && activeSection !== owner.name) {
+      // 目标分区还折叠着，先展开，等 React 把题目渲染出来再定位
+      setActiveSection(owner.name);
+      setSheetOpen(false);
+      setTimeout(() => doScrollToSeq(seq), 120);
+      return;
+    }
+    doScrollToSeq(seq);
+  }
+
+  function doScrollToSeq(seq) {
     const el = qRefs.current[seq];
     if (!el) {
       setSheetOpen(false);
@@ -534,6 +554,9 @@ export default function ExamPaperTake() {
     }
     currentSeqRef.current = seq;
     dwellStartRef.current = startedAtRef.current ? now : null;
+    // 跨分区跳题（答题卡 / 超时题号）时自动展开目标分区
+    const owner = sections.find((s) => s.questions.some((q) => q.seq === seq));
+    if (owner && activeSection !== owner.name) setActiveSection(owner.name);
     setCurrentSeq(seq);
   }
 
@@ -768,6 +791,7 @@ export default function ExamPaperTake() {
     return (
       <Card
         key={q.seq}
+        data-q-seq={q.seq}
         ref={(el) => { qRefs.current[q.seq] = el; }}
         size="small"
         style={{
@@ -1238,22 +1262,41 @@ export default function ExamPaperTake() {
       <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
         {/* 题目区（答题卡改为底部抽屉，题目区独占全宽） */}
         <div style={{ flex: 1, minWidth: 0 }}>
-          {sections.map((s) => (
+          {sections.map((s) => {
+            const open = isSectionOpen(s);
+            const done = s.questions.filter((q) => answers[q.seq]).length;
+            return (
             <div key={s.name}>
               <div
+                role={open ? undefined : 'button'}
+                tabIndex={open ? undefined : 0}
+                aria-label={open ? undefined : `展开${s.name}，已完成 ${done}/${s.count} 题`}
+                onClick={() => { if (!open) { setActiveSection(s.name); scrollToSeq(s.questions[0].seq); } }}
+                onKeyDown={(e) => {
+                  if (!open && (e.key === 'Enter' || e.key === ' ')) {
+                    e.preventDefault();
+                    setActiveSection(s.name); scrollToSeq(s.questions[0].seq);
+                  }
+                }}
                 style={{
                   margin: '8px 0 12px', fontSize: isMobile ? 15 : 16,
                   fontWeight: 600, color: FB.text,
                   display: 'flex', alignItems: 'baseline', gap: 8,
+                  cursor: open ? 'default' : 'pointer',
                 }}
               >
                 {s.name}
                 <span style={{ fontWeight: 400, fontSize: 14, color: FB.textWeak }}>
-                  （{s.count}题）
+                  （{s.count}题{!result ? ` · 已答 ${done}` : ''}）
                 </span>
+                {!open && (
+                  <span style={{ fontWeight: 400, fontSize: 13, color: FB.primary, marginLeft: 'auto' }}>
+                    展开
+                  </span>
+                )}
               </div>
 
-              {groupSectionQuestions(s.questions).map((grp) => {
+              {open && groupSectionQuestions(s.questions).map((grp) => {
                 // 材料组但正文与图表都为空（材料组延伸到后续分区时的边界情况）
                 // → 不渲染空的「本篇资料」面板，退回单列列表
                 const hasMaterial = Boolean(grp.passage) || (grp.images || []).length > 0 || Boolean(grp.title);
@@ -1308,7 +1351,8 @@ export default function ExamPaperTake() {
                 );
               })}
             </div>
-          ))}
+            );
+          })}
         </div>
 
       </div>
