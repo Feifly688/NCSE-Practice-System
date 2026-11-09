@@ -268,6 +268,16 @@ router.post('/submit', requireAuth, asyncHandler(async (req, res) => {
     return res.status(400).json({ error: '作答数据格式不正确' });
   }
   const elapsed = Number(elapsed_sec) || 0;
+  // 逐题用时（可选）：key 为题目 id（字符串或数字），value 为非负整数秒。
+  // 未传或值非法一律按 0，保证旧调用方（不带 timings）向后兼容；口径与整卷一致。
+  const timingsRaw = req.body && req.body.timings;
+  const timings = (timingsRaw && typeof timingsRaw === 'object' && !Array.isArray(timingsRaw))
+    ? timingsRaw : {};
+  const timeOf = (qid) => {
+    const v = timings[String(qid)] ?? timings[qid];
+    const n = Number(v);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+  };
 
   const result = await withConnection(async (conn) => {
     const [sessions] = await conn.query(
@@ -294,6 +304,8 @@ router.post('/submit', requireAuth, asyncHandler(async (req, res) => {
     const wrongIds = [];
     // 只落库本卷题目 id 的作答，丢弃客户端夹带的任何杂项键
     const savedAnswers = {};
+    // 结果页 / 历史列表展示用的逐题用时（已规范化为 0 或非负整数）
+    const savedTimings = {};
 
     for (const q of questions) {
       const userAnswer = String(answers[q.id] ?? answers[String(q.id)] ?? '');
@@ -301,8 +313,11 @@ router.post('/submit', requireAuth, asyncHandler(async (req, res) => {
       const isCorrect = userAnswer !== '' && userAnswer === q.answer ? 1 : 0;
       if (isCorrect) correct++;
       else wrongIds.push(q.id);
+      const spent = timeOf(q.id);
+      savedTimings[q.id] = spent;
       answerRows.push('(?,?,?,?,?)');
-      answerParams.push(session_id, q.id, userAnswer, isCorrect, 0);
+      // answerParams 是扁平数组：每行 5 个占位符，末列是 time_spent_sec（原恒 0）
+      answerParams.push(session_id, q.id, userAnswer, isCorrect, spent);
     }
 
     const score = total > 0 ? Number(((correct / total) * 100).toFixed(2)) : 0;
@@ -328,7 +343,7 @@ router.post('/submit', requireAuth, asyncHandler(async (req, res) => {
         );
       }
 
-      const nextMeta = { ...meta, question_ids: questionIds, answers: savedAnswers, elapsed_sec: elapsed };
+      const nextMeta = { ...meta, question_ids: questionIds, answers: savedAnswers, elapsed_sec: elapsed, timings: savedTimings };
       await conn.query(
         'UPDATE practice_session SET status = ?, correct = ?, score = ?, duration_sec = ?, finished_at = ?, meta_json = ? WHERE id = ?',
         ['completed', correct, score, elapsed, localDateTimeStr(), JSON.stringify(nextMeta), session_id]
@@ -362,6 +377,8 @@ router.post('/submit', requireAuth, asyncHandler(async (req, res) => {
         source: q.source || '',
         module_name: q.module_name || '',
         category_name: q.category_name || '',
+        // 结果页逐题解析处展示本题用时（已规范化，老数据为 0）
+        time_spent_sec: savedTimings[q.id] || 0,
       })),
     };
   });

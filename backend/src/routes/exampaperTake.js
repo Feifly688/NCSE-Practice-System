@@ -398,6 +398,12 @@ router.post('/:id/submit', asyncHandler(async (req, res) => {
     const n = Number(v);
     return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
   };
+  // 交卷幂等键（可选）：同一交卷动作的重复请求（重复点击 / 刷新 / 网络重试）
+  // 只落一条记录。去重维度是 (user_id, submit_key)，不按 (user_id, paper_id)，
+  // 因此换一个新 submitKey 仍可主动重做同一张卷。不带键保持原有行为向后兼容。
+  const rawSubmitKey = req.body && req.body.submitKey;
+  const submitKey = (typeof rawSubmitKey === 'string' && rawSubmitKey.trim().length > 0)
+    ? rawSubmitKey.slice(0, 64) : null;
 
   // 注意：withConnection 透传 conn.query 的返回值，需解构出结果行数组
   const [rows] = await withConnection((conn) => conn.query(
@@ -450,6 +456,7 @@ router.post('/:id/submit', asyncHandler(async (req, res) => {
   // 题目映射 (paper, seq) → question.id：优先按回流标记，
   // 回流时因指纹重复被跳过的题按 fingerprint 找回（同一道题的规范副本）。
   let sessionId = null;
+  let duplicate = false;
   try {
     const { buildFingerprint } = require('../lib/questionDedupe');
     const [reflowed] = await withConnection((conn) => conn.query(
@@ -467,7 +474,7 @@ router.post('/:id/submit', asyncHandler(async (req, res) => {
     }
     const mapped = rows.filter((q) => bySeq.has(q.seq));
     if (mapped.length) {
-      sessionId = await withConnection(async (conn) => {
+      const written = await withConnection(async (conn) => {
         const [q0] = await conn.query('SELECT subject_id FROM question WHERE id = ?', [bySeq.get(mapped[0].seq)]);
         const subjectId = (q0[0] && q0[0].subject_id) || 1;
         const [paperRow] = await conn.query('SELECT title FROM exam_paper WHERE id = ?', [id]);
@@ -506,14 +513,35 @@ router.post('/:id/submit', asyncHandler(async (req, res) => {
           full_correct: correct,
         };
 
+        // 列名 / 占位符按白名单拼装，值一律参数绑定。
+        // 只有带 submitKey 时才写 submit_key 列：不带键的旧调用方即使迁移未执行也照常工作。
+        const cols = ['user_id', 'subject_id', 'mode', 'total', 'correct', 'duration_sec', 'score',
+          'started_at', 'finished_at', 'meta_json'];
+        const vals = [req.user.userId, subjectId, 'exam_paper', mapped.length, mCorrect, durationSec,
+          mScore, fmt(now - durationSec * 1000), fmt(now), JSON.stringify(meta)];
+        if (submitKey) { cols.push('submit_key'); vals.push(submitKey); }
+        cols.push('status'); vals.push('completed');
+        const placeholders = cols.map(() => '?').join(',');
+
         await conn.beginTransaction();
         try {
-          const [sr] = await conn.query(
-            `INSERT INTO practice_session (user_id, subject_id, mode, total, correct, duration_sec, score, started_at, finished_at, meta_json, status)
-             VALUES (?,?,?,?,?,?,?,?,?,?, 'completed')`,
-            [req.user.userId, subjectId, 'exam_paper', mapped.length, mCorrect, durationSec, mScore,
-              fmt(now - durationSec * 1000), fmt(now), JSON.stringify(meta)]);
-          const sid = sr.insertId;
+          let sid;
+          try {
+            const [sr] = await conn.query(
+              `INSERT INTO practice_session (${cols.join(',')}) VALUES (${placeholders})`, vals);
+            sid = sr.insertId;
+          } catch (insErr) {
+            // 唯一键冲突 = 同一交卷动作的重复请求：回滚、不写任何记录，
+            // 取出已存在的 session id，判分结果（纯内存计算）照常返回。
+            if (submitKey && (insErr.code === 'ER_DUP_ENTRY' || insErr.errno === 1062)) {
+              await conn.rollback();
+              const [existing] = await conn.query(
+                'SELECT id FROM practice_session WHERE user_id = ? AND submit_key = ?',
+                [req.user.userId, submitKey]);
+              return { sessionId: existing.length ? existing[0].id : null, duplicate: true };
+            }
+            throw insErr;
+          }
           // answerParams 是扁平数组：第 i 行的参数在 [i*5, i*5+5)，行内首列是 session_id
           for (let i = 0; i < mapped.length; i++) answerParams[i * 5] = sid;
           await conn.query(
@@ -532,16 +560,20 @@ router.post('/:id/submit', asyncHandler(async (req, res) => {
             );
           }
           await conn.commit();
-          return sid;
+          return { sessionId: sid, duplicate: false };
         } catch (err) {
           await conn.rollback();
           throw err;
         }
       });
+      sessionId = written.sessionId;
+      duplicate = written.duplicate;
     }
   } catch (e) {
-    // 记录写入失败不阻断交卷 —— 判分结果照常返回，错误进日志排查
+    // 写库失败不再静默成功：明确返回 5xx，让前端提示用户重试。
+    // 判分是纯内存计算，配合 submitKey 重试不会产生重复记录。
     console.error('[exam] 写入统一答题记录失败:', e.message);
+    return res.status(500).json({ error: '成绩已判出，但保存答题记录失败，请稍后重试（重试不会产生重复记录）' });
   }
 
   return res.json({
@@ -554,6 +586,7 @@ router.post('/:id/submit', asyncHandler(async (req, res) => {
     bySection,
     results,
     sessionId,
+    duplicate,
   });
 }));
 

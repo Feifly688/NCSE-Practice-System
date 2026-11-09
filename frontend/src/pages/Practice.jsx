@@ -20,6 +20,19 @@ const REASON_OPTIONS = [
   { value: 'other', label: '其他' },
 ];
 
+/** 从 answerDetails 构建 { question_id: time_spent_sec }；缺失 / 非法 / 0 一律记 0。 */
+function timingsFromDetails(details) {
+  const m = {};
+  for (const d of details || []) m[d.question_id] = Number(d.time_spent_sec) || 0;
+  return m;
+}
+
+/** 逐题用时展示：老数据 time_spent_sec 为 0 时给简短文案，不铺陈说明。 */
+function fmtQTime(sec) {
+  const n = Number(sec) || 0;
+  return n > 0 ? formatTime(n) : '未记录';
+}
+
 export default function Practice() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -75,6 +88,11 @@ export default function Practice() {
   const autoStartedRef = useRef(false);
   const answersRef = useRef(answers);
   const elapsedRef = useRef(elapsed);
+  // 逐题用时：timingsRef 是同步读写的权威副本，timings 是渲染 / 交卷镜像
+  const [timings, setTimings] = useState({});
+  const timingsRef = useRef({});
+  const currentQidRef = useRef(null);   // 当前正在计时的题目 id
+  const dwellStartRef = useRef(null);   // 该次停留的开始时间戳（ms）
   answersRef.current = answers;
   elapsedRef.current = elapsed;
 
@@ -127,6 +145,35 @@ export default function Practice() {
     }
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [step, paused, startTime, pausedElapsed]);
+
+  /** 把一段停留秒数累加到某题的用时里。 */
+  function addTiming(qid, dt) {
+    if (qid == null || dt <= 0) return;
+    const next = { ...timingsRef.current, [qid]: (Number(timingsRef.current[qid]) || 0) + dt };
+    timingsRef.current = next;
+    setTimings(next);
+  }
+
+  /** 结算当前题已停留的时长（切题 / 暂停 / 离开答题态 / 交卷时调用）。 */
+  function settleDwell() {
+    const now = Date.now();
+    if (dwellStartRef.current != null && currentQidRef.current != null) {
+      addTiming(currentQidRef.current, Math.floor((now - dwellStartRef.current) / 1000));
+    }
+    dwellStartRef.current = null;
+    currentQidRef.current = null;
+  }
+
+  // 逐题用时：进入某题记开始时间，切题 / 暂停 / 离开答题态时结算上一段停留。
+  // 以墙钟时间戳为准，暂停期间不计入；只在答题态且未暂停时开始新的停留。
+  useEffect(() => {
+    settleDwell();
+    if (step !== 'doing' || paused) return;
+    const qid = questions[currentIndex]?.id;
+    if (qid == null) return;
+    currentQidRef.current = qid;
+    dwellStartRef.current = Date.now();
+  }, [step, currentIndex, paused, questions]);
 
   // 自动保存进度（每30秒）— 使用 ref 读取最新状态，避免频繁重建 interval
   useEffect(() => {
@@ -191,6 +238,9 @@ export default function Practice() {
 
   async function loadSession(sid) {
     setStep('loading');
+    // 重新载入会话时清掉上一段答题的停留计时，避免串场
+    currentQidRef.current = null;
+    dwellStartRef.current = null;
     try {
       const r = await api.get('/practice/session/' + sid);
       const { session, questions: qs, answers: ans, elapsed_sec, answerDetails: details } = r.data;
@@ -221,6 +271,10 @@ export default function Practice() {
         setAnswers(ansMap);
         setResult({ session_id: session.id, total: session.total, correct: session.correct, score: session.score, duration_sec: session.duration_sec });
         setAnswerDetails(details);
+        // 历史详情的逐题用时来自 practice_answer.time_spent_sec（老数据为 0）
+        const tm = timingsFromDetails(source);
+        timingsRef.current = tm;
+        setTimings(tm);
         setStep('result');
       } else if (session.status === 'in_progress') {
         // 恢复答题。
@@ -230,6 +284,11 @@ export default function Practice() {
         // 「该答题记录数据不完整」，导致重做错题永远打不开。
         // 答案/解析不进入答题态 state，判分与结果页一律以 /submit 下发为准。
         setSessionId(session.id);
+        // 恢复答题时逐题用时从零重新累计（进度里未持久化 timings）
+        timingsRef.current = {};
+        setTimings({});
+        currentQidRef.current = null;
+        dwellStartRef.current = null;
         let restoreQuestions = (qs || []).map(q => ({
           id: q.id, stem: q.stem, passage: q.passage, options_json: q.options_json,
           qtype: q.qtype, difficulty: q.difficulty, subject_id: q.subject_id,
@@ -276,6 +335,9 @@ export default function Practice() {
           for (const d of details) { ansMap[d.question_id] = d.user_answer; }
           setAnswers(ansMap);
           setResult({ session_id: session.id, total: session.total, correct: session.correct, score: session.score, duration_sec: session.duration_sec });
+          const tm = timingsFromDetails(details);
+          timingsRef.current = tm;
+          setTimings(tm);
           setStep('result');
         } else {
           message.error('答题数据不完整');
@@ -391,6 +453,10 @@ export default function Practice() {
       setQuestions(qs);
       setAnswers({});
       setCurrentIndex(0);
+      timingsRef.current = {};
+      setTimings({});
+      currentQidRef.current = null;
+      dwellStartRef.current = null;
       // 答题中即可收藏：先取回这批题的收藏状态
       try {
         const ids = qs.map((x) => x.id).filter(Boolean).slice(0, 200);
@@ -465,20 +531,30 @@ export default function Practice() {
   async function doSubmit() {
     if (timerRef.current) clearInterval(timerRef.current);
     if (autoSaveRef.current) clearInterval(autoSaveRef.current);
+    settleDwell();                       // 交卷前同步结算当前题停留时间
+    const finalTimings = timingsRef.current;
     setStep('loading');
     try {
       const durationSec = examMode ? (examMinutes * 60 - elapsed) : (elapsed || Math.floor((Date.now() - startTime) / 1000));
       const r = await api.post('/practice/submit', {
         session_id: sessionId,
         answers,
-        elapsed_sec: durationSec
+        elapsed_sec: durationSec,
+        timings: finalTimings
       });
       setResult({ ...r.data, duration_sec: durationSec });
 
       // 正确答案与解析由服务端在交卷后下发（答题阶段接口不下发，防提前看答案）。
       // 结果页的判定与高亮一律用这份权威数据，不用本地 questions。
       const graded = Array.isArray(r.data.questions) ? r.data.questions : [];
-      if (graded.length > 0) setQuestions(graded);
+      if (graded.length > 0) {
+        setQuestions(graded);
+        // 用服务端回显的逐题用时（已规范化）作为结果页数据源
+        const tm = {};
+        for (const g of graded) tm[g.id] = Number(g.time_spent_sec) || 0;
+        timingsRef.current = tm;
+        setTimings(tm);
+      }
 
       // 错题练习模式：答对的题目自动移出错题本
       // 默认开启「答对自动移出」：只有在错题本里显式关闭（存 'false'）才不生效，
@@ -651,7 +727,7 @@ export default function Practice() {
                   );
                 })}
               </div>
-              <div style={{ marginTop: 8 }}><Text type="secondary">你的答案：{userAns || '未答'} | 正确答案：{q.answer}</Text></div>
+              <div style={{ marginTop: 8 }}><Text type="secondary">你的答案：{userAns || '未答'} | 正确答案：{q.answer} | 本题用时：{fmtQTime(timings[q.id])}</Text></div>
               {!isCorrect && (
                 <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
                   <Text type="secondary">错因归类</Text>
@@ -821,7 +897,17 @@ export default function Practice() {
                 background: isCurrent ? '#1890ff' : isAnswered ? '#52c41a' : tokens.cardBg,
                 color: isCurrent || isAnswered ? '#fff' : tokens.text,
                 border: isCurrent || isAnswered ? 'none' : '1px solid #d9d9d9'
-              }} onClick={() => goToQuestion(idx)}>{idx + 1}</Button>
+              }}
+                role="button" tabIndex={0}
+                aria-label={`第 ${idx + 1} 题，${isAnswered ? '已答' : '未答'}${isCurrent ? '，当前题' : ''}`}
+                onClick={() => goToQuestion(idx)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();   // 抑制原生 button 的合成 click，避免重复触发
+                    goToQuestion(idx);
+                  }
+                }}
+              >{idx + 1}</Button>
             );
           })}
         </div>

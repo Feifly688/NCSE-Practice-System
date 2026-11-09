@@ -77,6 +77,20 @@ export default function History() {
               try { examMeta = typeof s.meta_json === 'string' ? JSON.parse(s.meta_json) : s.meta_json; } catch (e) { /* 忽略 */ }
             }
             const title = (examMeta && examMeta.paper_title) || null;
+            // 逐题用时：交卷后写入 meta_json.timings（question_id → 秒）。
+            // 老数据没有该字段或全为 0 时 timingEntries 为空，下面不渲染，布局不变。
+            let timingEntries = [];
+            if (s.meta_json) {
+              try {
+                const meta = typeof s.meta_json === 'string' ? JSON.parse(s.meta_json) : s.meta_json;
+                const tm = meta && meta.timings;
+                if (tm && typeof tm === 'object' && !Array.isArray(tm)) {
+                  timingEntries = Object.entries(tm)
+                    .filter(([, v]) => Number(v) > 0)
+                    .map(([qid, v]) => ({ qid, sec: Math.floor(Number(v)) }));
+                }
+              } catch (e) { /* 解析失败按「无逐题用时」降级 */ }
+            }
             return (
               <div key={s.id} className="fb-row">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
@@ -99,6 +113,11 @@ export default function History() {
                       <span className="fb-meta">得分 <b style={{ color: isInProgress ? F.text : (s.score >= 60 ? F.success : F.error), fontSize: 14 }}>{isInProgress ? '进行中' : s.score}</b></span>
                       <span className="fb-meta">用时 <b style={{ color: F.text, fontSize: 14 }}>{formatDuration(s.duration_sec)}</b></span>
                       <span className="fb-meta">{new Date(s.started_at).toLocaleString('zh-CN')}</span>
+                      {timingEntries.length > 0 && (
+                        <span className="fb-meta" title={timingEntries.map(t => `第${t.qid}题 ${t.sec}秒`).join('、')}>
+                          逐题用时：{timingEntries.slice(0, 4).map(t => `${t.sec}秒`).join(' · ')}{timingEntries.length > 4 ? ` 等 ${timingEntries.length} 题` : ''}
+                        </span>
+                      )}
                     </div>
                   </div>
                   <div style={{ flexShrink: 0 }}>

@@ -89,6 +89,17 @@ function fmtTime(sec) {  const m = Math.floor(sec / 60);
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
+/** 生成本场交卷的幂等键（≤64 字符）；整场作答保持稳定，换一场新作答重新生成。 */
+function genSubmitKey(paperId) {
+  let r;
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    r = crypto.randomUUID();
+  } else {
+    r = Date.now().toString(36) + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+  }
+  return `p${paperId}-${r}`.slice(0, 64);
+}
+
 /**
  * 粉笔题库（spa.fenbi.com/ti）的设计 token。
  *
@@ -222,6 +233,21 @@ export default function ExamPaperTake() {
   const submittingRef = useRef(false);     // 交卷请求进行中
   const autoSubmittedRef = useRef(false); // 考场自动交卷只触发一次
   const pendingScrollRef = useRef(null);  // 断点续答后待定位的题号
+  const submitKeyRef = useRef(null);      // 本场交卷幂等键（刷新后仍同一个）
+
+  // 惰性取幂等键：优先内存副本，其次从断点进度对象恢复，最后生成新键。
+  // 只在写进度 / 交卷时调用；整场作答期间保持同一个值。
+  function getSubmitKey() {
+    if (submitKeyRef.current) return submitKeyRef.current;
+    let key = null;
+    try {
+      const saved = JSON.parse(localStorage.getItem(progressKey) || 'null');
+      if (saved && typeof saved.submitKey === 'string' && saved.submitKey) key = saved.submitKey;
+    } catch (e) { /* 解析失败则重新生成 */ }
+    if (!key) key = genSubmitKey(id);
+    submitKeyRef.current = key;
+    return key;
+  }
 
   const qRefs = useRef({});
   // 顶部吸附信息栏（定位时要用它的高度让开位置）
@@ -260,6 +286,7 @@ export default function ExamPaperTake() {
         currentSeq: currentSeqRef.current,
         startedAt: startedAtRef.current,
         durationMinutes,
+        submitKey: getSubmitKey(),   // 整场作答稳定、刷新后仍是同一个交卷幂等键
       }));
     } catch (e) { /* 容量限制 / 隐私模式忽略 */ }
   }, [answers, marked, timings, elapsed, mode, currentSeq, startedAt, durationMinutes, result, progressKey]);
@@ -278,6 +305,7 @@ export default function ExamPaperTake() {
     submittedRef.current = false;
     submittingRef.current = false;
     autoSubmittedRef.current = false;
+    submitKeyRef.current = null;
     startedAtRef.current = null;
     currentSeqRef.current = null;
     dwellStartRef.current = null;
@@ -315,6 +343,8 @@ export default function ExamPaperTake() {
         setAnswers(saved.answers && typeof saved.answers === 'object' ? saved.answers : {});
         setMarked(saved.marked && typeof saved.marked === 'object' ? saved.marked : {});
         timingsRef.current = saved.timings && typeof saved.timings === 'object' ? saved.timings : {};
+        // 断点续答沿用同一交卷幂等键，刷新 / 重进不会变成「新一次交卷」
+        submitKeyRef.current = (typeof saved.submitKey === 'string' && saved.submitKey) ? saved.submitKey : null;
         setTimings(timingsRef.current);
         const elapsedSaved = Math.max(0, Math.floor(Number(saved.elapsed) || 0));
         const start = Number(saved.startedAt) || (Date.now() - elapsedSaved * 1000);
@@ -503,15 +533,19 @@ export default function ExamPaperTake() {
         answers,
         duration_sec: elapsed,
         timings: finalTimings,
+        submitKey: getSubmitKey(),
       });
+      const isDup = r.data && r.data.duplicate === true;
       submittedRef.current = true;
       setResult(r.data);
       setSheetOpen(false);
       try { localStorage.removeItem(progressKey); } catch (e) { /* ignore */ }
+      submitKeyRef.current = null;      // 交卷成功后清除，下一场作答生成新键
       window.scrollTo({ top: 0, behavior: 'smooth' });
-      message.success(auto ? '考试时间到，已自动交卷' : '交卷成功');
+      // 重复交卷（duplicate:true）判分结果一致，正常展示，不报错
+      message.success(isDup ? '已显示交卷结果' : (auto ? '考试时间到，已自动交卷' : '交卷成功'));
     } catch (err) {
-      submittingRef.current = false;   // 失败允许手动重试
+      submittingRef.current = false;   // 失败允许手动重试（幂等键保证不产生重复记录）
       message.error(err.response?.data?.error || '交卷失败');
     } finally {
       setSubmitting(false);
@@ -541,10 +575,17 @@ export default function ExamPaperTake() {
       {list.map((q) => {
         const st = cardStatus(q.seq);
         const c = CARD_STATUS_COLOR[st];
+        const label = `第 ${q.seq} 题${q.section ? '（' + q.section + '）' : ''}${marked[q.seq] ? '（已标记）' : ''}`;
         return (
           <div
             key={q.seq}
+            role="button"
+            tabIndex={0}
+            aria-label={`${label}，${st === 'answered' ? '已答' : st === 'marked' ? '已标记' : st === 'correct' ? '答对' : st === 'wrong' ? '答错' : '未答'}`}
             onClick={() => scrollToSeq(q.seq)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); scrollToSeq(q.seq); }
+            }}
             style={{
               width: 30, height: 30,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -552,7 +593,7 @@ export default function ExamPaperTake() {
               fontSize: 12, cursor: 'pointer', fontWeight: st === 'unanswered' ? 400 : 600,
               transition: 'background .15s',
             }}
-            title={`第 ${q.seq} 题${q.section ? '（' + q.section + '）' : ''}${marked[q.seq] ? '（已标记）' : ''}`}
+            title={label}
           >
             {q.seq}
           </div>
@@ -860,7 +901,14 @@ export default function ExamPaperTake() {
             return (
               <div
                 key={label}
+                role="button"
+                tabIndex={result ? -1 : 0}
+                aria-disabled={!!result}
+                aria-label={`第 ${q.seq} 题选项 ${label}${selected ? '，已选择' : ''}${res ? (isRight ? '，正确答案' : isMyWrong ? '，你的错误答案' : '') : ''}`}
                 onClick={() => selectOption(q.seq, label)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectOption(q.seq, label); }
+                }}
                 style={{
                   display: 'flex', gap: 10, alignItems: 'flex-start',
                   cursor: result ? 'default' : 'pointer',
@@ -1072,7 +1120,16 @@ export default function ExamPaperTake() {
           return (
             <div
               key={s.name}
+              role="button"
+              tabIndex={0}
+              aria-label={`${s.name}，已完成 ${done}/${s.count} 题${active ? '，当前分区' : ''}`}
               onClick={() => { setActiveSection(s.name); scrollToSeq(s.questions[0].seq); }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  setActiveSection(s.name); scrollToSeq(s.questions[0].seq);
+                }
+              }}
               style={{
                 cursor: 'pointer', padding: '4px 12px', borderRadius: 4, fontSize: 13, lineHeight: '20px',
                 background: active ? FB.primary : FB.cardBg,
@@ -1202,7 +1259,7 @@ export default function ExamPaperTake() {
         {answerSheet}
         <Button
           type="primary" block style={{ marginTop: 14, borderRadius: 4 }} loading={submitting}
-          disabled={!!result} onClick={submit}
+          disabled={submitting || !!result} onClick={submit}
         >
           {result ? '已交卷' : '交卷并查看解析'}
         </Button>
@@ -1238,7 +1295,7 @@ export default function ExamPaperTake() {
           />
         </div>
         <Button
-          type="primary" size="small" loading={submitting} disabled={!!result} onClick={submit}
+          type="primary" size="small" loading={submitting} disabled={submitting || !!result} onClick={submit}
           style={{ background: FB.primary, borderColor: FB.primary, borderRadius: 4 }}
         >
           {result ? '已交卷' : '交卷'}
