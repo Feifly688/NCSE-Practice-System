@@ -11,6 +11,7 @@ const {
   pickQuestionsByConfig,
   POOL_KEYS,
 } = require('../lib/taxonomy');
+const { getWeaknessProfile } = require('../lib/weakness');
 
 const router = express.Router();
 
@@ -26,6 +27,15 @@ function parseIds(value) {
   return arr
     .map((v) => Number(v))
     .filter((n) => Number.isInteger(n) && n > 0);
+}
+
+/** 解析 focusWeak：只接受 boolean 真值、数字 1 或 '1'/'true' 之类真值字符串 */
+function parseWeakFlag(value) {
+  if (value === true || value === 1) return true;
+  if (typeof value === 'string') {
+    return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());
+  }
+  return false;
 }
 
 /**
@@ -138,7 +148,8 @@ router.get('/categories/:id/questions', requireAuth, asyncHandler(async (req, re
  *   pool, categoryIds[], qtypes[], difficultyRange:[min,max], count,
  *   excludeAnswered: boolean,   // 优先未做题
  *   yearMode,                    // 不限 / near3 / near5 / near10
- *   sourceType                   // national=国考真题 local=地方真题
+ *   sourceType,                  // national=国考真题 local=地方真题
+ *   focusWeak: boolean           // 按学情诊断的薄弱一级模块加权抽题
  * }
  *
  * 参照粉笔：练习阶段接口不下发答案与解析，交卷后由 /practice/submit 下发权威答案。
@@ -154,6 +165,7 @@ router.post('/pick', requireAuth, asyncHandler(async (req, res) => {
     subjectIds: rawSubjectIds,
     yearMode: rawYearMode,
     sourceType: rawSourceType,
+    focusWeak: rawFocusWeak,
   } = req.body || {};
 
   const pool = pickPool(rawPool);
@@ -169,6 +181,7 @@ router.post('/pick', requireAuth, asyncHandler(async (req, res) => {
   const yearFrom = span ? new Date().getFullYear() - span : null;
   const sourceType = ['national', 'local'].includes(String(rawSourceType || '')) ? String(rawSourceType) : null;
   const preferUndone = Boolean(excludeAnswered);
+  const focusWeak = parseWeakFlag(rawFocusWeak);
 
   // 整个 /pick 在单一连接内完成：已练题查询、分类批量展开、count、抽题
   // 复用同一 conn，避免多次 withConnection 各自占用连接与快照不一致。
@@ -183,13 +196,27 @@ router.post('/pick', requireAuth, asyncHandler(async (req, res) => {
       pool, categoryIds: expanded, qtypes, difficultyRange: range,
       subjectIds, yearFrom, sourceType,
     }, conn);
-    if (!available) return { available: 0, rows: [] };
+    if (!available) return { available: 0, rows: [], weakModules: [] };
+
+    // 薄弱点加权：在同一 conn 内做学情诊断（无作答数据时画像为空，
+    // weakCategoryIds 为空 → pickQuestionsByConfig 退化为普通抽题，接口不报错）。
+    let weakCategoryIds = [];
+    let weakModules = [];
+    if (focusWeak) {
+      const profile = await getWeaknessProfile(conn, req.user.userId);
+      weakCategoryIds = profile.weakCategoryIds;
+      weakModules = profile.topWeak.map((m) => ({
+        categoryId: m.categoryId,
+        name: m.name,
+        accuracy: m.accuracy,
+      }));
+    }
 
     const rows = await pickQuestionsByConfig({
       pool, categoryIds: expanded, qtypes, difficultyRange: range, count,
-      subjectIds, yearFrom, sourceType, preferUndoneIds,
+      subjectIds, yearFrom, sourceType, preferUndoneIds, weakCategoryIds,
     }, conn);
-    return { available, rows };
+    return { available, rows, weakModules };
   });
 
   if (!result.available) {
@@ -202,6 +229,8 @@ router.post('/pick', requireAuth, asyncHandler(async (req, res) => {
     picked: result.rows.length,
     count,
     preferUndone,
+    focusWeak,
+    weakModules: result.weakModules,
     // 答题阶段只下发题干与选项；答案和解析统一由交卷接口下发，防止提前查看
     questions: result.rows.map((r) => ({
       id: r.id,

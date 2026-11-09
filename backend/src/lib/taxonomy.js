@@ -679,6 +679,15 @@ async function pickQuestionsByConfig(config, existingConn) {
 
   const count = Math.min(Math.max(Number(config.count) || 10, 1), 200);
 
+  // 薄弱点加权（可选）：仅当传入有效 weakCategoryIds 时启用；
+  // 为空时下面的 else 分支与原实现逐字节等价，不改变普通抽题的分布。
+  // IN(...) 占位符上限保护：正常来源 topWeak 最多 3 个，这里留足余量。
+  const MAX_WEAK_CATEGORY_IDS = 10;
+  const weakCategoryIds = (Array.isArray(config.weakCategoryIds) ? config.weakCategoryIds : [])
+    .map(Number)
+    .filter((n) => Number.isInteger(n) && n > 0)
+    .slice(0, MAX_WEAK_CATEGORY_IDS);
+
   const exec = async (conn) => {
     const where = [];
     const params = [];
@@ -737,16 +746,46 @@ async function pickQuestionsByConfig(config, existingConn) {
     );
     const candidateIds = idRows.map((r) => Number(r.id));
 
-    // ② 「优先未做题」：preferUndoneIds 是已练过的题，排到后面；
-    //    未做题随机在前、已做题随机补位，等价于原
-    //    ORDER BY (t.id IN (preferIds)) ASC, RAND() LIMIT count
+    // ② 排序选 id：preferUndoneIds 是已练过的题，排到后面。
     const preferSet = new Set(
       (Array.isArray(config.preferUndoneIds) ? config.preferUndoneIds : [])
         .map(Number).filter((n) => Number.isInteger(n) && n > 0)
     );
-    const undone = shuffle(candidateIds.filter((id) => !preferSet.has(id)));
-    const done = shuffle(candidateIds.filter((id) => preferSet.has(id)));
-    const selectedIds = [...undone, ...done].slice(0, count);
+
+    let selectedIds;
+    if (weakCategoryIds.length) {
+      // ②-a 薄弱加权：额外查一次薄弱一级模块下的题目 id 集合，
+      //     按「薄弱且未做 → 薄弱已做 → 非薄弱未做 → 非薄弱已做」四组排序，
+      //     每组内仍 Fisher-Yates 洗牌，最后 slice(0, count)。
+      //     既偏向薄弱模块，又保持组内随机性；未做的薄弱题优先。
+      const wph = weakCategoryIds.map(() => '?').join(',');
+      const [weakRows] = await conn.query(
+        `SELECT DISTINCT ref_id FROM question_category_map
+          WHERE pool = ? AND category_id IN (${wph})`,
+        ['question', ...weakCategoryIds]
+      );
+      const weakSet = new Set(weakRows.map((r) => Number(r.ref_id)));
+
+      const weakUndone = [], weakDone = [], otherUndone = [], otherDone = [];
+      for (const id of candidateIds) {
+        const isWeak = weakSet.has(id);
+        const isDone = preferSet.has(id);
+        if (isWeak && !isDone) weakUndone.push(id);
+        else if (isWeak && isDone) weakDone.push(id);
+        else if (!isDone) otherUndone.push(id);
+        else otherDone.push(id);
+      }
+      selectedIds = [
+        ...shuffle(weakUndone), ...shuffle(weakDone),
+        ...shuffle(otherUndone), ...shuffle(otherDone),
+      ].slice(0, count);
+    } else {
+      // ②-b 原逻辑（逐字节等价）：未做题随机在前、已做题随机补位，
+      //     等价于 ORDER BY (t.id IN (preferIds)) ASC, RAND() LIMIT count。
+      const undone = shuffle(candidateIds.filter((id) => !preferSet.has(id)));
+      const done = shuffle(candidateIds.filter((id) => preferSet.has(id)));
+      selectedIds = [...undone, ...done].slice(0, count);
+    }
     if (!selectedIds.length) return [];
 
     // ③ 按 id IN(...) 取完整题目行（无 JOIN / GROUP BY，命中主键，开销小）
