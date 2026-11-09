@@ -10,15 +10,17 @@ import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
 import { GlowCard } from '../components/ui/spotlight-card';
 import HomeAuthCard from '../components/HomeAuthCard';
-import HighlightCover, { type CoverKind } from '../components/HighlightCover';
-import TechText from '../components/react-bits/TechText';
+import type { CoverKind } from '../components/HighlightCover';
 import { useResponsive } from '../hooks/useResponsive';
-import GlowCursor from '../components/react-bits/GlowCursor';
-import StarBorder from '../components/react-bits/StarBorder';
 
-// 背景与轮播按需加载：ElectricLogo 依赖 WebGL（ogl），
-// 放到首屏之后再加载，避免拖慢首次渲染。
+// 首页几个自绘 canvas / WebGL 组件合计约 3000 行，同步打进主 chunk 会拖慢首屏。
+// ElectricLogo 依赖 ogl 已按需加载，这里把其余重组件也统一改为组件级 lazy；
+// 标题与主 CTA 用静态占位兜底，组件到位前仍可读可点。
 const ElectricLogo = lazy(() => import('../components/react-bits/ElectricLogo'));
+const HighlightCover = lazy(() => import('../components/HighlightCover'));
+const TechText = lazy(() => import('../components/react-bits/TechText'));
+const GlowCursor = lazy(() => import('../components/react-bits/GlowCursor'));
+const StarBorder = lazy(() => import('../components/react-bits/StarBorder'));
 
 interface Highlight {
   id: number;
@@ -130,7 +132,9 @@ function HighlightSlide({ item, index, isMobile }: { item: Highlight; index: num
         }}
       >
         <div style={{ position: 'absolute', inset: 0 }}>
-          <HighlightCover kind={item.kind} />
+          <Suspense fallback={null}>
+            <HighlightCover kind={item.kind} />
+          </Suspense>
         </div>
         {/* 底部渐变，保证文字始终可读 */}
         <div
@@ -223,7 +227,9 @@ export default function Home() {
           内容之下，pointer-events:none 不拦截交互）；鼠标轨迹向流体场注入
           速度与染料，染料随流场漂移、点击时放射状迸发。
           颜色：主色 #60A5FA（首页 accent 蓝），其余官方默认参数。 */}
-      <GlowCursor className="glow-cursor-fixed" color="#60A5FA" />
+      <Suspense fallback={null}>
+        <GlowCursor className="glow-cursor-fixed" color="#60A5FA" />
+      </Suspense>
 
       {/* ─── 页面底纹：径向光晕 + 细网格 ─── */}
       <div
@@ -269,22 +275,28 @@ export default function Home() {
           <div style={{ position: 'relative', zIndex: 1, pointerEvents: 'none' }}>
             {/* 画布标题，供视觉呈现。单独恢复指针事件，保留其悬停虚线效果 */}
             <div style={{ width: '100%', height: isMobile ? 64 : 112, marginBottom: isMobile ? 2 : 6, pointerEvents: 'auto' }}>
-              <TechText
-                text="公务员考试刷题系统"
-                fontSize={150}
-                color="#ffffff"
-                accentColor="#60A5FA"
-                align="center"
-                reveal="letter"
-                selection
-                sweep={false}
-                draggable={false}
-                labels={false}
-                guides={false}
-                specks={12}
-                bounce={0.3}
-                intro="none"
-              />
+              <Suspense fallback={
+                <div style={{ color: '#fff', fontSize: isMobile ? 24 : 42, fontWeight: 700, letterSpacing: '0.04em', lineHeight: isMobile ? '64px' : '112px' }}>
+                  公务员考试刷题系统
+                </div>
+              }>
+                <TechText
+                  text="公务员考试刷题系统"
+                  fontSize={150}
+                  color="#ffffff"
+                  accentColor="#60A5FA"
+                  align="center"
+                  reveal="letter"
+                  selection
+                  sweep={false}
+                  draggable={false}
+                  labels={false}
+                  guides={false}
+                  specks={12}
+                  bounce={0.3}
+                  intro="none"
+                />
+              </Suspense>
             </div>
           {/* 供搜索引擎与读屏识别的真实标题 */}
           <h1 className="sr-only">公务员考试刷题系统</h1>
@@ -310,26 +322,36 @@ export default function Home() {
             <div style={{ pointerEvents: 'auto', display: 'inline-block' }}>
               {/* React Bits StarBorder：星星沿边框环跑 + 点击光脉冲。
                   保留原白底黑字主 CTA 观感，星边用首页 accent 蓝。 */}
-              <StarBorder
-                as="button"
-                onClick={() => navigate('/practice')}
-                radius={24}
-                thickness={2.5}
-                duration={4}
-                glow={1}
-                sparkle
-                stars={2}
-                trailLength={0.45}
-                color="#3B82F6"
-                trailColor="#60A5FA"
-                backgroundColor="#ffffff"
-                textColor="#0a0a0f"
-                borderColor="rgba(59, 130, 246, 0.55)"
-                style={{ height: 48, padding: '0 38px', fontSize: 15, fontWeight: 600, border: 'none' }}
-              >
-                <ArrowRightOutlined />
-                开始练习
-              </StarBorder>
+              <Suspense fallback={
+                <button
+                  type="button"
+                  onClick={() => navigate('/practice')}
+                  style={{ height: 48, padding: '0 38px', fontSize: 15, fontWeight: 600, border: 'none', borderRadius: 24, background: '#fff', color: '#0a0a0f', cursor: 'pointer' }}
+                >
+                  <ArrowRightOutlined /> 开始练习
+                </button>
+              }>
+                <StarBorder
+                  as="button"
+                  onClick={() => navigate('/practice')}
+                  radius={24}
+                  thickness={2.5}
+                  duration={4}
+                  glow={1}
+                  sparkle
+                  stars={2}
+                  trailLength={0.45}
+                  color="#3B82F6"
+                  trailColor="#60A5FA"
+                  backgroundColor="#ffffff"
+                  textColor="#0a0a0f"
+                  borderColor="rgba(59, 130, 246, 0.55)"
+                  style={{ height: 48, padding: '0 38px', fontSize: 15, fontWeight: 600, border: 'none' }}
+                >
+                  <ArrowRightOutlined />
+                  开始练习
+                </StarBorder>
+              </Suspense>
             </div>
           ) : (
             <div style={{ pointerEvents: 'auto' }}>

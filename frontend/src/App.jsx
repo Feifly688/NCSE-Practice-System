@@ -10,9 +10,10 @@ import AdminRoute from './components/AdminRoute';
 import GuestRoute from './components/GuestRoute';
 import ErrorBoundary from './components/ErrorBoundary';
 import AuthModal from './components/AuthModal';
-import Home from './pages/Home';
 
-// 首屏核心页面同步加载，其余按需加载
+// 全部页面按需加载：落地页的重组件已在页内再做二次 lazy，
+// 这里拆成路由级 chunk，避免把首页的 antd 组件也压进主入口。
+const Home = lazy(() => import('./pages/Home'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Practice = lazy(() => import('./pages/Practice'));
 const SpecialPractice = lazy(() => import('./pages/SpecialPractice'));
