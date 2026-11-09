@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Typography, Row, Col, Button, Space, Spin, message, List, Tag, Empty } from 'antd';
-import { EditOutlined, HistoryOutlined, TrophyOutlined, ClockCircleOutlined, CheckCircleOutlined, PlayCircleOutlined, ArrowRightOutlined } from '@ant-design/icons';
+import { EditOutlined, HistoryOutlined, TrophyOutlined, ClockCircleOutlined, CheckCircleOutlined, PlayCircleOutlined, ArrowRightOutlined, BarChartOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
@@ -119,6 +119,7 @@ export default function Dashboard() {
         desc="从今天的练习开始，稳步提升每一个知识模块。"
         extra={
           <>
+            <Button icon={<BarChartOutlined />} onClick={() => navigate('/report')}>学习报告</Button>
             <Button icon={<HistoryOutlined />} onClick={() => navigate('/history')}>练习记录</Button>
             <Button type="primary" icon={<EditOutlined />} onClick={() => navigate('/practice')}>开始练习</Button>
           </>

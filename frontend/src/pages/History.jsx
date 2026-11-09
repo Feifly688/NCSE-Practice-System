@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Row, Col, Spin, message, Button } from 'antd';
-import { CheckCircleOutlined, ClockCircleOutlined, EditOutlined, TrophyOutlined, EyeOutlined, PlayCircleOutlined, HistoryOutlined } from '@ant-design/icons';
+import { Row, Col, Spin, message, Button, Space } from 'antd';
+import { CheckCircleOutlined, ClockCircleOutlined, EditOutlined, TrophyOutlined, EyeOutlined, PlayCircleOutlined, HistoryOutlined, BarChartOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import Pagination from '../components/Pagination';
@@ -84,7 +84,10 @@ export default function History() {
         title="练习记录"
         icon={<HistoryOutlined />}
         desc="查看每一次练习的成绩与用时，未完成的练习可以继续作答。"
-        extra={<Button type="primary" icon={<EditOutlined />} onClick={() => navigate('/practice')}>去练习</Button>}
+        extra={<Space>
+          <Button icon={<BarChartOutlined />} onClick={() => navigate('/report')}>学习报告</Button>
+          <Button type="primary" icon={<EditOutlined />} onClick={() => navigate('/practice')}>去练习</Button>
+        </Space>}
       />
 
       <SectionLabel title="累计数据" />

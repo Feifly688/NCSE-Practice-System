@@ -18,6 +18,7 @@ const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Practice = lazy(() => import('./pages/Practice'));
 const SpecialPractice = lazy(() => import('./pages/SpecialPractice'));
 const History = lazy(() => import('./pages/History'));
+const Report = lazy(() => import('./pages/Report'));
 const WrongBook = lazy(() => import('./pages/WrongBook'));
 const Favorites = lazy(() => import('./pages/Favorites'));
 const Profile = lazy(() => import('./pages/Profile'));
@@ -79,6 +80,8 @@ function ThemedApp() {
                 {/* 单题练习（答题页）：支持 ?pool/?categories/?count 等分类刷题参数 */}
                 <Route path="/practice/do" element={<ProtectedRoute><Practice /></ProtectedRoute>} />
                 <Route path="/history" element={<ProtectedRoute><History /></ProtectedRoute>} />
+                {/* 学习报告：按时间窗的做题量/正确率趋势与六模块能力 */}
+                <Route path="/report" element={<ProtectedRoute><Report /></ProtectedRoute>} />
                 <Route path="/wrong-book" element={<ProtectedRoute><WrongBook /></ProtectedRoute>} />
                 <Route path="/favorites" element={<ProtectedRoute><Favorites /></ProtectedRoute>} />
                 <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />

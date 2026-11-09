@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Layout, Menu, Button, Space, Typography, Dropdown, Drawer } from 'antd';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { HomeOutlined, EditOutlined, HistoryOutlined, DashboardOutlined, SettingOutlined, LogoutOutlined, LoginOutlined, UserAddOutlined, UserOutlined, BookOutlined, StarFilled, TrophyOutlined, MenuOutlined, FileTextOutlined } from '@ant-design/icons';
+import { HomeOutlined, EditOutlined, HistoryOutlined, DashboardOutlined, SettingOutlined, LogoutOutlined, LoginOutlined, UserAddOutlined, UserOutlined, BookOutlined, StarFilled, TrophyOutlined, MenuOutlined, FileTextOutlined, BarChartOutlined } from '@ant-design/icons';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { useResponsive } from '../hooks/useResponsive';
@@ -37,6 +37,7 @@ export default function MainLayout() {
       { key: '/dashboard', icon: <DashboardOutlined />, label: '仪表盘' },
       { key: '/practice', icon: <EditOutlined />, label: '题库' },
       { key: '/history', icon: <HistoryOutlined />, label: '历史' },
+      { key: '/report', icon: <BarChartOutlined />, label: '学习报告' },
       { key: '/wrong-book', icon: <BookOutlined />, label: '错题本' },
       { key: '/favorites', icon: <StarFilled />, label: '收藏' },
       { key: '/leaderboard', icon: <TrophyOutlined />, label: '排行榜' },
