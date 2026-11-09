@@ -27,6 +27,15 @@ function parseMetaJson(raw) {
 const MAX_SESSION_QUESTIONS = 200;
 
 /**
+ * 错题「待复习」判定（表别名统一为 wb）：
+ *   - next_review_at 到期（含迁移前老数据 NULL）
+ *   - 或今天新错 / 重错的题（粉笔冲刺口径：当天新错的题当天打标签并回顾，
+ *     隔一天才按错频周期重做）。否则首次错题要等 15 天才出现，新用户打开
+ *     「今日待复习」会是一片空白。
+ */
+const DUE_SQL = '(wb.next_review_at IS NULL OR wb.next_review_at <= NOW() OR DATE(wb.updated_at) = CURDATE())';
+
+/**
  * 从 meta 中取出题目 id 列表。
  *
  * 安全要点：meta 里的题目**答案一律不可信** —— 历史格式 meta.questions 是 start
@@ -233,7 +242,7 @@ router.post('/start', requireAuth, asyncHandler(async (req, res) => {
 
 // POST /api/practice/save-progress
 router.post('/save-progress', requireAuth, asyncHandler(async (req, res) => {
-  const { session_id, answers, elapsed_sec } = req.body;
+  const { session_id, answers, elapsed_sec, marked } = req.body;
   if (!session_id) return res.status(400).json({ error: '缺少 session_id' });
 
   await withConnection(async (conn) => {
@@ -248,6 +257,8 @@ router.post('/save-progress', requireAuth, asyncHandler(async (req, res) => {
     if (!meta.questions) meta.questions = [];
     meta.answers = answers || meta.answers || {};
     meta.elapsed_sec = elapsed_sec || meta.elapsed_sec || 0;
+    // 标记题随进度一起持久化，刷新/续答后答题卡仍能还原标记状态
+    if (Array.isArray(marked)) meta.marked = marked;
 
     await conn.query(
       'UPDATE practice_session SET meta_json = ?, duration_sec = ? WHERE id = ?',
@@ -306,6 +317,9 @@ router.post('/submit', requireAuth, asyncHandler(async (req, res) => {
     const savedAnswers = {};
     // 结果页 / 历史列表展示用的逐题用时（已规范化为 0 或非负整数）
     const savedTimings = {};
+    // 按题目所属一级模块分组统计：module_name 已由 loadQuestionsByIds 带上，无需额外查库
+    const sectionMap = new Map();
+    let unanswered = 0;
 
     for (const q of questions) {
       const userAnswer = String(answers[q.id] ?? answers[String(q.id)] ?? '');
@@ -315,11 +329,27 @@ router.post('/submit', requireAuth, asyncHandler(async (req, res) => {
       else wrongIds.push(q.id);
       const spent = timeOf(q.id);
       savedTimings[q.id] = spent;
+      // bySection：一级模块名（无标签归「其他」），timeSec 取本轮规范化后的用时
+      const sectionName = q.module_name || '其他';
+      if (!sectionMap.has(sectionName)) sectionMap.set(sectionName, { name: sectionName, total: 0, correct: 0, timeSec: 0 });
+      const sec = sectionMap.get(sectionName);
+      sec.total++;
+      if (isCorrect) sec.correct++;
+      sec.timeSec += spent;
+      if (userAnswer === '') unanswered++;
       answerRows.push('(?,?,?,?,?)');
       // answerParams 是扁平数组：每行 5 个占位符，末列是 time_spent_sec（原恒 0）
       answerParams.push(session_id, q.id, userAnswer, isCorrect, spent);
     }
 
+    const bySection = Array.from(sectionMap.values()).map((s) => ({
+      name: s.name,
+      total: s.total,
+      correct: s.correct,
+      accuracy: s.total > 0 ? Number((s.correct / s.total).toFixed(4)) : 0,
+      timeSec: s.timeSec,
+    }));
+    const completion = total > 0 ? Number(((total - unanswered) / total).toFixed(4)) : 0;
     const score = total > 0 ? Number(((correct / total) * 100).toFixed(2)) : 0;
 
     await conn.beginTransaction();
@@ -333,12 +363,23 @@ router.post('/submit', requireAuth, asyncHandler(async (req, res) => {
       );
 
       if (wrongIds.length > 0) {
-        const placeholders = wrongIds.map(() => '(?, ?, 1, 0)').join(',');
+        // 首次答错：wrong_count=1（低频），下次复习 +15 天。
+        // 重复答错：ON DUPLICATE KEY UPDATE 从左到右求值，next_review_at 赋值放在
+        // wrong_count 之前，用 (wrong_count + 1) 表示更新后的错次，据此定复习周期：
+        // >=3 高频 +1 天 / =2 中频 +7 天 / 其余低频 +15 天。
+        const placeholders = wrongIds.map(() => '(?, ?, 1, 0, DATE_ADD(NOW(), INTERVAL 15 DAY))').join(',');
         const params = [];
         for (const id of wrongIds) params.push(req.user.userId, id);
         await conn.query(
-          `INSERT INTO wrong_book (user_id, question_id, wrong_count, mastered) VALUES ${placeholders}
-           ON DUPLICATE KEY UPDATE wrong_count = wrong_count + 1, mastered = 0`,
+          `INSERT INTO wrong_book (user_id, question_id, wrong_count, mastered, next_review_at) VALUES ${placeholders}
+           ON DUPLICATE KEY UPDATE
+             next_review_at = CASE
+               WHEN (wrong_count + 1) >= 3 THEN DATE_ADD(NOW(), INTERVAL 1 DAY)
+               WHEN (wrong_count + 1) = 2 THEN DATE_ADD(NOW(), INTERVAL 7 DAY)
+               ELSE DATE_ADD(NOW(), INTERVAL 15 DAY)
+             END,
+             wrong_count = wrong_count + 1,
+             mastered = 0`,
           params
         );
       }
@@ -361,6 +402,9 @@ router.post('/submit', requireAuth, asyncHandler(async (req, res) => {
       correct,
       score,
       duration_sec: elapsed,
+      bySection,
+      unanswered,
+      completion,
       // 结果页需要正确答案与解析；答题阶段接口不下发（防提前看答案），交卷后才给
       questions: questions.map((q) => ({
         id: q.id,
@@ -386,6 +430,15 @@ router.post('/submit', requireAuth, asyncHandler(async (req, res) => {
   return res.json(result);
 }));
 
+// GET /api/practice/weakness —— 学情诊断（薄弱点画像）
+// 注册在 /session/:id 等动态路由之前，避免被参数段抢先匹配。
+// 画像计算见 lib/weakness.js；无数据用户由其返回 hasData:false + 空数组，不会 500。
+router.get('/weakness', requireAuth, asyncHandler(async (req, res) => {
+  const { getWeaknessProfile } = require('../lib/weakness');
+  const profile = await withConnection((conn) => getWeaknessProfile(conn, req.user.userId));
+  return res.json({ ...(profile || {}), generatedAt: new Date().toISOString() });
+}));
+
 // GET /api/practice/session/:id
 router.get('/session/:id', requireAuth, asyncHandler(async (req, res) => {
   const data = await withConnection(async (conn) => {
@@ -407,6 +460,34 @@ router.get('/session/:id', requireAuth, asyncHandler(async (req, res) => {
       [session.id]
     );
 
+    // 历史结果页与 submit 同口径：以本卷题目为框架、作答明细为数据源。
+    // 模块归属沿用 questions 里的 module_name（一级模块），不额外查库、无 N+1。
+    const detailById = new Map(answerDetails.map((a) => [Number(a.question_id), a]));
+    const sectionMap = new Map();
+    let unanswered = 0;
+    for (const q of questions) {
+      const a = detailById.get(Number(q.id));
+      const userAnswer = a ? String(a.user_answer ?? '') : '';
+      const isCorrect = a && Number(a.is_correct) === 1 ? 1 : 0;
+      const spent = a ? Number(a.time_spent_sec) || 0 : 0;
+      const sectionName = q.module_name || '其他';
+      if (!sectionMap.has(sectionName)) sectionMap.set(sectionName, { name: sectionName, total: 0, correct: 0, timeSec: 0 });
+      const sec = sectionMap.get(sectionName);
+      sec.total++;
+      if (isCorrect) sec.correct++;
+      sec.timeSec += spent;
+      if (userAnswer === '') unanswered++;
+    }
+    const bySection = Array.from(sectionMap.values()).map((s) => ({
+      name: s.name,
+      total: s.total,
+      correct: s.correct,
+      accuracy: s.total > 0 ? Number((s.correct / s.total).toFixed(4)) : 0,
+      timeSec: s.timeSec,
+    }));
+    const completion = questions.length > 0
+      ? Number(((questions.length - unanswered) / questions.length).toFixed(4)) : 0;
+
     return {
       session: {
         id: session.id, subject_id: session.subject_id, subject_name: session.subject_name,
@@ -420,7 +501,11 @@ router.get('/session/:id', requireAuth, asyncHandler(async (req, res) => {
       questions,
       answers: meta.answers || {},
       elapsed_sec: meta.elapsed_sec || session.duration_sec || 0,
-      answerDetails
+      marked: Array.isArray(meta.marked) ? meta.marked : [],
+      answerDetails,
+      bySection,
+      unanswered,
+      completion
     };
   });
 
@@ -501,6 +586,7 @@ const REASON_TAGS = ['concept', 'calculation', 'reading', 'time', 'other'];
 // 可选 reason：concept|calculation|reading|time|other 走等值匹配，unlabeled 表示 reason_tag IS NULL。
 // 可选 freq：按 wrong_count 分档 —— high(>=3) / mid(=2) / low(=1)。
 // 不传时行为与原来完全一致，仅在返回里额外附带 items.module_id/name、reason_tag 与 modules 列表。
+// 可选 review：due=只看到期错题（含 next_review_at 为 NULL 的老数据），all（默认）=全部，向后兼容。
 router.get('/wrong-book', requireAuth, asyncHandler(async (req, res) => {
   const page = Math.max(Number(req.query.page) || 1, 1);
   const pageSize = Math.min(Number(req.query.pageSize) || 15, 50);
@@ -511,6 +597,7 @@ router.get('/wrong-book', requireAuth, asyncHandler(async (req, res) => {
     ? null : Number(rawCategory);
   const reason = req.query.reason;
   const freq = req.query.freq;
+  const review = req.query.review === 'due' ? 'due' : 'all';
 
   const data = await withConnection(async (conn) => {
     let whereClause = ' WHERE wb.user_id = ?';
@@ -539,9 +626,22 @@ router.get('/wrong-book', requireAuth, asyncHandler(async (req, res) => {
     else if (freq === 'mid') whereClause += ' AND wb.wrong_count = 2';
     else if (freq === 'low') whereClause += ' AND wb.wrong_count = 1';
 
-    const [countRows] = await conn.query('SELECT COUNT(*) AS total FROM wrong_book wb' + whereClause, params);
+    // 到期口径见文件顶部 DUE_SQL：老数据 NULL 视为到期，当天新错的题也进来。
+    const dueClause = ' AND ' + DUE_SQL;
+    const listWhere = review === 'due' ? whereClause + dueClause : whereClause;
+
+    const [countRows] = await conn.query('SELECT COUNT(*) AS total FROM wrong_book wb' + listWhere, params);
+    // 徽标数字：当前筛选条件下到期的错题总数（与 review 视图无关，恒定可比）。
+    let dueCount = Number(countRows[0].total) || 0;
+    if (review !== 'due') {
+      const [dueRows] = await conn.query('SELECT COUNT(*) AS c FROM wrong_book wb' + whereClause + dueClause, params);
+      dueCount = Number(dueRows[0].c) || 0;
+    }
     const [rows] = await conn.query(
       `SELECT wb.id, wb.user_id, wb.question_id, wb.wrong_count, wb.mastered, wb.reason_tag, wb.updated_at,
+        wb.next_review_at,
+        CASE WHEN wb.wrong_count >= 3 THEN 'high' WHEN wb.wrong_count = 2 THEN 'mid' ELSE 'low' END AS review_level,
+        ${DUE_SQL} AS due,
         q.stem, q.passage, q.options_json, q.answer, q.explanation, q.qtype, q.difficulty,
         (SELECT c.id FROM question_category_map m
            JOIN question_category c ON c.id = m.category_id AND c.level = 1
@@ -549,10 +649,11 @@ router.get('/wrong-book', requireAuth, asyncHandler(async (req, res) => {
         (SELECT c.name FROM question_category_map m
            JOIN question_category c ON c.id = m.category_id AND c.level = 1
           WHERE m.pool = 'question' AND m.ref_id = q.id LIMIT 1) AS module_name
-       FROM wrong_book wb JOIN question q ON wb.question_id = q.id ${whereClause}
+       FROM wrong_book wb JOIN question q ON wb.question_id = q.id ${listWhere}
        ORDER BY wb.mastered ASC, wb.updated_at DESC LIMIT ? OFFSET ?`,
       [...params, pageSize, offset]
     );
+    const items = rows.map((r) => ({ ...r, due: Number(r.due) === 1 }));
 
     const [statsRows] = await conn.query(
       'SELECT COUNT(*) AS total, SUM(mastered = 0) AS active, SUM(mastered = 1) AS mastered, SUM(wrong_count) AS total_wrongs FROM wrong_book WHERE user_id = ?',
@@ -590,7 +691,7 @@ router.get('/wrong-book', requireAuth, asyncHandler(async (req, res) => {
       moduleRows = mods;
     }
 
-    return { items: rows, total: countRows[0].total, stats: statsRows[0], modules: moduleRows };
+    return { items, total: countRows[0].total, dueCount, stats: statsRows[0], modules: moduleRows };
   });
 
   return res.json({ ...data, page, pageSize });
@@ -648,8 +749,10 @@ router.put('/wrong-book/:id/mastered', requireAuth, asyncHandler(async (req, res
 
 // POST /api/practice/wrong-book/redo
 // 可选 categoryId：只重做某个一级模块下的错题（'0' = 无模块标签），不传则重做全部。
+// 可选 review=due：优先抽到期错题（含 next_review_at 为 NULL 的老数据）；不传保持原随机口径。
 router.post('/wrong-book/redo', requireAuth, asyncHandler(async (req, res) => {
   const { count = 10 } = req.body;
+  const review = req.body.review === 'due' ? 'due' : 'all';
   const rawCategory = req.body.categoryId;
   const categoryId = (rawCategory === undefined || rawCategory === '' || rawCategory === null)
     ? null : Number(rawCategory);
@@ -671,7 +774,7 @@ router.post('/wrong-book/redo', requireAuth, asyncHandler(async (req, res) => {
        a.clean_text as article_text, a.title as article_title
        FROM wrong_book wb JOIN question q ON wb.question_id = q.id LEFT JOIN article a ON q.source_article_id = a.id
        WHERE wb.user_id = ? AND wb.mastered = 0 AND q.status = 'approved' ${categoryClause}
-       ORDER BY RAND() LIMIT ?`,
+       ORDER BY ${review === 'due' ? DUE_SQL + ' DESC, ' : ''}RAND() LIMIT ?`,
       [...params, Math.min(count, 50)]
     );
     return rows.map(q => {
@@ -785,9 +888,16 @@ router.get('/favorites', requireAuth, asyncHandler(async (req, res) => {
 
   const data = await withConnection(async (conn) => {
     const [countRows] = await conn.query('SELECT COUNT(*) AS total FROM favorite WHERE user_id = ?', [req.user.userId]);
+    // 补全前端标签用的两个展示字段：subject_name 来自科目表，
+    // category_name 取二级分类名（相关子查询 + MIN，避免一题多标签放大行数）。
     const [rows] = await conn.query(
-      `SELECT f.id, f.question_id, f.created_at, q.stem, q.passage, q.options_json, q.answer, q.explanation, q.qtype, q.difficulty
+      `SELECT f.id, f.question_id, f.created_at, q.stem, q.passage, q.options_json, q.answer, q.explanation, q.qtype, q.difficulty,
+        s.name AS subject_name,
+        (SELECT MIN(c.name) FROM question_category_map m
+           JOIN question_category c ON c.id = m.category_id AND c.level = 2
+          WHERE m.pool = 'question' AND m.ref_id = q.id) AS category_name
        FROM favorite f JOIN question q ON f.question_id = q.id
+       LEFT JOIN subject s ON s.id = q.subject_id
        WHERE f.user_id = ? ORDER BY f.created_at DESC LIMIT ? OFFSET ?`,
       [req.user.userId, pageSize, offset]
     );

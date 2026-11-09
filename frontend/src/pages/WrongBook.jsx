@@ -1,5 +1,5 @@
 ﻿import React, { useState, useEffect } from 'react';
-import { Typography, Button, Space, Tag, message, Spin, Empty, Modal, Radio, Switch, Popconfirm, Select } from 'antd';
+import { Typography, Button, Space, Tag, message, Spin, Empty, Modal, Radio, Switch, Popconfirm, Select, Segmented, Badge } from 'antd';
 import { ReloadOutlined, BookOutlined, StarFilled, StarOutlined, ExportOutlined, DeleteOutlined, SettingOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
@@ -49,6 +49,16 @@ function freqOf(count) {
 function reasonLabel(tag) {
   return REASON_LABEL[tag] || '未标注';
 }
+// 复习等级：优先用后端下发的 review_level，未下发时按 wrong_count 兜底（与错次分档同口径）。
+function reviewLevelOf(item) {
+  return FREQ_BANDS[item.review_level] || FREQ_BANDS[freqOf(item.wrong_count)];
+}
+// 下次复习日期：为空显示「待复习」；DATETIME / ISO 串统一截成 MM-DD。
+function reviewDateLabel(v) {
+  if (!v) return '待复习';
+  const m = String(v).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[2]}-${m[3]}` : '待复习';
+}
 
 /** 让可点击的非按钮元素支持键盘激活：Enter / Space 触发同一逻辑，Space 阻止页面滚动；
  *  事件来自内部表单控件/按钮时不接管，避免破坏其原生键盘交互。 */
@@ -79,11 +89,13 @@ export default function WrongBook() {
   const [filter, setFilter] = useState('0'); // 0=未掌握, 1=已掌握, ''=全部
   const [reasonFilter, setReasonFilter] = useState(''); // ''=全部；5 类错因值或 'unlabeled'
   const [freqFilter, setFreqFilter] = useState(''); // ''=全部；high/mid/low
+  const [review, setReview] = useState('due'); // 默认「今日待复习」；'all' = 全部错题
+  const [dueCount, setDueCount] = useState(0); // 当前筛选下到期错题数（徽标）
   const [savingReasonId, setSavingReasonId] = useState(null); // 正在保存错因的错题 id，禁用控件防重复提交
   const [previewItem, setPreviewItem] = useState(null);
   const [autoRemove, setAutoRemove] = useState(() => localStorage.getItem('wrongbook_auto_remove') !== 'false');
 
-  useEffect(() => { loadWrongBook(); }, [page, filter, moduleId, reasonFilter, freqFilter]);
+  useEffect(() => { loadWrongBook(); }, [page, filter, moduleId, reasonFilter, freqFilter, review]);
   useEffect(() => { localStorage.setItem('wrongbook_auto_remove', String(autoRemove)); }, [autoRemove]);
 
   const activeModule = modules.find(m => String(m.module_id) === String(moduleId));
@@ -91,7 +103,7 @@ export default function WrongBook() {
   async function loadWrongBook() {
     setLoading(true);
     try {
-      const params = { page, pageSize: 15, withModules: '1' };
+      const params = { page, pageSize: 15, withModules: '1', review };
       if (filter !== '') params.mastered = filter;
       if (moduleId !== '') params.categoryId = moduleId;
       if (reasonFilter !== '') params.reason = reasonFilter;
@@ -101,6 +113,7 @@ export default function WrongBook() {
       setTotal(r.data.total || 0);
       setStats(r.data.stats || null);
       setModules(r.data.modules || []);
+      setDueCount(Number(r.data.dueCount) || 0);
     } catch (err) { message.error('加载错题本失败'); }
     finally { setLoading(false); }
   }
@@ -140,7 +153,7 @@ export default function WrongBook() {
 
   async function startRedo() {
     try {
-      const payload = { count: 10 };
+      const payload = { count: 10, review };
       if (moduleId !== '') payload.categoryId = moduleId;
       const r = await api.post('/practice/wrong-book/redo', payload);
       const questions = r.data.questions || [];
@@ -259,6 +272,14 @@ export default function WrongBook() {
       <Panel bodyStyle={{ padding: isMobile ? 12 : 16, paddingBottom: 4 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
           <Space size={8} wrap>
+            <Segmented
+              value={review}
+              onChange={v => { setReview(v); setPage(1); }}
+              options={[
+                { label: <span>今日待复习 <Badge count={dueCount} showZero color={F.primary} overflowCount={999} style={{ marginLeft: 2 }} /></span>, value: 'due' },
+                { label: '全部错题', value: 'all' },
+              ]}
+            />
             <Radio.Group value={filter} onChange={e => { setFilter(e.target.value); setPage(1); }}>
               <Radio.Button value="0">未掌握</Radio.Button>
               <Radio.Button value="1">已掌握</Radio.Button>
@@ -291,7 +312,7 @@ export default function WrongBook() {
         {loading ? (
           <div style={{ textAlign: 'center', padding: 60 }}><Spin size="large" /></div>
         ) : items.length === 0 ? (
-          <Empty description={moduleId !== '' ? '该模块下暂无错题' : (filter === '0' ? '没有未掌握的错题，继续保持！' : '暂无错题')} />
+          <Empty description={review === 'due' ? '今日暂无待复习错题' : (moduleId !== '' ? '该模块下暂无错题' : (filter === '0' ? '没有未掌握的错题，继续保持！' : '暂无错题'))} />
         ) : (
           items.map((item) => (
             <div key={item.id} className="fb-row">
@@ -312,6 +333,8 @@ export default function WrongBook() {
                     <Tag color={FREQ_BANDS[freqOf(item.wrong_count)].color}>
                       {FREQ_BANDS[freqOf(item.wrong_count)].label} · 错 {Number(item.wrong_count) || 1} 次
                     </Tag>
+                    <Tag color={reviewLevelOf(item).color}>复习 {reviewLevelOf(item).label}</Tag>
+                    <MetaTag tone={item.due ? 'warning' : 'neutral'}>下次 {reviewDateLabel(item.next_review_at)}</MetaTag>
                     {/* 错因：只读标签展示 + 点选修改控件；阻止冒泡，避免点控件误开详情弹窗 */}
                     <span onClick={e => e.stopPropagation()} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                       <MetaTag tone={item.reason_tag ? 'primary' : 'neutral'}>错因：{reasonLabel(item.reason_tag)}</MetaTag>
@@ -374,6 +397,8 @@ export default function WrongBook() {
               <Tag color={FREQ_BANDS[freqOf(previewItem.wrong_count)].color}>
                 {FREQ_BANDS[freqOf(previewItem.wrong_count)].label} · 错 {Number(previewItem.wrong_count) || 1} 次
               </Tag>
+              <Tag color={reviewLevelOf(previewItem).color}>复习 {reviewLevelOf(previewItem).label}</Tag>
+              <MetaTag tone={previewItem.due ? 'warning' : 'neutral'}>下次 {reviewDateLabel(previewItem.next_review_at)}</MetaTag>
               <MetaTag tone={previewItem.reason_tag ? 'primary' : 'neutral'}>错因：{reasonLabel(previewItem.reason_tag)}</MetaTag>
               <Text type="secondary">正确答案：{previewItem.answer}</Text>
             </Space>
@@ -408,8 +433,6 @@ export default function WrongBook() {
               <div style={{ fontWeight: 600, marginBottom: 6, color: F.text }}>题目解析</div>
               <Paragraph style={{ margin: 0, lineHeight: 1.8 }}>{previewItem.explanation || '暂无解析'}</Paragraph>
             </div>
-
-            <div style={{ marginTop: 12 }}><Text type="secondary">你上次的答案：{previewItem.last_wrong_answer}</Text></div>
           </div>
         )}
       </Modal>

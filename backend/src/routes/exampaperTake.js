@@ -550,12 +550,22 @@ router.post('/:id/submit', asyncHandler(async (req, res) => {
             answerParams
           );
           if (wrongIds.length) {
-            const ph = wrongIds.map(() => '(?, ?, 1, 0)').join(',');
+            // 与 /practice/submit 同口径：首次答错 +15 天；重复答错按更新后的
+            // wrong_count 定复习周期（>=3 高频 +1 天 / =2 中频 +7 天 / 其余 +15 天）。
+            // next_review_at 赋值放在 wrong_count 之前，用 (wrong_count + 1) 引用更新后错次。
+            const ph = wrongIds.map(() => '(?, ?, 1, 0, DATE_ADD(NOW(), INTERVAL 15 DAY))').join(',');
             const wp = [];
             for (const qid of wrongIds) wp.push(req.user.userId, qid);
             await conn.query(
-              `INSERT INTO wrong_book (user_id, question_id, wrong_count, mastered) VALUES ${ph}
-               ON DUPLICATE KEY UPDATE wrong_count = wrong_count + 1, mastered = 0`,
+              `INSERT INTO wrong_book (user_id, question_id, wrong_count, mastered, next_review_at) VALUES ${ph}
+               ON DUPLICATE KEY UPDATE
+                 next_review_at = CASE
+                   WHEN (wrong_count + 1) >= 3 THEN DATE_ADD(NOW(), INTERVAL 1 DAY)
+                   WHEN (wrong_count + 1) = 2 THEN DATE_ADD(NOW(), INTERVAL 7 DAY)
+                   ELSE DATE_ADD(NOW(), INTERVAL 15 DAY)
+                 END,
+                 wrong_count = wrong_count + 1,
+                 mastered = 0`,
               wp
             );
           }
