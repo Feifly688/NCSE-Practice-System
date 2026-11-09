@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Typography, Card, Button, Space, Select, InputNumber, Tag, Spin, Empty, message, Segmented, Modal, Radio, Switch } from 'antd';
+import { Typography, Card, Button, Space, Select, InputNumber, Tag, Spin, Empty, message, Segmented, Modal, Radio, Switch, Progress } from 'antd';
 import {
   FileTextOutlined, ThunderboltOutlined, SettingOutlined,
   RightOutlined, DownOutlined, CheckCircleFilled, FireOutlined,
@@ -11,6 +11,13 @@ import { F, FenbiScope, PageHead } from '../components/FenbiUI';
 import { formatTime } from '../utils';
 
 const { Text } = Typography;
+
+/** 正确率兼容 0~1 比率与 0~100 百分数两种取值，统一成整数百分比；非法值返回 null。 */
+function fmtAccuracy(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return null;
+  return Math.round(n <= 1 ? n * 100 : n);
+}
 
 /** 让可点击的非按钮元素支持键盘激活：Enter / Space 触发同一逻辑，Space 阻止页面滚动；
  *  事件来自内部表单控件/按钮时不接管，避免破坏其原生键盘交互。 */
@@ -86,6 +93,8 @@ export default function SpecialPractice() {
   const [cfgSource, setCfgSource] = useState('all');
   const [cfgPreferUndone, setCfgPreferUndone] = useState(false);
   const [cfgAvailable, setCfgAvailable] = useState(null);
+  // 练习时长（分钟）：0 = 不计时，透传为 durationMin URL 参数
+  const [cfgDurationMin, setCfgDurationMin] = useState(0);
 
   // 智能组卷：先选出题年份，再由系统自动抽题生成试卷
   const [smartOpen, setSmartOpen] = useState(false);
@@ -103,6 +112,9 @@ export default function SpecialPractice() {
   // 统计
   const [stats, setStats] = useState(null);
   const [history, setHistory] = useState([]);
+
+  // 薄弱点数据；请求失败保持 null，卡片走空状态（静默降级，不阻塞其它入口）
+  const [weakness, setWeakness] = useState(null);
 
   // 加载分类树
   const loadTree = useCallback(async () => {
@@ -144,6 +156,15 @@ export default function SpecialPractice() {
     }).catch(() => { /* 未登录或接口异常：保留 null，界面显示 '—' */ });
     api.get('/practice/history', { params: { limit: 5 } })
       .then((r) => setHistory((r.data.sessions || r.data.history || []).slice(0, 3)))
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  // 薄弱点数据：失败保持 null（卡片显示空状态），不弹错误、不阻塞其它入口
+  useEffect(() => {
+    let alive = true;
+    api.get('/practice/weakness')
+      .then((r) => { if (alive) setWeakness(r.data); })
       .catch(() => {});
     return () => { alive = false; };
   }, []);
@@ -219,6 +240,22 @@ export default function SpecialPractice() {
 
   // 当前选中的一级模块；切换题库导致 tree 变化时自动回退到第一个模块
   const activeTopNode = tree.find((n) => n.id === activeTop) || tree[0] || null;
+
+  // 薄弱模块：topWeak 只带 accuracy/weakScore，平均用时按 categoryId 从 modules 补齐
+  const weakTop = (weakness && weakness.hasData && Array.isArray(weakness.topWeak)) ? weakness.topWeak : [];
+  const weakModuleById = new Map(
+    (Array.isArray(weakness?.modules) ? weakness.modules : []).map((m) => [Number(m.categoryId), m])
+  );
+
+  /** 针对薄弱点练习：复用自定义刷题的 URL 参数格式（custom=1 标记） */
+  const goWeakPractice = () => {
+    const params = new URLSearchParams();
+    params.set('pool', 'question');
+    params.set('count', '20');
+    params.set('focusWeak', '1');
+    params.set('custom', '1');
+    navigate(`/practice/do?${params.toString()}`);
+  };
 
   const renderNode = (node, depth) => {
     const isOpen = expanded.includes(node.id);
@@ -370,6 +407,43 @@ export default function SpecialPractice() {
         })}
       </div>
 
+      {/* 薄弱模块：有数据展示 topWeak，无数据/失败走简洁空状态 */}
+      <Card
+        title={<span style={{ color: tokens.text, fontSize: 14 }}>薄弱模块</span>}
+        style={{ marginBottom: 16, borderRadius: 10, borderColor: tokens.cardBorder, background: tokens.cardBg }}
+        styles={{ body: { padding: isMobile ? 14 : 16 } }}
+      >
+        {weakTop.length > 0 ? (
+          <>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: 12 }}>
+              {weakTop.map((t) => {
+                const mod = weakModuleById.get(Number(t.categoryId));
+                const avgSec = mod && Number.isFinite(Number(mod.avgTimeSec)) ? Number(mod.avgTimeSec) : null;
+                const acc = fmtAccuracy(t.accuracy);
+                return (
+                  <div key={t.categoryId} style={{ padding: '10px 12px', borderRadius: 8, background: tokens.cardBgAlt }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                      <Text strong style={{ color: tokens.text, fontSize: 14, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</Text>
+                      {acc != null && <Tag color={acc < 60 ? 'red' : 'orange'} style={{ marginInlineEnd: 0, flexShrink: 0 }}>{acc}%</Tag>}
+                    </div>
+                    <Progress percent={acc ?? 0} size="small" strokeColor={tokens.primary} trailColor={tokens.divider} style={{ marginTop: 8 }} />
+                    <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      <Tag style={{ marginInlineEnd: 0 }}>正确率 {acc ?? '—'}%</Tag>
+                      {avgSec != null && <Tag style={{ marginInlineEnd: 0 }}>平均用时 {formatTime(Math.round(avgSec))}</Tag>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{ marginTop: 12 }}>
+              <Button type="primary" onClick={goWeakPractice}>针对薄弱点练习</Button>
+            </div>
+          </>
+        ) : (
+          <Text type="secondary" style={{ fontSize: 13 }}>暂无练习数据</Text>
+        )}
+      </Card>
+
       {isMobile && categoryNav}
 
       <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
@@ -507,6 +581,19 @@ export default function SpecialPractice() {
                     />
                   </div>
                 </div>
+                <div>
+                  <Text strong style={{ color: tokens.text, display: 'block', marginBottom: 6 }}>练习时长</Text>
+                  <Segmented
+                    value={cfgDurationMin}
+                    onChange={setCfgDurationMin}
+                    options={[
+                      { label: '不计时', value: 0 },
+                      { label: '10 分钟', value: 10 },
+                      { label: '20 分钟', value: 20 },
+                      { label: '30 分钟', value: 30 },
+                    ]}
+                  />
+                </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <Switch checked={cfgPreferUndone} onChange={setCfgPreferUndone} size="small" />
                   <Text style={{ color: tokens.text }}>优先练未做过的题</Text>
@@ -531,6 +618,7 @@ export default function SpecialPractice() {
                       if (cfgYear !== 'all') params.set('yearMode', cfgYear);
                       if (cfgSource !== 'all') params.set('sourceType', cfgSource);
                       if (cfgPreferUndone) params.set('preferUndone', '1');
+                      if (cfgDurationMin > 0) params.set('durationMin', String(cfgDurationMin));
                       params.set('count', String(Math.min(cfgCount, cfgAvailable || cfgCount)));
                       params.set('custom', '1');
                       navigate(`/practice/do?${params.toString()}`);

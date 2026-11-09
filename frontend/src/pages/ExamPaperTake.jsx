@@ -89,6 +89,38 @@ function fmtTime(sec) {  const m = Math.floor(sec / 60);
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
+/**
+ * 粉笔官方口径的各模块建议耗时（分钟），合计 120 分钟。
+ * bySection 的 key 来自 exam_paper_question.section，解析后多为纯中文模块名，
+ * 也可能残留「第X部分」「一、」等前缀或简称，故用双向包含做模糊匹配。
+ */
+const SUGGESTED_MINUTES = [
+  { keys: ['言语理解与表达', '言语理解', '言语'], minutes: 35 },
+  { keys: ['判断推理'], minutes: 35 },
+  { keys: ['数量关系', '数量'], minutes: 15 },
+  { keys: ['资料分析'], minutes: 20 },
+  { keys: ['常识判断', '常识'], minutes: 10 },
+  { keys: ['政治理论', '政治'], minutes: 5 },
+];
+
+/** 分区名 → 建议分钟数；匹配不到返回 null，由调用方按题量占比兜底 */
+function suggestedMinutes(name) {
+  const s = String(name || '').trim();
+  if (!s) return null;
+  for (const rule of SUGGESTED_MINUTES) {
+    if (rule.keys.some((k) => s.includes(k) || k.includes(s))) return rule.minutes;
+  }
+  return null;
+}
+
+/** 建议耗时（秒）：优先官方映射；匹配不到按题量占比 × 120 分钟兜底 */
+function suggestedSec(name, v, totalQuestions) {
+  const m = suggestedMinutes(name);
+  if (m != null) return m * 60;
+  const ratio = totalQuestions > 0 ? (Number(v.total) || 0) / totalQuestions : 0;
+  return Math.round(ratio * 120 * 60);
+}
+
 /** 生成本场交卷的幂等键（≤64 字符）；整场作答保持稳定，换一场新作答重新生成。 */
 function genSubmitKey(paperId) {
   let r;
@@ -379,6 +411,30 @@ export default function ExamPaperTake() {
     const m = {};
     (result?.results || []).forEach((r) => { m[r.seq] = r; });
     return m;
+  }, [result]);
+
+  // 全卷题量（按 bySection 汇总，与分模块统计口径一致），供建议耗时兜底计算占比
+  const bySectionTotal = useMemo(
+    () => Object.values(result?.bySection || {}).reduce((n, v) => n + (Number(v.total) || 0), 0),
+    [result]
+  );
+
+  // 超时题号：单题用时 > 180 秒，或 > 该模块平均用时 2 倍。
+  // 模块平均用时 = bySection.time_sec / bySection.total（同模块逐题用时之和 / 题数）。
+  // avg 为 0（模块未计时）时 2 倍规则会误判所有已计时题，故仅在 avg>0 时启用该分支。
+  const overtimeSeqs = useMemo(() => {
+    const bs = result?.bySection || {};
+    const avgOf = (sec) => {
+      const v = bs[sec];
+      return v && Number(v.total) > 0 ? (Number(v.time_sec) || 0) / Number(v.total) : 0;
+    };
+    return (result?.results || [])
+      .filter((r) => {
+        const t = Number(r.time_sec) || 0;
+        const avg = avgOf(r.section || '未分区');
+        return t > 180 || (avg > 0 && t > 2 * avg);
+      })
+      .map((r) => r.seq);
   }, [result]);
 
   // 断点续答：题目渲染完成后定位到上次所在题
@@ -1092,18 +1148,53 @@ export default function ExamPaperTake() {
             <>
               <Divider style={{ margin: '12px 0' }} />
               <Space size={[8, 6]} wrap>
-                {Object.entries(result.bySection).map(([name, v]) => (
-                  <Tag key={name} color={v.correct / v.total >= 0.6 ? 'green' : 'red'}>
-                    {name}：{Math.round((v.correct / (v.total || 1)) * 100)}% · 用时 {fmtTime(v.time_sec || 0)}
-                  </Tag>
-                ))}
+                {Object.entries(result.bySection).map(([name, v]) => {
+                  const actual = Number(v.time_sec) || 0;
+                  const sug = suggestedSec(name, v, bySectionTotal);
+                  const over = actual > sug;
+                  return (
+                    <Tag key={name} color={v.correct / v.total >= 0.6 ? 'green' : 'red'}>
+                      {name}：{Math.round((v.correct / (v.total || 1)) * 100)}% · 用时{' '}
+                      <span style={{
+                        color: over ? (FB.isDark ? '#ff7875' : '#dc2626') : 'inherit',
+                        fontWeight: over ? 700 : 400,
+                      }}>
+                        {fmtTime(actual)} / 建议 {fmtTime(sug)}
+                      </span>
+                    </Tag>
+                  );
+                })}
               </Space>
             </>
           )}
-          <div style={{ marginTop: 12 }}>
-            <Text type="secondary">
-              下方已展示每道题的答案与解析，红色为答错、绿色为答对；点击答题卡题号可快速定位。
-            </Text>
+          <Divider style={{ margin: '12px 0' }} />
+          <div style={{ fontSize: 13, color: FB.text, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+            <span style={{ color: FB.textSub }}>超时题号</span>
+            {overtimeSeqs.length > 0 ? (
+              <span>
+                第{' '}
+                {overtimeSeqs.map((seq, i) => (
+                  <React.Fragment key={seq}>
+                    {i > 0 && '、'}
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`跳到第 ${seq} 题`}
+                      onClick={() => scrollToSeq(seq)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); scrollToSeq(seq); }
+                      }}
+                      style={{ color: FB.primary, cursor: 'pointer' }}
+                    >
+                      {seq}
+                    </span>
+                  </React.Fragment>
+                ))}
+                {' '}题
+              </span>
+            ) : (
+              <span style={{ color: FB.textWeak }}>无</span>
+            )}
           </div>
         </Card>
       )}

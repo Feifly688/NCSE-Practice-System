@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import Pagination from '../components/Pagination';
 import { useResponsive } from '../hooks/useResponsive';
+import { useTheme } from '../contexts/ThemeContext';
 import { F, FenbiScope, PageHead, Panel, SectionLabel, StatTile, MetaTag } from '../components/FenbiUI';
 
 /** 练习历史（粉笔式记录列表）。数据与跳转逻辑保持原样。 */
@@ -14,10 +15,14 @@ export default function History() {
   const [sessions, setSessions] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
+  const [trend, setTrend] = useState([]);
   const navigate = useNavigate();
   const { isMobile } = useResponsive();
+  const { isDark } = useTheme();
 
   useEffect(() => { loadData(); }, [page]);
+  // 趋势只在挂载时取一次最近记录：与分页列表解耦，翻页不改变「近几次」的口径
+  useEffect(() => { loadTrend(); }, []);
 
   async function loadData() {
     setLoading(true);
@@ -32,6 +37,36 @@ export default function History() {
     } catch (err) { message.error('加载数据失败'); }
     finally { setLoading(false); }
   }
+
+  // 近 7 次已完成记录的正确率：复用现有 /practice/history（不新增接口）。
+  // sessions 已带 total/correct/finished_at/status，按 id DESC 返回，取前 7 条 completed 后按时间正序。
+  async function loadTrend() {
+    try {
+      const r = await api.get('/practice/history', { params: { page: 1, pageSize: 30 } });
+      const rows = (r.data.sessions || [])
+        .filter((s) => s.status === 'completed' && Number(s.total) > 0)
+        .slice(0, 7)
+        .map((s) => ({
+          id: s.id,
+          acc: Math.round((Number(s.correct) / Number(s.total)) * 100),
+          finished_at: s.finished_at,
+          started_at: s.started_at,
+        }))
+        .sort((a, b) => {
+          const ta = new Date(a.finished_at || a.started_at).getTime() || a.id;
+          const tb = new Date(b.finished_at || b.started_at).getTime() || b.id;
+          return ta - tb;
+        });
+      setTrend(rows);
+    } catch (e) { /* 趋势加载失败不影响主列表 */ }
+  }
+
+  // 趋势图配色：由页面 F token 派生，深/浅两套（参照整卷答题页 FB 的派生方式）
+  const TC = isDark
+    ? { cardBg: '#23252f', border: '#383b49', track: '#2b2e3a', bar: '#5b8cff',
+        text: '#e8e9ed', sub: '#9a9eab', up: '#5ec46a', down: '#f06a6a' }
+    : { cardBg: F.cardBg, border: F.border, track: F.cardBgAlt, bar: F.primary,
+        text: F.text, sub: F.textWeak, up: F.success, down: F.error };
 
   function formatDuration(sec) {
     if (!sec) return '0秒';
@@ -59,6 +94,45 @@ export default function History() {
         <Col xs={12} md={6}><StatTile icon={<ClockCircleOutlined />} label="平均用时" value={overall.avg_duration || 0} unit="秒" /></Col>
         <Col xs={12} md={6}><StatTile icon={<EditOutlined />} label="练习次数" value={overall.total_sessions || 0} unit="次" tone="neutral" /></Col>
       </Row>
+
+      {/* 近几次正确率趋势：原生 CSS 条形，按时间正序，标注每次正确率与较上次差值 */}
+      {trend.length > 0 && (
+        <>
+          <div style={{ height: isMobile ? 16 : 24 }} />
+          <SectionLabel title={`近 ${trend.length} 次正确率趋势`} />
+          <div style={{
+            background: TC.cardBg, border: `1px solid ${TC.border}`, borderRadius: 8,
+            padding: isMobile ? 12 : 16,
+          }}>
+            <div style={{ display: 'flex', gap: isMobile ? 6 : 10, alignItems: 'flex-end' }}>
+              {trend.map((d, i) => {
+                const delta = i > 0 ? d.acc - trend[i - 1].acc : null;
+                return (
+                  <div key={d.id} style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: TC.text, lineHeight: 1.2 }}>{d.acc}%</span>
+                    <div style={{
+                      width: '100%', height: 64, borderRadius: 4,
+                      background: TC.track, display: 'flex', alignItems: 'flex-end', overflow: 'hidden',
+                    }}>
+                      <div style={{
+                        width: '100%', height: `${d.acc}%`,
+                        background: TC.bar, borderRadius: '4px 4px 0 0',
+                        transition: 'height .3s',
+                      }} />
+                    </div>
+                    <span style={{
+                      fontSize: 11, lineHeight: 1.2, whiteSpace: 'nowrap',
+                      color: delta == null ? TC.sub : delta > 0 ? TC.up : delta < 0 ? TC.down : TC.sub,
+                    }}>
+                      {delta == null ? '—' : delta > 0 ? `+${delta}%` : delta < 0 ? `${delta}%` : '0%'}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </>
+      )}
 
       <div style={{ height: isMobile ? 16 : 24 }} />
       <SectionLabel title="全部记录" />

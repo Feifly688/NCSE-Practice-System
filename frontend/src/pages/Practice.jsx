@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Typography, Card, Button, Radio, Space, Select, InputNumber, Progress, message, Spin, Divider, Tag, Modal } from 'antd';
-import { CheckCircleOutlined, CloseCircleOutlined, ArrowRightOutlined, ArrowLeftOutlined, ReloadOutlined, ClockCircleOutlined, FileTextOutlined, PauseCircleOutlined, PlayCircleOutlined, StarOutlined, StarFilled } from '@ant-design/icons';
+import { CheckCircleOutlined, CloseCircleOutlined, ArrowRightOutlined, ArrowLeftOutlined, ReloadOutlined, ClockCircleOutlined, FileTextOutlined, PauseCircleOutlined, PlayCircleOutlined, StarOutlined, StarFilled, FlagOutlined, FlagFilled } from '@ant-design/icons';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import { parseOptions, cleanOption, formatTime } from '../utils';
@@ -33,6 +33,63 @@ function fmtQTime(sec) {
   return n > 0 ? formatTime(n) : '未记录';
 }
 
+/** 兼容数组 / 对象 / 缺失三种形态，把进度里的 marked 恢复成 Set。 */
+function normalizeMarked(v) {
+  if (Array.isArray(v)) return new Set(v.map(Number).filter(Number.isFinite));
+  if (v && typeof v === 'object') {
+    return new Set(Object.keys(v).filter((k) => v[k]).map(Number).filter(Number.isFinite));
+  }
+  return new Set();
+}
+
+/** 从历史会话响应里挑出报告字段（可能在 data 顶层或 session 内），缺失返回 null。 */
+function extractReportFields(data, session) {
+  const d = data || {};
+  const s = session || {};
+  return {
+    bySection: d.bySection ?? s.bySection ?? null,
+    unanswered: d.unanswered ?? s.unanswered ?? null,
+    completion: d.completion ?? s.completion ?? null,
+  };
+}
+
+/**
+ * 结果页分模块报告：
+ *  ① 后端 bySection（本次 submit 响应 / 历史接口带回）优先；
+ *  ② 缺失时基于 answerDetails + questions 前端兜底按模块名聚合。
+ * 完全算不出（题目无模块归属）返回空数组，调用方据此隐藏区块，不报错、不铺说明文字。
+ */
+function computeReportSections(result, answerDetails, questions, answers, timings) {
+  const raw = result?.bySection;
+  if (Array.isArray(raw) && raw.length > 0) {
+    return raw.map((s) => ({
+      name: s.name,
+      total: Number(s.total) || 0,
+      correct: Number(s.correct) || 0,
+      timeSec: Number(s.timeSec ?? s.time_sec) || 0,
+    })).filter((s) => s.name != null && s.name !== '');
+  }
+  const detailById = new Map((answerDetails || []).map((d) => [Number(d.question_id), d]));
+  const byName = new Map();
+  let hasModule = false;
+  for (const q of (questions || [])) {
+    const name = q.module_name || q.category_name || q.source;
+    if (!name) continue;
+    hasModule = true;
+    const d = detailById.get(Number(q.id)) || {};
+    const correctAns = d.correct_answer ?? q.answer;
+    if (correctAns == null || correctAns === '') continue;
+    const userAns = d.user_answer ?? answers[q.id];
+    const sec = Number(d.time_spent_sec ?? timings[q.id]) || 0;
+    const bucket = byName.get(name) || { name, total: 0, correct: 0, timeSec: 0 };
+    bucket.total += 1;
+    if (userAns && userAns === correctAns) bucket.correct += 1;
+    bucket.timeSec += sec;
+    byName.set(name, bucket);
+  }
+  return hasModule ? [...byName.values()] : [];
+}
+
 export default function Practice() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -53,8 +110,14 @@ export default function Practice() {
   const sourceTypeParam = searchParams.get('sourceType') || '';
   const preferUndoneParam = searchParams.get('preferUndone') === '1';
   const categoryName = searchParams.get('categoryName') || '';
+  // 专项限时（分钟）：只允许 0/10/20/30，非法值按 0（不计时）
+  const durationMinParam = (() => {
+    const n = Number(searchParams.get('durationMin'));
+    return [10, 20, 30].includes(n) ? n : 0;
+  })();
+  const focusWeak = searchParams.get('focusWeak') === '1';
   // 带这些参数进来 = 从专项练习页发起，直接开始出题
-  const fromTaxonomy = Boolean(poolParam && (catParam || countParam || qtypeParam || diffParam || subjectParam));
+  const fromTaxonomy = Boolean(poolParam && (catParam || countParam || qtypeParam || diffParam || subjectParam || focusWeak));
   // 分类名（用于顶部提示当前在刷什么）
   const catLabel = categoryName || (catParam ? `分类 ${catParam}` : '')
     || (poolParam === 'generated' ? 'AI 生成题' : '');
@@ -81,6 +144,14 @@ export default function Practice() {
   const [answerDetails, setAnswerDetails] = useState([]);
   const [favSet, setFavSet] = useState(new Set());
   const [reasonMap, setReasonMap] = useState({});
+  // 单题标记集合（题目 id）
+  const [marked, setMarked] = useState(new Set());
+  const markedRef = useRef(new Set());
+  markedRef.current = marked;
+  // 交卷防重：提交中 / 已交卷（结果态）都不再触发 doSubmit
+  const submittingRef = useRef(false);
+  // 计时器与自动交卷 effect 通过 ref 调用最新闭包的 doSubmit
+  const doSubmitRef = useRef(null);
   const timerRef = useRef(null);
   const autoSaveRef = useRef(null);
   // 供「从专项练习页带参数进来直接开练」的 effect 调用
@@ -95,6 +166,11 @@ export default function Practice() {
   const dwellStartRef = useRef(null);   // 该次停留的开始时间戳（ms）
   answersRef.current = answers;
   elapsedRef.current = elapsed;
+
+  // 限时：URL 的 durationMin 优先，否则沿用 setup 里的模拟考试
+  const timedByUrl = durationMinParam > 0;
+  const isTimed = timedByUrl || examMode;
+  const limitSec = timedByUrl ? durationMinParam * 60 : (examMode ? examMinutes * 60 : 0);
 
   // 主题只在答题界面生效；离开答题页自动恢复日间
   useEffect(() => {
@@ -124,27 +200,27 @@ export default function Practice() {
     startPracticeRef.current();
   }, [fromTaxonomy]);
 
-  // 计时器
+  // 计时器：限时模式记剩余秒数，非限时记累计用时
   useEffect(() => {
     if (step === 'doing' && !paused) {
       timerRef.current = setInterval(() => {
         const elapsedNow = pausedElapsed + Math.floor((Date.now() - startTime) / 1000);
-        if (examMode) {
-          const remaining = examMinutes * 60 - elapsedNow;
-          if (remaining <= 0) {
-            setElapsed(examMinutes * 60);
-            clearInterval(timerRef.current);
-            doSubmit().catch(() => message.error('自动交卷失败'));
-            return;
-          }
-          setElapsed(remaining);
+        if (isTimed) {
+          setElapsed(Math.max(0, limitSec - elapsedNow));
         } else {
           setElapsed(elapsedNow);
         }
       }, 1000);
     }
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  }, [step, paused, startTime, pausedElapsed]);
+  }, [step, paused, startTime, pausedElapsed, isTimed, limitSec]);
+
+  // 限时到点自动交卷：复用 doSubmit（内部防重、结算 timings），不弹确认框
+  useEffect(() => {
+    if (isTimed && step === 'doing' && !paused && limitSec > 0 && elapsed <= 0) {
+      if (doSubmitRef.current) doSubmitRef.current().catch(() => message.error('自动交卷失败'));
+    }
+  }, [elapsed, isTimed, step, paused, limitSec]);
 
   /** 把一段停留秒数累加到某题的用时里。 */
   function addTiming(qid, dt) {
@@ -192,7 +268,8 @@ export default function Practice() {
         const payload = JSON.stringify({
           session_id: sessionId,
           answers: answersRef.current,
-          elapsed_sec: elapsedRef.current
+          elapsed_sec: elapsedRef.current,
+          marked: Array.from(markedRef.current)
         });
         // 为什么不用 navigator.sendBeacon：
         //   beacon 走的是 no-cors 简单请求，跨域时浏览器**不会带上凭据**，
@@ -238,6 +315,8 @@ export default function Practice() {
 
   async function loadSession(sid) {
     setStep('loading');
+    submittingRef.current = false;
+    setMarked(new Set());
     // 重新载入会话时清掉上一段答题的停留计时，避免串场
     currentQidRef.current = null;
     dwellStartRef.current = null;
@@ -269,7 +348,7 @@ export default function Practice() {
         const ansMap = {};
         for (const d of source) { if (d.user_answer) ansMap[d.question_id] = d.user_answer; }
         setAnswers(ansMap);
-        setResult({ session_id: session.id, total: session.total, correct: session.correct, score: session.score, duration_sec: session.duration_sec });
+        setResult({ session_id: session.id, total: session.total, correct: session.correct, score: session.score, duration_sec: session.duration_sec, ...extractReportFields(r.data, session) });
         setAnswerDetails(details);
         // 历史详情的逐题用时来自 practice_answer.time_spent_sec（老数据为 0）
         const tm = timingsFromDetails(source);
@@ -312,6 +391,7 @@ export default function Practice() {
         }
         setQuestions(restoreQuestions);
         setAnswers(restoreAnswers);
+        setMarked(normalizeMarked(r.data.marked ?? session?.marked));
         setCurrentIndex(0);
         const savedElapsed = elapsed_sec || 0;
         setElapsed(savedElapsed);
@@ -334,7 +414,8 @@ export default function Practice() {
           const ansMap = {};
           for (const d of details) { ansMap[d.question_id] = d.user_answer; }
           setAnswers(ansMap);
-          setResult({ session_id: session.id, total: session.total, correct: session.correct, score: session.score, duration_sec: session.duration_sec });
+          setResult({ session_id: session.id, total: session.total, correct: session.correct, score: session.score, duration_sec: session.duration_sec, ...extractReportFields(r.data, session) });
+          setAnswerDetails(details);
           const tm = timingsFromDetails(details);
           timingsRef.current = tm;
           setTimings(tm);
@@ -359,7 +440,8 @@ export default function Practice() {
       await api.post('/practice/save-progress', {
         session_id: sessionId,
         answers,
-        elapsed_sec: elapsed
+        elapsed_sec: elapsed,
+        marked: Array.from(markedRef.current)
       });
     } catch (err) { /* auto-save silent fail */ }
   }
@@ -370,8 +452,18 @@ export default function Practice() {
     api.post('/practice/save-progress', {
       session_id: sessionId,
       answers: answersRef.current,
-      elapsed_sec: elapsedRef.current
+      elapsed_sec: elapsedRef.current,
+      marked: Array.from(markedRef.current)
     }).catch(() => {});
+  }
+
+  /** 单题标记：标记本题 / 取消标记两态切换 */
+  function toggleMark(qid) {
+    setMarked((prev) => {
+      const next = new Set(prev);
+      if (next.has(qid)) next.delete(qid); else next.add(qid);
+      return next;
+    });
   }
 
   /** 答题中收藏：两态切换，结果与练习页共用 */
@@ -419,6 +511,7 @@ export default function Practice() {
           sourceType: sourceTypeParam || null,
           excludeAnswered: preferUndoneParam,
           count: countParam || count,
+          ...(focusWeak ? { focusWeak: true } : {}),
         });
         if (!r.data.questions.length) {
           message.error('该条件下没有可练习的题目');
@@ -453,6 +546,9 @@ export default function Practice() {
       setQuestions(qs);
       setAnswers({});
       setCurrentIndex(0);
+      setMarked(new Set());
+      setAnswerDetails([]);
+      submittingRef.current = false;
       timingsRef.current = {};
       setTimings({});
       currentQidRef.current = null;
@@ -471,7 +567,7 @@ export default function Practice() {
       setSessionId(startRes.data.session_id);
 
       setStartTime(Date.now());
-      setElapsed(examMode ? examMinutes * 60 : 0);
+      setElapsed(isTimed ? limitSec : 0);
       setPausedElapsed(0);
       setPaused(false);
       setStep('doing');
@@ -500,8 +596,8 @@ export default function Practice() {
   function togglePause() {
     if (!paused) {
       if (timerRef.current) clearInterval(timerRef.current);
-      // 无论练习还是考试模式，都记录已用时间
-      const usedTime = examMode ? (examMinutes * 60 - elapsed) : elapsed;
+      // 无论练习还是限时模式，都记录已用时间
+      const usedTime = isTimed ? (limitSec - elapsed) : elapsed;
       setPausedElapsed(usedTime);
       saveProgress();
       setPaused(true);
@@ -529,13 +625,15 @@ export default function Practice() {
   }
 
   async function doSubmit() {
+    if (submittingRef.current) return;   // 提交中 / 已交卷（结果态）防重
+    submittingRef.current = true;
     if (timerRef.current) clearInterval(timerRef.current);
     if (autoSaveRef.current) clearInterval(autoSaveRef.current);
     settleDwell();                       // 交卷前同步结算当前题停留时间
     const finalTimings = timingsRef.current;
     setStep('loading');
     try {
-      const durationSec = examMode ? (examMinutes * 60 - elapsed) : (elapsed || Math.floor((Date.now() - startTime) / 1000));
+      const durationSec = isTimed ? (limitSec - elapsed) : (elapsed || Math.floor((Date.now() - startTime) / 1000));
       const r = await api.post('/practice/submit', {
         session_id: sessionId,
         answers,
@@ -570,6 +668,7 @@ export default function Practice() {
       setCurrentIndex(0);
       setStep('result');
     } catch (err) {
+      submittingRef.current = false;   // 失败允许重试
       message.error('提交失败');
       setStep('doing');
       // 重启计时器
@@ -577,6 +676,8 @@ export default function Practice() {
       setPaused(false);
     }
   }
+
+  doSubmitRef.current = doSubmit;
 
   if (step === 'loading') return <div style={{ textAlign: 'center', padding: 100 }}><Spin size="large" tip="加载中..." /></div>;
 
@@ -659,6 +760,18 @@ export default function Practice() {
 
   // Result
   if (step === 'result') {
+    // 分模块报告：优先后端 bySection，缺失时前端兜底；算不出则隐藏该区块
+    const reportSections = computeReportSections(result, answerDetails, questions, answers, timings);
+    const totalQ = Number(result?.total) || questions.length || 0;
+    const unansweredVal = (result?.unanswered != null && Number.isFinite(Number(result.unanswered)))
+      ? Number(result.unanswered)
+      : questions.filter((q) => !answers[q.id]).length;
+    const completionRaw = (result?.completion != null && Number.isFinite(Number(result.completion)))
+      ? Number(result.completion) : null;
+    const completionRatio = completionRaw != null
+      ? (completionRaw > 1 ? completionRaw / 100 : completionRaw)
+      : (totalQ ? Math.min(1, Math.max(0, (totalQ - unansweredVal) / totalQ)) : 0);
+    const completionPct = Math.round(completionRatio * 100);
     return (
       <div style={{ maxWidth: 900, margin: '0 auto', padding: '0 16px' }}>
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
@@ -678,6 +791,8 @@ export default function Practice() {
           }}>
             <div><Text type="secondary">正确率</Text><br /><Text strong style={{ fontSize: 20 }}>{result.total ? Math.round((result.correct / result.total) * 100) : 0}%</Text></div>
             <div><Text type="secondary">用时</Text><br /><Text strong style={{ fontSize: 20 }}>{formatTime(result.duration_sec)}</Text></div>
+            <div><Text type="secondary">未答</Text><br /><Text strong style={{ fontSize: 20 }}>{unansweredVal}</Text></div>
+            <div><Text type="secondary">完成度</Text><br /><Text strong style={{ fontSize: 20 }}>{completionPct}%</Text></div>
           </div>
           <div style={{ marginTop: 24 }}>
             <Space>
@@ -695,6 +810,22 @@ export default function Practice() {
             </Space>
           </div>
         </Card>
+
+        {reportSections.length > 0 && (
+          <Card title={<span style={{ fontSize: 15, fontWeight: 600 }}>分模块报告</span>} style={{ marginBottom: 16 }}>
+            {reportSections.map((s, i) => {
+              const acc = s.total ? Math.round((s.correct / s.total) * 100) : 0;
+              return (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10, flexWrap: 'wrap' }}>
+                  <Text strong style={{ minWidth: 90, color: tokens.text }}>{s.name}</Text>
+                  <Tag style={{ marginInlineEnd: 0 }}>{s.correct}/{s.total}</Tag>
+                  <Progress percent={acc} size="small" showInfo={false} strokeColor={acc >= 60 ? tokens.success : tokens.error} trailColor={tokens.divider} style={{ flex: 1, minWidth: 120, margin: 0 }} />
+                  <Text type="secondary" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{acc}% · {formatTime(s.timeSec)}</Text>
+                </div>
+              );
+            })}
+          </Card>
+        )}
 
         {questions.map((q, idx) => {
           const userAns = answers[q.id];
@@ -791,16 +922,21 @@ export default function Practice() {
           flexWrap: isMobile ? 'wrap' : 'nowrap', gap: isMobile ? 8 : 0,
         }}>
           <Space size={isMobile ? 6 : 8}>
-            {!wrongRedo && (
+            {!wrongRedo && (isTimed ? (
               <>
                 <ClockCircleOutlined />
-                <Text strong style={{ fontSize: 16, fontFamily: 'monospace', color: examMode && elapsed < 60 ? '#ff4d4f' : undefined }}>{examMode ? '-' : ''}{formatTime(elapsed)}</Text>
-                {!examMode && (
-                  <Button size="small" type={paused ? 'primary' : 'default'} icon={paused ? <PlayCircleOutlined /> : <PauseCircleOutlined />}
-                    onClick={togglePause}>{paused ? '继续' : '暂停'}</Button>
-                )}
+                <Text strong style={{ fontSize: 16, fontFamily: 'monospace', color: elapsed < 60 ? '#ff4d4f' : tokens.primary }}>
+                  剩余 {formatTime(elapsed)}
+                </Text>
               </>
-            )}
+            ) : (
+              <>
+                <ClockCircleOutlined />
+                <Text strong style={{ fontSize: 16, fontFamily: 'monospace' }}>{formatTime(elapsed)}</Text>
+                <Button size="small" type={paused ? 'primary' : 'default'} icon={paused ? <PlayCircleOutlined /> : <PauseCircleOutlined />}
+                  onClick={togglePause}>{paused ? '继续' : '暂停'}</Button>
+              </>
+            ))}
             {wrongRedo && <Text type="secondary">错题练习</Text>}
           </Space>
           <Progress percent={progress} size="small" showInfo={!isMobile} strokeColor={tokens.primaryLight} trailColor={tokens.divider} style={{ flex: 1, margin: isMobile ? '0' : '0 16px', minWidth: isMobile ? 80 : undefined }} />
@@ -834,11 +970,18 @@ export default function Practice() {
             <Tag color="blue">第 {currentIndex + 1} 题</Tag>
             {q.qtype && <Tag>{q.qtype}</Tag>}
           </span>
-          <Button size="small" type="text"
-            icon={favSet.has(q.id) ? <StarFilled style={{ color: '#faad14' }} /> : <StarOutlined />}
-            onClick={() => toggleFav(q.id)}>
-            {favSet.has(q.id) ? '已收藏' : '收藏'}
-          </Button>
+          <Space size={4}>
+            <Button size="small" type="text"
+              icon={marked.has(q.id) ? <FlagFilled style={{ color: '#faad14' }} /> : <FlagOutlined />}
+              onClick={() => toggleMark(q.id)}>
+              {marked.has(q.id) ? '取消标记' : '标记本题'}
+            </Button>
+            <Button size="small" type="text"
+              icon={favSet.has(q.id) ? <StarFilled style={{ color: '#faad14' }} /> : <StarOutlined />}
+              onClick={() => toggleFav(q.id)}>
+              {favSet.has(q.id) ? '已收藏' : '收藏'}
+            </Button>
+          </Space>
         </div>
 
         {q.passage && (
@@ -891,15 +1034,17 @@ export default function Practice() {
           {questions.map((q, idx) => {
             const isAnswered = !!answers[q.id];
             const isCurrent = idx === currentIndex;
+            const isMarked = marked.has(q.id);
             return (
               <Button key={idx} size="small" type={isCurrent ? 'primary' : 'default'} style={{
-                width: 40, height: 40,
+                width: 40, height: 40, position: 'relative',
                 background: isCurrent ? '#1890ff' : isAnswered ? '#52c41a' : tokens.cardBg,
                 color: isCurrent || isAnswered ? '#fff' : tokens.text,
-                border: isCurrent || isAnswered ? 'none' : '1px solid #d9d9d9'
+                border: isCurrent || isAnswered ? 'none' : '1px solid #d9d9d9',
+                boxShadow: isMarked ? '0 0 0 2px #faad14' : undefined,
               }}
                 role="button" tabIndex={0}
-                aria-label={`第 ${idx + 1} 题，${isAnswered ? '已答' : '未答'}${isCurrent ? '，当前题' : ''}`}
+                aria-label={`第 ${idx + 1} 题，${isAnswered ? '已答' : '未答'}${isCurrent ? '，当前题' : ''}${isMarked ? '，已标记' : ''}`}
                 onClick={() => goToQuestion(idx)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
@@ -907,7 +1052,10 @@ export default function Practice() {
                     goToQuestion(idx);
                   }
                 }}
-              >{idx + 1}</Button>
+              >
+                {idx + 1}
+                {isMarked && <FlagFilled style={{ position: 'absolute', top: 1, right: 1, fontSize: 9, color: '#faad14' }} />}
+              </Button>
             );
           })}
         </div>
@@ -916,6 +1064,7 @@ export default function Practice() {
           <div><div style={{ width: 16, height: 16, background: '#52c41a', borderRadius: 3, display: 'inline-block', marginRight: 4 }} /> 已答</div>
           <div><div style={{ width: 16, height: 16, background: tokens.cardBg, border: `1px solid ${tokens.border}`, borderRadius: 3, display: 'inline-block', marginRight: 4 }} /> 未答</div>
           <div><div style={{ width: 16, height: 16, background: '#1890ff', borderRadius: 3, display: 'inline-block', marginRight: 4 }} /> 当前</div>
+          <div><div style={{ width: 16, height: 16, background: tokens.cardBg, border: '2px solid #faad14', borderRadius: 3, display: 'inline-block', marginRight: 4 }} /> 标记</div>
         </Space>
       </Modal>
     </div>
