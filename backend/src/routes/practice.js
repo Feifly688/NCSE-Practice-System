@@ -5,6 +5,7 @@ const { asyncHandler } = require('../middleware/asyncHandler');
 const { withConnection } = require('../db');
 const { localDateTimeStr } = require('../lib/time');
 const { safeOptions } = require('../lib/json');
+const { normalizePractice, buildSessionTitle } = require('../lib/sessionTitle');
 const { parseIdsQuery } = require('../helpers');
 
 const router = express.Router();
@@ -205,7 +206,9 @@ router.post('/smart-paper', requireAuth, asyncHandler(async (req, res) => {
 // 只接收题目 id 列表：答案一律由服务端在判分时从 question 表读取，
 // 客户端提交的题目对象里的 answer 字段会被丢弃。
 router.post('/start', requireAuth, asyncHandler(async (req, res) => {
-  const { subject_id, questions } = req.body;
+  const { subject_id, questions, practice } = req.body;
+  // 练习配置只取白名单字段，历史列表据此生成粉笔式名称（不再用自增编号）
+  const practiceMeta = normalizePractice(practice);
   if (!subject_id || !questions || !Array.isArray(questions) || questions.length === 0) {
     return res.status(400).json({ error: '参数不完整' });
   }
@@ -230,9 +233,11 @@ router.post('/start', requireAuth, asyncHandler(async (req, res) => {
     const questionIds = requestedIds.filter((id) => valid.has(id));
     if (questionIds.length === 0) throw Object.assign(new Error('没有可用的题目'), { status: 400 });
 
+    const sessionMeta = { question_ids: questionIds };
+    if (practiceMeta) sessionMeta.practice = { ...practiceMeta, count: questionIds.length };
     const [result] = await conn.query(
       'INSERT INTO practice_session (user_id, subject_id, mode, status, total, duration_sec, started_at, meta_json) VALUES (?,?,?,?,?,?,?,?)',
-      [req.user.userId, subject_id, 'random', 'in_progress', questionIds.length, 0, localDateTimeStr(), JSON.stringify({ question_ids: questionIds })]
+      [req.user.userId, subject_id, 'random', 'in_progress', questionIds.length, 0, localDateTimeStr(), JSON.stringify(sessionMeta)]
     );
     return result.insertId;
   });
@@ -520,11 +525,13 @@ router.get('/history', requireAuth, asyncHandler(async (req, res) => {
 
   const data = await withConnection(async (conn) => {
     const [countRows] = await conn.query('SELECT COUNT(*) AS total FROM practice_session WHERE user_id = ?', [req.user.userId]);
-    const [sessions] = await conn.query(
+    const [rows] = await conn.query(
       `SELECT ps.*, s.name AS subject_name FROM practice_session ps LEFT JOIN subject s ON ps.subject_id = s.id
        WHERE ps.user_id = ? ORDER BY ps.id DESC LIMIT ? OFFSET ?`,
       [req.user.userId, pageSize, offset]
     );
+    // 名称由服务端统一生成，历史页与题库页历史卡片共用同一口径
+    const sessions = rows.map((r) => ({ ...r, title: buildSessionTitle(r) }));
     return { sessions, total: countRows[0].total };
   });
 
