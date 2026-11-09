@@ -163,11 +163,6 @@ export default function Users() {
           <div style={{ marginBottom: 16, padding: 12, background: '#f5f5f5', borderRadius: 8 }}>
             <Text type="secondary">用户：{editUser.nickname}（{editUser.email}）</Text>
           </div>
-          <div style={{ marginBottom: 16, padding: 12, background: '#fffbe6', border: '1px solid #ffe58f', borderRadius: 8 }}>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              用户不支持删除，禁用后该用户将无法登录，其练习记录会保留，可随时重新启用。
-            </Text>
-          </div>
           <Form form={editForm} layout="vertical">
             <Form.Item name="role" label="角色">
               <Select options={ROLE_OPTIONS} />

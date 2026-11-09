@@ -12,6 +12,16 @@ import { formatTime } from '../utils';
 
 const { Text } = Typography;
 
+/** 让可点击的非按钮元素支持键盘激活：Enter / Space 触发同一逻辑，Space 阻止页面滚动；
+ *  事件来自内部表单控件/按钮时不接管，避免破坏其原生键盘交互。 */
+function activateOnKey(e, action) {
+  if (e.target !== e.currentTarget) return;
+  if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+    e.preventDefault();
+    action();
+  }
+}
+
 /**
  * 专项练习（参照粉笔题库目录页）。
  *
@@ -213,11 +223,16 @@ export default function SpecialPractice() {
   const renderNode = (node, depth) => {
     const isOpen = expanded.includes(node.id);
     const hasChildren = node.children && node.children.length > 0;
+    const handleActivate = () => (hasChildren ? toggle(node.id) : goPractice(node));
 
     return (
       <div key={node.id}>
         <div
-          onClick={() => (hasChildren ? toggle(node.id) : goPractice(node))}
+          role="button"
+          tabIndex={0}
+          aria-label={hasChildren ? `展开或收起考点「${node.name}」` : `练习考点「${node.name}」`}
+          onClick={handleActivate}
+          onKeyDown={(e) => activateOnKey(e, handleActivate)}
           style={{
             display: 'flex', alignItems: 'center', gap: 10,
             padding: '9px 12px', borderRadius: 6,
@@ -288,7 +303,11 @@ export default function SpecialPractice() {
         return (
           <div
             key={n.id}
+            role="button"
+            tabIndex={0}
+            aria-label={`切换到题库分类「${n.name}」`}
             onClick={() => setActiveTop(n.id)}
+            onKeyDown={(e) => activateOnKey(e, () => setActiveTop(n.id))}
             style={{
               display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
               padding: '10px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 14,
@@ -315,33 +334,40 @@ export default function SpecialPractice() {
     <div>
       {/* 顶部入口卡 */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
-        {ENTRY_CARDS.map((c) => (
-          <Card
-            key={c.key}
-            hoverable
-            onClick={() => {
-              if (c.to) navigate(c.to);
-              else if (c.action === 'smart') setSmartOpen(true);
-              else if (c.action === 'ai') setAiOpen(true);
-            }}
-            style={{ borderRadius: 10, borderColor: tokens.cardBorder, background: tokens.cardBg }}
-            styles={{ body: { padding: 18 } }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div style={{
-                width: 42, height: 42, borderRadius: 10, flexShrink: 0,
-                display: 'grid', placeItems: 'center',
-                background: `${c.color}18`, color: c.color, fontSize: 20,
-              }}>
-                {c.icon}
+        {ENTRY_CARDS.map((c) => {
+          const openEntry = () => {
+            if (c.to) navigate(c.to);
+            else if (c.action === 'smart') setSmartOpen(true);
+            else if (c.action === 'ai') setAiOpen(true);
+          };
+          return (
+            <Card
+              key={c.key}
+              hoverable
+              role="button"
+              tabIndex={0}
+              aria-label={`进入${c.name}`}
+              onClick={openEntry}
+              onKeyDown={(e) => activateOnKey(e, openEntry)}
+              style={{ borderRadius: 10, borderColor: tokens.cardBorder, background: tokens.cardBg }}
+              styles={{ body: { padding: 18 } }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{
+                  width: 42, height: 42, borderRadius: 10, flexShrink: 0,
+                  display: 'grid', placeItems: 'center',
+                  background: `${c.color}18`, color: c.color, fontSize: 20,
+                }}>
+                  {c.icon}
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 15, fontWeight: 600, color: tokens.text }}>{c.name}</div>
+                  <div style={{ fontSize: 12, color: tokens.textWeak }}>{c.desc}</div>
+                </div>
               </div>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 15, fontWeight: 600, color: tokens.text }}>{c.name}</div>
-                <div style={{ fontSize: 12, color: tokens.textWeak }}>{c.desc}</div>
-              </div>
-            </div>
-          </Card>
-        ))}
+            </Card>
+          );
+        })}
       </div>
 
       {isMobile && categoryNav}
@@ -532,7 +558,11 @@ export default function SpecialPractice() {
               ) : history.map((h) => (
                 <div
                   key={h.id}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`查看练习结果：${h.title || '练习 #' + h.id}`}
                   onClick={() => navigate(`/practice/do?session=${h.id}&view=result`)}
+                  onKeyDown={(e) => activateOnKey(e, () => navigate(`/practice/do?session=${h.id}&view=result`))}
                   style={{
                     padding: '8px 0', cursor: 'pointer',
                     borderBottom: `1px solid ${tokens.divider}`,
@@ -559,10 +589,18 @@ export default function SpecialPractice() {
                 { icon: <CheckCircleFilled />, label: '错题', value: stats?.wrong, to: '/wrong-book', color: tokens.error },
                 { icon: <FireOutlined />, label: '收藏', value: stats?.favorite, to: '/favorites', color: tokens.accent },
               ].map((it) => (
-                <div key={it.label} onClick={() => navigate(it.to)} title={`查看${it.label}`} style={{
-                  display: 'flex', alignItems: 'center', gap: 8, padding: '9px 0', cursor: 'pointer',
-                  borderBottom: `1px solid ${tokens.divider}`, color: tokens.textSub, fontSize: 13,
-                }}>
+                <div
+                  key={it.label}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`查看${it.label}`}
+                  onClick={() => navigate(it.to)}
+                  onKeyDown={(e) => activateOnKey(e, () => navigate(it.to))}
+                  title={`查看${it.label}`}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 8, padding: '9px 0', cursor: 'pointer',
+                    borderBottom: `1px solid ${tokens.divider}`, color: tokens.textSub, fontSize: 13,
+                  }}>
                   <span style={{ color: it.color }}>{it.icon}</span>
                   <span style={{ flex: 1 }}>{it.label}</span>
                   <span style={{ fontSize: 15, fontWeight: 600, color: tokens.text }}>{it.value ?? '—'}</span>

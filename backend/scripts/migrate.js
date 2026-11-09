@@ -4,6 +4,7 @@
  * 安全性：
  *   - 只执行 ALTER TABLE / CREATE TABLE 这类增量语句，不删数据
  *   - 同一语句已应用过会报错（如重复列），这里识别为「已应用」并跳过，不中断
+ *   - 因历史文件的排序依赖而失败的语句，会在全部迁移跑完后统一重试一轮
  *   - 生产环境可安全重复执行
  *
  * 用法：node scripts/migrate.js
@@ -49,29 +50,59 @@ async function main() {
   let applied = 0;
   let skipped = 0;
   let failed = 0;
+  const skippedFiles = new Set();
+  // 迁移按文件名排序，但历史文件之间存在「靠前的文件引用靠后文件才创建的列」的
+  // 顺序依赖（例如 add_paper_hidden.sql 用到 add_question_paper_reflow.sql 的
+  // source_paper_id）。生产库列早已存在所以一直没暴露，全新空库首跑才会失败。
+  // 对策：第一轮失败的语句先暂存，等全部文件跑完、结构齐全后再统一重试一轮。
+  const deferred = [];
 
   for (const f of files) {
     const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, f), 'utf8');
     const stmts = splitStatements(sql);
-    let fileOk = true;
+    let deferredInFile = 0;
     for (const s of stmts) {
       try {
         await conn.query(s);
         applied++;
       } catch (err) {
-        if (isAlreadyApplied(err.message)) { skipped++; continue; }
-        fileOk = false;
+        if (isAlreadyApplied(err.message)) { skipped++; skippedFiles.add(f); continue; }
+        deferred.push({ f, s });
+        deferredInFile++;
+      }
+    }
+    console.log(`[migrate] ${f} ${deferredInFile ? `完成（${deferredInFile} 条延迟重试）` : '完成'}`);
+  }
+
+  if (deferred.length) {
+    console.log(`[migrate] 结构补齐后重试 ${deferred.length} 条因迁移顺序失败的语句…`);
+    for (const { f, s } of deferred) {
+      try {
+        await conn.query(s);
+        applied++;
+      } catch (err) {
+        if (isAlreadyApplied(err.message)) { skipped++; skippedFiles.add(f); continue; }
         failed++;
-        console.error(`[migrate] ${f} 执行失败：${err.message}`);
+        console.error(`[migrate] ${f} 重试后仍失败：${err.message}`);
         console.error(`  语句：${s.slice(0, 160)}`);
       }
     }
-    console.log(`[migrate] ${f} ${fileOk ? '完成' : '部分失败'}`);
   }
 
   console.log(`[migrate] 共 ${files.length} 个迁移文件：成功 ${applied} 条，跳过（已存在）${skipped} 条，失败 ${failed} 条`);
+  // 列出被跳过的文件，便于发现「永远不生效的死迁移」或结构漂移
+  if (skippedFiles.size) {
+    console.log(`[migrate] 因结构已存在而跳过：${[...skippedFiles].join(', ')}`);
+  }
   await conn.end();
-  if (failed > 0) process.exit(1);
+  if (failed > 0) throw new Error(`${failed} 条迁移语句执行失败，请检查上面的错误明细`);
+  return { files: files.length, applied, skipped, failed };
 }
 
-main().catch((e) => { console.error('[migrate] 致命错误:', e.message); process.exit(1); });
+// 直接运行：node scripts/migrate.js
+// 被 db_init.js 引用：await main()，让「重建空库」一次就补齐全部增量结构
+if (require.main === module) {
+  main().catch((e) => { console.error('[migrate] 致命错误:', e.message); process.exit(1); });
+}
+
+module.exports = { main };

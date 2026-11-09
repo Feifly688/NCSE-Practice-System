@@ -24,6 +24,16 @@ const PEOPLE_IDS = ['people', 'people_politics', 'people_economy', 'people_socie
 const XINHUA_IDS = ['xinhua', 'xinhua_world', 'xinhua_education', 'xinhua_military'];
 const ALL_SOURCE_IDS = [...PEOPLE_IDS, ...XINHUA_IDS];
 
+/** 让可点击的非按钮元素支持键盘激活：Enter / Space 触发同一逻辑，Space 阻止页面滚动；
+ *  事件来自内部表单控件/按钮时不接管，避免破坏其原生键盘交互。 */
+function activateOnKey(e, action) {
+  if (e.target !== e.currentTarget) return;
+  if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+    e.preventDefault();
+    action();
+  }
+}
+
 export default function Articles() {
   const [loading, setLoading] = useState(true);
   const [articles, setArticles] = useState([]);
@@ -75,17 +85,18 @@ export default function Articles() {
     catch (err) { message.error('加载文章失败'); }
   }
 
-  function copyLink(url) {
+  async function copyLink(url) {
     if (!url) { message.warning('链接为空'); return; }
     if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(url).then(() => {
+      try {
+        await navigator.clipboard.writeText(url);
         message.success('链接已复制');
-      }).catch(() => {
-        fallbackCopy(url);
-      });
-    } else {
-      fallbackCopy(url);
+        return;
+      } catch {
+        // 接口不可用或被拒绝（非安全上下文、无权限等）时降级到原方式
+      }
     }
+    fallbackCopy(url);
   }
 
   function fallbackCopy(text) {
@@ -196,9 +207,20 @@ export default function Articles() {
 
   function SortableHeader({ field, label, center = false }) {
     const isActive = sortField === field;
+    const handleSort = () => {
+      setSortOrder(isActive && sortOrder === 'desc' ? 'asc' : 'desc');
+      setSortField(field);
+      setPage(1);
+    };
     return (
-      <span style={{ cursor: 'pointer', userSelect: 'none', display: 'inline-flex', alignItems: 'center', gap: 4, justifyContent: center ? 'center' : 'flex-start' }}
-        onClick={() => { setSortOrder(isActive && sortOrder === 'desc' ? 'asc' : 'desc'); setSortField(field); setPage(1); }}>
+      <span
+        role="button"
+        tabIndex={0}
+        aria-label={`按${label}排序`}
+        style={{ cursor: 'pointer', userSelect: 'none', display: 'inline-flex', alignItems: 'center', gap: 4, justifyContent: center ? 'center' : 'flex-start' }}
+        onClick={handleSort}
+        onKeyDown={(e) => activateOnKey(e, handleSort)}
+      >
         {label}
         {isActive && (sortOrder === 'desc' ? '↓' : '↑')}
       </span>
@@ -335,7 +357,6 @@ export default function Articles() {
       >
         {!previewStep ? (
           <div>
-            <Paragraph type="secondary">选择文章来源和数量，系统将从真实网站抓取文章，并根据内容自动分类（言语/政治/通用）。</Paragraph>
             <Divider style={{ margin: '16px 0' }} />
 
             <div style={{ marginBottom: 16 }}>

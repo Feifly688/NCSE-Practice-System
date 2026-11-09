@@ -294,7 +294,6 @@ export default function Generate() {
       // 生成在后台继续，关闭窗口不会中断；完成后重新打开即可恢复
       Modal.confirm({
         title: '生成仍在进行中',
-        content: '关闭此窗口不会中断生成，完成后重新打开即可查看并保存结果。',
         okText: '关闭窗口',
         cancelText: '继续等待',
         onOk: () => setModalOpen(false),
@@ -616,9 +615,6 @@ export default function Generate() {
               <Text strong type="danger">{selectedSubject === 'verbal_comprehension' ? '言语理解' : '政治'}</Text>
               题目，每篇文章生成 <Text strong>{questionsPerArticle}</Text> 道题。
             </Paragraph>
-            <Paragraph type="secondary">
-              提示：生成过程需要调用AI接口，每篇文章大约需要30-60秒，请耐心等待。
-            </Paragraph>
           </div>
         ) : (
           <div>
@@ -628,12 +624,9 @@ export default function Generate() {
               style={{ marginBottom: 12 }}
               message="结果已自动保存为草稿"
               description={
-                <>
-                  误触关闭、按 ESC 或刷新页面都不会丢失；保存到题库后草稿自动清除。
-                  <Button type="link" size="small" style={{ padding: 0, height: 'auto' }} onClick={discardDraft}>
-                    放弃这份草稿
-                  </Button>
-                </>
+                <Button type="link" size="small" style={{ padding: 0, height: 'auto' }} onClick={discardDraft}>
+                  放弃这份草稿
+                </Button>
               }
             />
             <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

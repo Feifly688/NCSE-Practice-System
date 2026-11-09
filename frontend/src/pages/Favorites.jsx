@@ -10,6 +10,16 @@ import { F, FenbiScope, PageHead, Panel, SectionLabel, MetaTag } from '../compon
 
 const { Text, Paragraph } = Typography;
 
+/** 让可点击的非按钮元素支持键盘激活：Enter / Space 触发同一逻辑，Space 阻止页面滚动；
+ *  事件来自内部表单控件/按钮时不接管，避免破坏其原生键盘交互。 */
+function activateOnKey(e, action) {
+  if (e.target !== e.currentTarget) return;
+  if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+    e.preventDefault();
+    action();
+  }
+}
+
 /** 收藏夹：与错题本保持同一套列表/详情风格，数据与交互逻辑不变。 */
 export default function Favorites() {
   const navigate = useNavigate();
@@ -63,7 +73,14 @@ export default function Favorites() {
           items.map(item => (
             <div key={item.id} className="fb-row">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
-                <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => setPreviewItem(item)}>
+                <div
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`查看收藏题目详情：${item.stem}`}
+                  style={{ flex: 1, minWidth: 0, cursor: 'pointer' }}
+                  onClick={() => setPreviewItem(item)}
+                  onKeyDown={(e) => activateOnKey(e, () => setPreviewItem(item))}
+                >
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
                     <MetaTag tone="primary">{item.qtype}</MetaTag>
                     {difficultyTag(item.difficulty)}

@@ -40,7 +40,14 @@ function env(k, fallback) {
   await dbConn.query(sql);
   await dbConn.end();
 
-  console.log('DB_INIT_OK', { host, port, database });
+  // schema.sql 只含基线表；theme / year / fingerprint / 试卷相关列与全部索引
+  // 都由 migrations 补齐。以前 db:init 之后必须手动再跑 db:migrate，漏跑会让
+  // auth.js 的 `SELECT ... theme` 直接报 Unknown column。
+  // 这里自动接续执行全部迁移（幂等，重复执行安全）。
+  const { main: runMigrations } = require('./migrate');
+  const mig = await runMigrations();
+
+  console.log('DB_INIT_OK', { host, port, database, migrations: mig });
 })().catch((e) => {
   console.error('DB_INIT_FAIL', e.message);
   process.exit(1);

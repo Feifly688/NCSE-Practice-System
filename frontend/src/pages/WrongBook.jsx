@@ -50,6 +50,16 @@ function reasonLabel(tag) {
   return REASON_LABEL[tag] || '未标注';
 }
 
+/** 让可点击的非按钮元素支持键盘激活：Enter / Space 触发同一逻辑，Space 阻止页面滚动；
+ *  事件来自内部表单控件/按钮时不接管，避免破坏其原生键盘交互。 */
+function activateOnKey(e, action) {
+  if (e.target !== e.currentTarget) return;
+  if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+    e.preventDefault();
+    action();
+  }
+}
+
 /**
  * 错题本（粉笔式列表，按一级模块分类存放）。
  * - 模块导航来自 /practice/wrong-book 返回的 modules，选中后列表与重做都限定在该模块
@@ -145,8 +155,8 @@ export default function WrongBook() {
     } catch (err) { message.error('开始重做失败'); }
   }
 
-  // HTML 转义，防止 XSS
-  function esc(str) {
+  // HTML 转义，防止 XSS（& < > " ' 全部转义）
+  function escapeHtml(str) {
     if (!str) return '';
     return String(str)
       .replace(/&/g, '&amp;')
@@ -160,19 +170,19 @@ export default function WrongBook() {
     if (items.length === 0) { message.info('暂无错题可导出'); return; }
     const options = ['A', 'B', 'C', 'D'];
     let html = '<html><head><meta charset="utf-8"><title>错题本导出</title><style>body{font-family:sans-serif;max-width:800px;margin:0 auto;padding:20px}h1{font-size:22px}.q{margin-bottom:24px;padding:16px;border:1px solid #eee;border-radius:8px}.stem{font-weight:bold;margin-bottom:8px}.opts{margin:8px 0}.opt{padding:4px 0}.correct{color:#35b879;font-weight:bold}.explain{margin-top:8px;padding:8px;background:#f0faf4;border-radius:4px;font-size:13px}@media print{.no-print{display:none}}</style></head><body>';
-    html += '<h1>错题本' + (activeModule ? ' · ' + esc(activeModule.module_name) : '') + '</h1><p class="no-print"><button onclick="window.print()">打印</button></p>';
+    html += '<h1>错题本' + (activeModule ? ' · ' + escapeHtml(activeModule.module_name) : '') + '</h1><p class="no-print" id="print-bar"></p>';
     items.forEach((item, idx) => {
       const opts = parseOptions(item.options_json);
       html += '<div class="q">';
-      html += '<div class="stem">' + (idx + 1) + '. [' + esc(item.qtype) + '] ' + (item.module_name ? '[' + esc(item.module_name) + '] ' : '') + (item.passage ? '<p style="color:#666;font-weight:normal;margin:4px 0">' + esc(item.passage) + '</p>' : '') + esc(item.stem) + '</div>';
+      html += '<div class="stem">' + (idx + 1) + '. [' + escapeHtml(item.qtype) + '] ' + (item.module_name ? '[' + escapeHtml(item.module_name) + '] ' : '') + (item.passage ? '<p style="color:#666;font-weight:normal;margin:4px 0">' + escapeHtml(item.passage) + '</p>' : '') + escapeHtml(item.stem) + '</div>';
       html += '<div class="opts">';
       opts.forEach((opt, i) => {
         const letter = options[i] || String.fromCharCode(65 + i);
         const isCorrect = letter === item.answer;
-        html += '<div class="opt' + (isCorrect ? ' correct' : '') + '">' + letter + '. ' + esc(cleanOption(opt)) + (isCorrect ? ' ✓' : '') + '</div>';
+        html += '<div class="opt' + (isCorrect ? ' correct' : '') + '">' + letter + '. ' + escapeHtml(cleanOption(opt)) + (isCorrect ? ' ✓' : '') + '</div>';
       });
       html += '</div>';
-      html += '<div class="explain"><strong>解析：</strong>' + esc(item.explanation) + '</div>';
+      html += '<div class="explain"><strong>解析：</strong>' + escapeHtml(item.explanation) + '</div>';
       html += '</div>';
     });
     html += '</body></html>';
@@ -180,6 +190,15 @@ export default function WrongBook() {
     if (!w) { message.error('弹窗被浏览器拦截，请允许弹窗后重试'); return; }
     w.document.write(html);
     w.document.close();
+    // 打印按钮改用 DOM API 构建并绑定事件，避免在 HTML 字符串里写内联 onclick
+    const bar = w.document.getElementById('print-bar');
+    if (bar) {
+      const btn = w.document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = '打印';
+      btn.addEventListener('click', () => w.print());
+      bar.appendChild(btn);
+    }
   }
 
   const difficultyTag = (d) => (d <= 2
@@ -278,8 +297,12 @@ export default function WrongBook() {
             <div key={item.id} className="fb-row">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
                 <div
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`查看错题详情：${item.stem}`}
                   style={{ flex: 1, minWidth: 0, cursor: 'pointer' }}
                   onClick={() => setPreviewItem(item)}
+                  onKeyDown={(e) => activateOnKey(e, () => setPreviewItem(item))}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
                     {item.module_name && <MetaTag tone="primary">{item.module_name}</MetaTag>}
