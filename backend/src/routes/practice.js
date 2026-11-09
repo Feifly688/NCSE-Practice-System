@@ -6,6 +6,7 @@ const { withConnection } = require('../db');
 const { localDateTimeStr } = require('../lib/time');
 const { safeOptions } = require('../lib/json');
 const { normalizePractice, buildSessionTitle } = require('../lib/sessionTitle');
+const { buildReport } = require('../lib/report');
 const { parseIdsQuery } = require('../helpers');
 
 const router = express.Router();
@@ -536,6 +537,14 @@ router.get('/history', requireAuth, asyncHandler(async (req, res) => {
   });
 
   return res.json({ ...data, page, pageSize });
+}));
+
+// GET /api/practice/report —— 个人学习报告：时间窗、按日趋势、六模块能力、环比、全站对比
+router.get('/report', requireAuth, asyncHandler(async (req, res) => {
+  const raw = String(req.query.range || '');
+  const range = ['7d', '30d', 'month'].includes(raw) ? raw : '7d';
+  const data = await withConnection((conn) => buildReport(conn, req.user.userId, range));
+  return res.json(data);
 }));
 
 // GET /api/practice/stats
