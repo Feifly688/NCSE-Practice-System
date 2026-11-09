@@ -12,7 +12,7 @@ const VALID_STATUSES = ['pending_review', 'approved', 'disabled'];
 
 // GET /api/questions/random
 router.get('/random', requireAuth, asyncHandler(async (req, res) => {
-  const count = Math.min(Number(req.query.count) || 10, 50);
+  const count = Math.min(Math.max(Number(req.query.count) || 10, 1), 50);
   const subject = req.query.subject || null;
   const qtype = req.query.qtype || null;
   const difficulty = req.query.difficulty || null;
@@ -21,22 +21,42 @@ router.get('/random', requireAuth, asyncHandler(async (req, res) => {
     // 不下发 answer / explanation：练习接口在答题前就把答案送到前端，
     // 抓包或 F12 即可看光，模拟考试等同于开卷。正确答案由 POST /practice/submit
     // 在交卷后返回。
-    let query = `SELECT q.id, q.subject_id, q.qtype, q.difficulty, q.passage, q.stem, q.options_json,
-      q.source_exam, q.source_article_id,
-      a.clean_text as article_text, a.title as article_title
-      FROM question q
-      LEFT JOIN article a ON q.source_article_id = a.id
-      WHERE q.status = 'approved'`;
-    const params = [];
+    // 随机方式由「ORDER BY RAND() 全表排序」改为「轻量 id 查询 + Node 随机 +
+    // id IN(...) 取完整行」，TEXT/JSON 列不参与排序。
+    const where = ['q.status = ?'];
+    const params = ['approved'];
+    if (subject) { where.push('q.subject_id = (SELECT id FROM subject WHERE slug = ?)'); params.push(subject); }
+    if (qtype) { where.push('q.qtype = ?'); params.push(qtype); }
+    if (difficulty) { where.push('q.difficulty = ?'); params.push(Number(difficulty)); }
 
-    if (subject) { query += ' AND q.subject_id = (SELECT id FROM subject WHERE slug = ?)'; params.push(subject); }
-    if (qtype) { query += ' AND q.qtype = ?'; params.push(qtype); }
-    if (difficulty) { query += ' AND q.difficulty = ?'; params.push(Number(difficulty)); }
-    query += ' ORDER BY RAND() LIMIT ?';
-    params.push(count);
+    // ① 只取符合条件的题目 id（轻量 SELECT）
+    const [idRows] = await conn.query(
+      `SELECT q.id FROM question q WHERE ${where.join(' AND ')}`,
+      params
+    );
 
-    const [rows] = await conn.query(query, params);
-    return rows.map(q => {
+    // ② Node 内 Fisher-Yates 随机抽取 count 个
+    const ids = idRows.map((r) => Number(r.id));
+    for (let i = ids.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [ids[i], ids[j]] = [ids[j], ids[i]];
+    }
+    const selected = ids.slice(0, count);
+    if (!selected.length) return [];
+
+    // ③ 按 id IN(...) 取完整行（含材料正文所需的 article 关联），并还原随机顺序
+    const ph = selected.map(() => '?').join(',');
+    const [rows] = await conn.query(
+      `SELECT q.id, q.subject_id, q.qtype, q.difficulty, q.passage, q.stem, q.options_json,
+        q.source_exam, q.source_article_id,
+        a.clean_text as article_text, a.title as article_title
+        FROM question q
+        LEFT JOIN article a ON q.source_article_id = a.id
+        WHERE q.id IN (${ph})`,
+      selected
+    );
+    const byId = new Map(rows.map((r) => [Number(r.id), r]));
+    return selected.map((id) => byId.get(id)).filter(Boolean).map((q) => {
       if (!q.passage && q.article_text) q.passage = q.article_text.substring(0, 300);
       return q;
     });

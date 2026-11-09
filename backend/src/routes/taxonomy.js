@@ -7,6 +7,7 @@ const {
   listQuestionsByCategory,
   countQuestions,
   getCategoryDescendants,
+  getCategoryDescendantsBatch,
   pickQuestionsByConfig,
   POOL_KEYS,
 } = require('../lib/taxonomy');
@@ -28,26 +29,33 @@ function parseIds(value) {
 }
 
 /**
- * 取用户近 500 次练习里出现过的题目 id，供「优先未做题」排序使用。
+ * 取用户近 2000 次练习里出现过的题目 id，供「优先未做题」排序使用。
  * meta_json.question_ids 是整卷与专项练习共用的题目标识口径。
+ * 上限由 500 提高以覆盖更全；MAX_ANSWERED_IDS 兜底防止极端数据把内存打爆。
+ * 可选传入 conn 复用外部连接（不传则内部 withConnection）。
  */
-async function getAnsweredQuestionIds(userId) {
-  const [rows] = await withConnection((conn) => conn.query(
-    'SELECT meta_json FROM practice_session WHERE user_id = ? ORDER BY id DESC LIMIT 500',
-    [userId]
-  ));
-  const ids = new Set();
-  for (const r of rows) {
-    if (!r.meta_json) continue;
-    try {
-      const meta = typeof r.meta_json === 'string' ? JSON.parse(r.meta_json) : r.meta_json;
-      for (const id of meta.question_ids || []) {
-        const n = Number(id);
-        if (Number.isInteger(n) && n > 0) ids.add(n);
-      }
-    } catch (_) { /* 单条 meta 损坏不影响抽题 */ }
-  }
-  return [...ids];
+const MAX_ANSWERED_IDS = 50000;
+async function getAnsweredQuestionIds(userId, existingConn) {
+  const run = async (conn) => {
+    const [rows] = await conn.query(
+      'SELECT meta_json FROM practice_session WHERE user_id = ? ORDER BY id DESC LIMIT 2000',
+      [userId]
+    );
+    const ids = new Set();
+    for (const r of rows) {
+      if (!r.meta_json) continue;
+      try {
+        const meta = typeof r.meta_json === 'string' ? JSON.parse(r.meta_json) : r.meta_json;
+        for (const id of meta.question_ids || []) {
+          const n = Number(id);
+          if (Number.isInteger(n) && n > 0) ids.add(n);
+        }
+      } catch (_) { /* 单条 meta 损坏不影响抽题 */ }
+      if (ids.size >= MAX_ANSWERED_IDS) break; // 防御：避免极端数据把内存打爆
+    }
+    return [...ids];
+  };
+  return existingConn ? run(existingConn) : withConnection(run);
 }
 
 // GET /api/taxonomy/generated-subjects
@@ -94,12 +102,14 @@ router.get('/categories/:id/questions', requireAuth, asyncHandler(async (req, re
   const offset = Math.max(Number(req.query.offset) || 0, 0);
 
   const result = await withConnection(async (conn) => {
-    // 含子分类（粉笔点二级分类时是整个子树）
+    // 含子分类（粉笔点二级分类时是整个子树）。
+    // count 与 list 复用同一连接：避免单请求占 3 个连接、也避免各自
+    // withConnection 带来的可用数/列表快照不一致（available>0 但 picked=0）。
     const ids = await getCategoryDescendants(conn, categoryId);
     const rows = await listQuestionsByCategory({
       pool, categoryIds: ids, qtypes, difficultyRange, limit, offset,
-    });
-    const total = await countQuestions({ pool, categoryIds: ids, qtypes, difficultyRange });
+    }, conn);
+    const total = await countQuestions({ pool, categoryIds: ids, qtypes, difficultyRange }, conn);
     return { rows, total, ids };
   });
 
@@ -159,48 +169,41 @@ router.post('/pick', requireAuth, asyncHandler(async (req, res) => {
   const yearFrom = span ? new Date().getFullYear() - span : null;
   const sourceType = ['national', 'local'].includes(String(rawSourceType || '')) ? String(rawSourceType) : null;
   const preferUndone = Boolean(excludeAnswered);
-  const preferUndoneIds = preferUndone ? await getAnsweredQuestionIds(req.user.userId) : [];
 
-  // 分类 id 展开成子树（选二级分类时含三级）
-  let expanded = categoryIds;
-  if (categoryIds.length) {
-    expanded = await withConnection(async (conn) => {
-      const all = new Set();
-      for (const cid of categoryIds) {
-        const ids = await getCategoryDescendants(conn, cid);
-        ids.forEach((id) => all.add(id));
-      }
-      return [...all];
-    });
-  }
+  // 整个 /pick 在单一连接内完成：已练题查询、分类批量展开、count、抽题
+  // 复用同一 conn，避免多次 withConnection 各自占用连接与快照不一致。
+  const result = await withConnection(async (conn) => {
+    const preferUndoneIds = preferUndone ? await getAnsweredQuestionIds(req.user.userId, conn) : [];
+    // 分类 id 批量展开成子树：一次查询 + 内存计算并去重，替代逐分类循环 await
+    const expanded = categoryIds.length
+      ? await getCategoryDescendantsBatch(conn, categoryIds)
+      : categoryIds;
 
-  const available = await countQuestions({
-    pool,
-    categoryIds: expanded,
-    qtypes,
-    difficultyRange: range,
-    subjectIds,
-    yearFrom,
-    sourceType,
+    const available = await countQuestions({
+      pool, categoryIds: expanded, qtypes, difficultyRange: range,
+      subjectIds, yearFrom, sourceType,
+    }, conn);
+    if (!available) return { available: 0, rows: [] };
+
+    const rows = await pickQuestionsByConfig({
+      pool, categoryIds: expanded, qtypes, difficultyRange: range, count,
+      subjectIds, yearFrom, sourceType, preferUndoneIds,
+    }, conn);
+    return { available, rows };
   });
 
-  if (!available) {
+  if (!result.available) {
     return res.status(400).json({ error: '所选条件下没有可练习的题目', available: 0 });
   }
 
-  const rows = await pickQuestionsByConfig({
-    pool, categoryIds: expanded, qtypes, difficultyRange: range, count,
-    subjectIds, yearFrom, sourceType, preferUndoneIds,
-  });
-
   res.json({
     pool,
-    available,
-    picked: rows.length,
+    available: result.available,
+    picked: result.rows.length,
     count,
     preferUndone,
     // 答题阶段只下发题干与选项；答案和解析统一由交卷接口下发，防止提前查看
-    questions: rows.map((r) => ({
+    questions: result.rows.map((r) => ({
       id: r.id,
       qtype: r.qtype,
       difficulty: r.difficulty,
