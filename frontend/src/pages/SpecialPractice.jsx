@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Typography, Card, Button, Space, Select, InputNumber, Tag, Spin, Empty, message, Segmented, Modal, Radio, Switch, Progress } from 'antd';
 import {
   FileTextOutlined, ThunderboltOutlined, SettingOutlined,
-  RightOutlined, DownOutlined, CheckCircleFilled, FireOutlined,
+  RightOutlined, DownOutlined, CheckCircleFilled, FireOutlined, BarChartOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
@@ -42,10 +42,10 @@ function activateOnKey(e, action) {
  */
 
 const ENTRY_CARDS = [
-  { key: 'quick', name: '快速练习', desc: '从题库随机抽题，立即开练', color: '#f47735', icon: <ThunderboltOutlined />, to: '/practice/do?pool=question&count=10' },
-  { key: 'paper', name: '历年试卷', desc: '完整真题卷，按分类筛选', color: '#35b879', icon: <FileTextOutlined />, to: '/exam-papers' },
-  { key: 'generated', name: 'AI 生成题', desc: '选科目与参数后开始刷题', color: '#7c6af0', icon: <ThunderboltOutlined />, action: 'ai' },
-  { key: 'smart', name: '智能组卷', desc: '按出题年份自动生成试卷', color: '#2e9bd6', icon: <SettingOutlined />, action: 'smart' },
+  { key: 'quick', name: '快速练习', tag: '10 题', color: '#f47735', icon: <ThunderboltOutlined />, to: '/practice/do?pool=question&count=10' },
+  { key: 'paper', name: '历年试卷', tag: '真题卷', color: '#35b879', icon: <FileTextOutlined />, to: '/exam-papers' },
+  { key: 'generated', name: 'AI 生成题', tag: '按科目', color: '#7c6af0', icon: <ThunderboltOutlined />, action: 'ai' },
+  { key: 'smart', name: '智能组卷', tag: '130 题', color: '#2e9bd6', icon: <SettingOutlined />, action: 'smart' },
 ];
 
 /** 难度档位（与本库 question.difficulty 1-5 对应） */
@@ -76,7 +76,8 @@ export default function SpecialPractice() {
   // 粉笔配色仅作用于本页：不改动全局 ThemeContext，其余页面保持原貌
   const tokens = F;
 
-  const [pool, setPool] = useState('question');
+  // 题库页固定走 question 池；exam_paper_question 池按整卷页面使用，不作为分类树来源
+  const pool = 'question';
   const [tree, setTree] = useState([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState([]);
@@ -112,6 +113,8 @@ export default function SpecialPractice() {
   // 统计
   const [stats, setStats] = useState(null);
   const [history, setHistory] = useState([]);
+  // 近 30 天正确率：复用学习报告接口，失败静默降级
+  const [reportAcc, setReportAcc] = useState(null);
 
   // 薄弱点数据；请求失败保持 null，卡片走空状态（静默降级，不阻塞其它入口）
   const [weakness, setWeakness] = useState(null);
@@ -154,8 +157,11 @@ export default function SpecialPractice() {
         favorite: Number(f.data?.total) || 0,
       });
     }).catch(() => { /* 未登录或接口异常：保留 null，界面显示 '—' */ });
-    api.get('/practice/history', { params: { limit: 5 } })
-      .then((r) => setHistory((r.data.sessions || r.data.history || []).slice(0, 3)))
+    api.get('/practice/history', { params: { page: 1, pageSize: 5 } })
+      .then((r) => { if (alive) setHistory((r.data.sessions || r.data.history || []).slice(0, 3)); })
+      .catch(() => {});
+    api.get('/practice/report', { params: { range: '30d' } })
+      .then((r) => { if (alive) setReportAcc(r.data?.current?.accuracy ?? null); })
       .catch(() => {});
     return () => { alive = false; };
   }, []);
@@ -240,6 +246,9 @@ export default function SpecialPractice() {
 
   // 当前选中的一级模块；切换题库导致 tree 变化时自动回退到第一个模块
   const activeTopNode = tree.find((n) => n.id === activeTop) || tree[0] || null;
+  // 分类树根节点计数已是「子树去重题目集合」，可直接求和作为题库总量
+  const totalQuestions = tree.reduce((n, x) => n + (Number(x.totalCount) || 0), 0);
+  const accuracyPct = reportAcc == null ? null : Math.round(reportAcc * 100);
 
   // 薄弱模块：topWeak 只带 accuracy/weakScore，平均用时按 categoryId 从 modules 补齐
   const weakTop = (weakness && weakness.hasData && Array.isArray(weakness.topWeak)) ? weakness.topWeak : [];
@@ -261,13 +270,16 @@ export default function SpecialPractice() {
     const isOpen = expanded.includes(node.id);
     const hasChildren = node.children && node.children.length > 0;
     const handleActivate = () => (hasChildren ? toggle(node.id) : goPractice(node));
+    const total = Number(node.totalCount) || 0;
+    const done = Number(node.doneCount) || 0;
+    const pctDone = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
 
     return (
       <div key={node.id}>
         <div
           role="button"
           tabIndex={0}
-          aria-label={hasChildren ? `展开或收起考点「${node.name}」` : `练习考点「${node.name}」`}
+          aria-label={`${node.name}，共 ${total} 题，已练 ${done} 题${hasChildren ? '，可展开考点' : ''}`}
           onClick={handleActivate}
           onKeyDown={(e) => activateOnKey(e, handleActivate)}
           style={{
@@ -286,16 +298,24 @@ export default function SpecialPractice() {
           <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {node.name}
           </span>
-          {!hasChildren && (
-            <Button
-              type="link"
-              size="small"
-              onClick={(e) => { e.stopPropagation(); goPractice(node); }}
-              style={{ fontSize: 12, padding: 0, flexShrink: 0, color: tokens.primary }}
-            >
-              去练习
-            </Button>
+          {total > 0 && (
+            <span style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+              {!isMobile && (
+                <span style={{ width: 64, height: 5, borderRadius: 999, background: tokens.divider, overflow: 'hidden' }}>
+                  <span style={{ display: 'block', width: `${pctDone}%`, height: '100%', background: tokens.primary }} />
+                </span>
+              )}
+              <span style={{ fontSize: 12, color: tokens.textWeak, minWidth: 54, textAlign: 'right' }}>{done}/{total}</span>
+            </span>
           )}
+          <Button
+            type="link"
+            size="small"
+            onClick={(e) => { e.stopPropagation(); goPractice(node); }}
+            style={{ fontSize: 12, padding: 0, flexShrink: 0, color: tokens.primary }}
+          >
+            {hasChildren ? '练本模块' : '去练习'}
+          </Button>
         </div>
         {hasChildren && isOpen && (
           <div style={{ paddingLeft: 18 }}>
@@ -324,7 +344,7 @@ export default function SpecialPractice() {
               fontWeight: on ? 600 : 400,
             }}
           >
-            {n.name}
+            {n.name} <span style={{ fontSize: 11, opacity: 0.75 }}>{Number(n.totalCount) || 0}</span>
           </button>
         );
       })}
@@ -359,6 +379,9 @@ export default function SpecialPractice() {
             onMouseLeave={(e) => { if (!on) e.currentTarget.style.background = 'transparent'; }}
           >
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.name}</span>
+            <span style={{ fontSize: 12, color: tokens.textWeak, flexShrink: 0 }}>
+              {Number(n.doneCount) || 0}/{Number(n.totalCount) || 0}
+            </span>
           </div>
         );
       })}
@@ -367,7 +390,7 @@ export default function SpecialPractice() {
 
   return (
     <FenbiScope>
-      <PageHead title="题库" desc="按模块与考点选择练习内容，系统自动记录每一次练习结果。" />
+      <PageHead title="题库" />
     <div>
       {/* 顶部入口卡 */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
@@ -399,7 +422,10 @@ export default function SpecialPractice() {
                 </div>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: 15, fontWeight: 600, color: tokens.text }}>{c.name}</div>
-                  <div style={{ fontSize: 12, color: tokens.textWeak }}>{c.desc}</div>
+                  <Tag style={{
+                    marginTop: 4, marginInlineEnd: 0, borderRadius: 4, fontSize: 11,
+                    color: c.color, borderColor: `${c.color}55`, background: `${c.color}12`,
+                  }}>{c.tag}</Tag>
                 </div>
               </div>
             </Card>
@@ -421,7 +447,15 @@ export default function SpecialPractice() {
                 const avgSec = mod && Number.isFinite(Number(mod.avgTimeSec)) ? Number(mod.avgTimeSec) : null;
                 const acc = fmtAccuracy(t.accuracy);
                 return (
-                  <div key={t.categoryId} style={{ padding: '10px 12px', borderRadius: 8, background: tokens.cardBgAlt }}>
+                  <div
+                    key={t.categoryId}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`练习薄弱模块「${t.name}」`}
+                    onClick={() => goPractice({ id: t.categoryId, name: t.name })}
+                    onKeyDown={(e) => activateOnKey(e, () => goPractice({ id: t.categoryId, name: t.name }))}
+                    style={{ padding: '10px 12px', borderRadius: 8, background: tokens.cardBgAlt, cursor: 'pointer' }}
+                  >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
                       <Text strong style={{ color: tokens.text, fontSize: 14, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</Text>
                       {acc != null && <Tag color={acc < 60 ? 'red' : 'orange'} style={{ marginInlineEnd: 0, flexShrink: 0 }}>{acc}%</Tag>}
@@ -446,7 +480,7 @@ export default function SpecialPractice() {
 
       {isMobile && categoryNav}
 
-      <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+      <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexDirection: isMobile ? 'column' : 'row' }}>
         {/* 左栏：一级分类导航 */}
         {!isMobile && <div style={{ width: 210, flexShrink: 0 }}>{categoryNav}</div>}
 
@@ -462,13 +496,25 @@ export default function SpecialPractice() {
                 <div style={{ fontSize: 18, fontWeight: 600, color: tokens.text }}>
                   {pool === 'question' ? 'NCSE 公务员考试题库' : '历年真题库'}
                 </div>
-                <div style={{ fontSize: 13, color: tokens.textWeak, marginTop: 6, lineHeight: 1.7 }}>
-                  按模块与考点逐级练习，覆盖单选、多选、判断等题型，答题进度自动保存
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+                  <Tag style={{ marginInlineEnd: 0 }}>题库 {totalQuestions} 题</Tag>
+                  <Tag style={{ marginInlineEnd: 0 }}>已练 {stats?.answered ?? '—'}</Tag>
+                  <Tag style={{ marginInlineEnd: 0 }}>近 30 天正确率 {accuracyPct == null ? '—' : accuracyPct + '%'}</Tag>
+                  <Tag style={{ marginInlineEnd: 0 }}>错题 {stats?.wrong ?? '—'}</Tag>
                 </div>
               </div>
               <Button
                 type="primary"
-                onClick={() => navigate(`/practice/do?pool=${pool}&count=20`)}
+                onClick={() => {
+                  const params = new URLSearchParams();
+                  params.set('pool', pool);
+                  if (activeTopNode) {
+                    params.set('categories', String(activeTopNode.id));
+                    params.set('categoryName', activeTopNode.name);
+                  }
+                  params.set('count', '20');
+                  navigate(`/practice/do?${params.toString()}`);
+                }}
                 style={{ height: 38, padding: '0 22px', borderRadius: 8, fontWeight: 600 }}
               >
                 开始练习
@@ -482,7 +528,7 @@ export default function SpecialPractice() {
             extra={
               <Space size={8}>
                 <Tag style={{ marginInlineEnd: 0, borderRadius: 4, fontSize: 12 }}>
-                  题库：{pool === 'question' ? '全部' : '真题'}
+                  {activeTopNode ? `${activeTopNode.name} · ${Number(activeTopNode.totalCount) || 0} 题` : '专项练习'}
                 </Tag>
                 <Button size="small" icon={<SettingOutlined />} onClick={() => setConfigOpen(true)}>
                   自定义刷题
@@ -632,9 +678,8 @@ export default function SpecialPractice() {
           )}
         </div>
 
-        {/* 右栏：练习历史与统计 */}
-        {!isMobile && (
-          <div style={{ width: 260, flexShrink: 0 }}>
+        {/* 右栏：练习历史与统计（移动端下移到主内容下方，不再整体隐藏） */}
+          <div style={{ width: isMobile ? '100%' : 260, flexShrink: 0 }}>
             <Card
               title={<span style={{ color: tokens.text, fontSize: 14 }}>练习历史</span>}
               extra={<Button type="link" size="small" style={{ fontSize: 12, padding: 0 }} onClick={() => navigate('/history')}>查看全部</Button>}
@@ -669,10 +714,12 @@ export default function SpecialPractice() {
 
             <Card
               title={<span style={{ color: tokens.text, fontSize: 14 }}>学习数据</span>}
+              extra={<Button type="link" size="small" icon={<BarChartOutlined />} style={{ fontSize: 12, padding: 0 }} onClick={() => navigate('/report')}>报告</Button>}
               style={{ borderRadius: 10, borderColor: tokens.cardBorder, background: tokens.cardBg }}
               styles={{ body: { padding: 14 } }}
             >
               {[
+                { icon: <CheckCircleFilled />, label: '近 30 天正确率', value: accuracyPct == null ? '—' : accuracyPct + '%', to: '/report', color: tokens.success },
                 { icon: <ThunderboltOutlined />, label: '已练题数', value: stats?.answered, to: '/history', color: tokens.primary },
                 { icon: <CheckCircleFilled />, label: '错题', value: stats?.wrong, to: '/wrong-book', color: tokens.error },
                 { icon: <FireOutlined />, label: '收藏', value: stats?.favorite, to: '/favorites', color: tokens.accent },
@@ -697,7 +744,6 @@ export default function SpecialPractice() {
               ))}
             </Card>
           </div>
-        )}
       </div>
 
       {/* 智能组卷：先选出题年份，再由系统自动抽题生成试卷（与自定义刷题分开） */}
