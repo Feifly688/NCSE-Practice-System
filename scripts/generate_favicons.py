@@ -150,7 +150,8 @@ def save_all(master):
         frames.append(tile)
     build_ico(frames, os.path.join(PUBLIC, 'favicon.ico'))
 
-    for s in (16, 32, 48, 96):
+    # 仅保留 index.html 实际引用的 16/32 两档；48/96 从未被引用
+    for s in (16, 32):
         tile = master.resize((s, s), Image.LANCZOS)
         sanitize_alpha_rgb(tile).save(
             os.path.join(PUBLIC, 'favicon-%dx%d.png' % (s, s)))
