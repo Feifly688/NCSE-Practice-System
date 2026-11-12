@@ -1,4 +1,1 @@
-node_modules/
-dist/
-.env
-.env.local
+# node_modules/ dist/ .env .env.local 已由根目录 .gitignore 递归覆盖

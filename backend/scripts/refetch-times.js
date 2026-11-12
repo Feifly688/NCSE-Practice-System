@@ -2,6 +2,7 @@ require('dotenv').config({ path: require('path').resolve(__dirname, '../../.env'
 const mysql = require('mysql2/promise');
 const axios = require('axios');
 const cheerio = require('cheerio');
+const { localDateTimeStr } = require('../src/lib/time');
 
 const HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -131,7 +132,7 @@ async function main() {
       const oldTime = new Date(a.publish_time);
       const dateChanged = newTime.toDateString() !== oldTime.toDateString();
       if (hasTime || dateChanged) {
-        const timeStr = newTime.getFullYear() + '-' + String(newTime.getMonth()+1).padStart(2,'0') + '-' + String(newTime.getDate()).padStart(2,'0') + ' ' + String(newTime.getHours()).padStart(2,'0') + ':' + String(newTime.getMinutes()).padStart(2,'0') + ':' + String(newTime.getSeconds()).padStart(2,'0');
+        const timeStr = localDateTimeStr(newTime);
         await conn.query('UPDATE article SET publish_time = ? WHERE id = ?', [timeStr, a.id]);
         console.log('[' + a.id + '] ' + a.title.substring(0, 30) + ' => ' + timeStr);
         updated++;

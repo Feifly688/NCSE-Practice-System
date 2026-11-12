@@ -13,6 +13,7 @@ import api from '../services/api';
 import { useResponsive } from '../hooks/useResponsive';
 import { useTheme } from '../contexts/ThemeContext';
 import ThemeToggle from '../components/ThemeToggle';
+import { formatTime } from '../utils';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -81,12 +82,6 @@ function groupSectionQuestions(questions) {
     }
   }
   return out;
-}
-
-/** 秒 → mm:ss */
-function fmtTime(sec) {  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
 /**
@@ -1046,7 +1041,7 @@ export default function ExamPaperTake() {
 
             {/* 逐题用时：来自 submit 返回的 results[].time_sec */}
             <div style={{ marginTop: 8, fontSize: 12, color: FB.textWeak }}>
-              本题用时：{fmtTime(res.time_sec || 0)}（{Number(res.time_sec) || 0} 秒）
+              本题用时：{formatTime(res.time_sec || 0)}（{Number(res.time_sec) || 0} 秒）
             </div>
 
             {/* 解析：粉笔是独立的白底卡（描边 #f0f3fa、圆角 8、padding 20） */}
@@ -1144,7 +1139,7 @@ export default function ExamPaperTake() {
                   : FB.textSub,
               }}
             >
-              {mode === 'exam' ? `剩余 ${fmtTime(remain)}` : `用时 ${fmtTime(elapsed)}`}
+              {mode === 'exam' ? `剩余 ${formatTime(remain)}` : `用时 ${formatTime(elapsed)}`}
             </Tag>
           </div>
         </div>
@@ -1164,7 +1159,7 @@ export default function ExamPaperTake() {
               <Space size={24} wrap>
                 <Statistic title="得分" value={result.score} suffix="/ 100" valueStyle={{ color: result.score >= 60 ? '#16a34a' : '#dc2626' }} />
                 <Statistic title="正确率" value={result.score} suffix="%" />
-                <Statistic title="用时" value={fmtTime(elapsed)} />
+                <Statistic title="用时" value={formatTime(elapsed)} />
               </Space>
             </Col>
           </Row>
@@ -1183,7 +1178,7 @@ export default function ExamPaperTake() {
                         color: over ? (FB.isDark ? '#ff7875' : '#dc2626') : 'inherit',
                         fontWeight: over ? 700 : 400,
                       }}>
-                        {fmtTime(actual)} / 建议 {fmtTime(sug)}
+                        {formatTime(actual)} / 建议 {formatTime(sug)}
                       </span>
                     </Tag>
                   );

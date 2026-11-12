@@ -3,6 +3,7 @@ import { Typography, Tag, Button, Select, Modal, message, InputNumber, Checkbox,
 import { EyeOutlined, DownloadOutlined, CheckCircleOutlined, CopyOutlined, DeleteOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import FlexTable from '../../components/FlexTable';
 import api from '../../services/api';
+import { activateOnKey } from '../../utils';
 
 const { Title, Paragraph, Text } = Typography;
 
@@ -23,16 +24,6 @@ const AVAILABLE_SOURCES = [
 const PEOPLE_IDS = ['people', 'people_politics', 'people_economy', 'people_society', 'people_legality'];
 const XINHUA_IDS = ['xinhua', 'xinhua_world', 'xinhua_education', 'xinhua_military'];
 const ALL_SOURCE_IDS = [...PEOPLE_IDS, ...XINHUA_IDS];
-
-/** 让可点击的非按钮元素支持键盘激活：Enter / Space 触发同一逻辑，Space 阻止页面滚动；
- *  事件来自内部表单控件/按钮时不接管，避免破坏其原生键盘交互。 */
-function activateOnKey(e, action) {
-  if (e.target !== e.currentTarget) return;
-  if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
-    e.preventDefault();
-    action();
-  }
-}
 
 export default function Articles() {
   const [loading, setLoading] = useState(true);

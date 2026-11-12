@@ -14,3 +14,13 @@ export function formatTime(seconds) {
   const s = absSeconds % 60;
   return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
 }
+
+/** 让可点击的非按钮元素支持键盘激活：Enter / Space 触发同一逻辑，Space 阻止页面滚动；
+ *  事件来自内部表单控件/按钮时不接管，避免破坏其原生键盘交互。 */
+export function activateOnKey(e, action) {
+  if (e.target !== e.currentTarget) return;
+  if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+    e.preventDefault();
+    action();
+  }
+}

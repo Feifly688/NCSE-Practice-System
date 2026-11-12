@@ -3,7 +3,7 @@ import { Typography, Button, Space, Tag, message, Spin, Empty, Modal, Radio, Swi
 import { ReloadOutlined, BookOutlined, StarFilled, StarOutlined, ExportOutlined, DeleteOutlined, SettingOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
-import { parseOptions, cleanOption } from '../utils';
+import { parseOptions, cleanOption, activateOnKey } from '../utils';
 import Pagination from '../components/Pagination';
 import { useResponsive } from '../hooks/useResponsive';
 import { F, FenbiScope, PageHead, Panel, MetaTag } from '../components/FenbiUI';
@@ -58,16 +58,6 @@ function reviewDateLabel(v) {
   if (!v) return '待复习';
   const m = String(v).match(/^(\d{4})-(\d{2})-(\d{2})/);
   return m ? `${m[2]}-${m[3]}` : '待复习';
-}
-
-/** 让可点击的非按钮元素支持键盘激活：Enter / Space 触发同一逻辑，Space 阻止页面滚动；
- *  事件来自内部表单控件/按钮时不接管，避免破坏其原生键盘交互。 */
-function activateOnKey(e, action) {
-  if (e.target !== e.currentTarget) return;
-  if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
-    e.preventDefault();
-    action();
-  }
 }
 
 /**

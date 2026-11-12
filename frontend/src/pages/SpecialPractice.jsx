@@ -8,7 +8,7 @@ import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import { useResponsive } from '../hooks/useResponsive';
 import { F, FenbiScope, PageHead } from '../components/FenbiUI';
-import { formatTime } from '../utils';
+import { formatTime, activateOnKey } from '../utils';
 
 const { Text } = Typography;
 
@@ -17,16 +17,6 @@ function fmtAccuracy(v) {
   const n = Number(v);
   if (!Number.isFinite(n)) return null;
   return Math.round(n <= 1 ? n * 100 : n);
-}
-
-/** 让可点击的非按钮元素支持键盘激活：Enter / Space 触发同一逻辑，Space 阻止页面滚动；
- *  事件来自内部表单控件/按钮时不接管，避免破坏其原生键盘交互。 */
-function activateOnKey(e, action) {
-  if (e.target !== e.currentTarget) return;
-  if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
-    e.preventDefault();
-    action();
-  }
 }
 
 /**

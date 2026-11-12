@@ -94,9 +94,10 @@ npm run dev            # http://localhost:5173
 │       ├── services/     axios 封装
 │       └── utils.js      公共工具函数
 ├── deploy/               部署脚本与配置
+│   └── env.example       环境变量模板（deploy.sh 复制此文件为 .env）
 ├── docs/
 │   └── deployment-runbook.md   部署架构与运维命令
-└── .env.example          环境变量模板
+└── .env.example          历史 Docker 模板（勿用，见文件头说明）
 ```
 
 ## 角色权限

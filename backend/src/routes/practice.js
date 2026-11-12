@@ -147,8 +147,7 @@ router.post('/smart-paper', requireAuth, asyncHandler(async (req, res) => {
 
   const spanLabel = { near3: '近3年', near5: '近5年', near10: '近10年' }[yearMode] || '';
   const now = new Date();
-  const pad = (x) => String(x).padStart(2, '0');
-  const title = `智能组卷${spanLabel ? `（${spanLabel}）` : ''} · ${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  const title = `智能组卷${spanLabel ? `（${spanLabel}）` : ''} · ${localDateTimeStr(now).slice(0, 16)}`;
 
   const paperId = await withConnection(async (conn) => {
     await conn.beginTransaction();

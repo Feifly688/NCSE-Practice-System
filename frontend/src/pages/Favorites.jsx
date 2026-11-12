@@ -3,22 +3,12 @@ import { Typography, Button, Space, Tag, message, Spin, Empty, Modal } from 'ant
 import { StarFilled, EditOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
-import { parseOptions, cleanOption } from '../utils';
+import { parseOptions, cleanOption, activateOnKey } from '../utils';
 import Pagination from '../components/Pagination';
 import { useResponsive } from '../hooks/useResponsive';
 import { F, FenbiScope, PageHead, Panel, SectionLabel, MetaTag } from '../components/FenbiUI';
 
 const { Text, Paragraph } = Typography;
-
-/** 让可点击的非按钮元素支持键盘激活：Enter / Space 触发同一逻辑，Space 阻止页面滚动；
- *  事件来自内部表单控件/按钮时不接管，避免破坏其原生键盘交互。 */
-function activateOnKey(e, action) {
-  if (e.target !== e.currentTarget) return;
-  if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
-    e.preventDefault();
-    action();
-  }
-}
 
 /** 收藏夹：与错题本保持同一套列表/详情风格，数据与交互逻辑不变。 */
 export default function Favorites() {

@@ -13,6 +13,7 @@ const { requireAuth, requireAuthOrToken } = require('../middleware/auth');
 const { asyncHandler } = require('../middleware/asyncHandler');
 const { withConnection } = require('../db');
 const { safeJson } = require('../lib/json');
+const { localDateTimeStr } = require('../lib/time');
 const { classifyImageNeed } = require('../lib/questionImage');
 const { normalizeQuestionStem } = require('../lib/questionStem');
 
@@ -501,7 +502,8 @@ router.post('/:id/submit', asyncHandler(async (req, res) => {
         }
         const mScore = mapped.length > 0 ? Number(((mCorrect / mapped.length) * 100).toFixed(2)) : 0;
         const now = Date.now();
-        const fmt = (ts) => new Date(ts).toISOString().slice(0, 19).replace('T', ' ');
+        // 写本地时间串：toISOString() 是 UTC，会让凌晨交卷的 started_at 归到前一天
+        const fmt = (ts) => localDateTimeStr(new Date(ts));
         const meta = {
           exam: true,
           paper_id: id,

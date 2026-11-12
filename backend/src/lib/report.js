@@ -29,10 +29,7 @@ function round2(n) {
 
 /** MySQL DATE() 可能返回 JS Date 对象，也可能是 'YYYY-MM-DD' 字符串，统一成本地日期串 */
 function isoDate(v) {
-  if (v instanceof Date) {
-    const pad = (n) => String(n).padStart(2, '0');
-    return `${v.getFullYear()}-${pad(v.getMonth() + 1)}-${pad(v.getDate())}`;
-  }
+  if (v instanceof Date) return localDateStr(v);
   return String(v == null ? '' : v).slice(0, 10);
 }
 
